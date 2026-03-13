@@ -1,0 +1,296 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  GUEST
+  HOST
+  ADMIN
+}
+
+enum HostVerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+
+enum BookingStatus {
+  HOLD
+  PAYMENT_PENDING
+  CONFIRMED_DEPOSIT
+  BALANCE_DUE
+  CONFIRMED_PAID
+  CANCELLED
+  REFUNDED
+  COMPLETED
+}
+
+enum PaymentPlan {
+  FULL
+  DEPOSIT_50
+}
+
+enum PaymentStatus {
+  INITIATED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum PayoutStatus {
+  NOT_ELIGIBLE
+  ELIGIBLE
+  SCHEDULED
+  PAID
+  ON_HOLD
+  REVERSED
+}
+
+enum LedgerEventType {
+  PAYMENT_CAPTURED
+  REFUND_ISSUED
+  PAYOUT_SCHEDULED
+  PAYOUT_SENT
+  BALANCE_CARRY_FORWARD
+}
+
+model User {
+  id             String      @id @default(cuid())
+  email          String      @unique
+  passwordHash   String?
+  fullName       String
+  role           UserRole
+  isActive       Boolean     @default(true)
+  refreshToken   String?
+  auth0Sub       String?     @unique
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  hostProfile    Host?
+  listings       Listing[]
+  holds          Hold[]
+  bookings       Booking[]
+  auditLogs      AuditLog[]  @relation("AuditActor")
+}
+
+model Host {
+  id                  String                 @id @default(cuid())
+  userId              String                 @unique
+  verificationStatus  HostVerificationStatus @default(PENDING)
+  payoutAccountRef    String?
+  payoutEnabled       Boolean                @default(false)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  user                User                   @relation(fields: [userId], references: [id])
+  listings            Listing[]
+  payoutLines         PayoutLine[]
+}
+
+model Listing {
+  id                  String               @id @default(cuid())
+  hostId              String
+  createdById         String
+  title               String
+  description         String
+  city                String
+  state               String
+  country             String               @default("India")
+  timezone            String               @default("Asia/Kolkata")
+  status              ListingStatus        @default(PENDING_APPROVAL)
+  needsReapproval     Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  host                Host                 @relation(fields: [hostId], references: [id])
+  createdBy           User                 @relation(fields: [createdById], references: [id])
+  media               ListingMedia[]
+  tags                ListingTag[]
+  rateRules           RateRule[]
+  seasonalRates       SeasonalRate[]
+  availabilityBlocks  AvailabilityBlock[]
+  holds               Hold[]
+  bookings            Booking[]
+  payoutLines         PayoutLine[]
+}
+
+model ListingMedia {
+  id           String   @id @default(cuid())
+  listingId    String
+  url          String
+  mediaType    String
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  listing      Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+}
+
+model Tag {
+  id          String       @id @default(cuid())
+  category    String
+  name        String
+  createdAt   DateTime     @default(now())
+  listingTags ListingTag[]
+
+  @@unique([category, name])
+}
+
+model ListingTag {
+  listingId   String
+  tagId       String
+  listing     Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  tag         Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([listingId, tagId])
+}
+
+model RateRule {
+  id                String   @id @default(cuid())
+  listingId         String
+  baseNightlyRate   Int
+  cleaningFee       Int      @default(0)
+  minNights         Int      @default(1)
+  maxGuests         Int      @default(2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  listing           Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+}
+
+model SeasonalRate {
+  id              String   @id @default(cuid())
+  listingId       String
+  startsAt        DateTime
+  endsAt          DateTime
+  nightlyRate     Int
+  createdAt       DateTime @default(now())
+  listing         Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+}
+
+model AvailabilityBlock {
+  id             String   @id @default(cuid())
+  listingId      String
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String
+  createdAt      DateTime @default(now())
+  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+}
+
+model Hold {
+  id               String      @id @default(cuid())
+  listingId        String
+  guestId          String
+  startsAt         DateTime
+  endsAt           DateTime
+  expiresAt        DateTime
+  priceSnapshot    Json
+  idempotencyKey   String      @unique
+  createdAt        DateTime    @default(now())
+  listing          Listing     @relation(fields: [listingId], references: [id])
+  guest            User        @relation(fields: [guestId], references: [id])
+  booking          Booking?
+}
+
+model Booking {
+  id               String       @id @default(cuid())
+  listingId        String
+  guestId          String
+  holdId           String       @unique
+  status           BookingStatus @default(PAYMENT_PENDING)
+  plan             PaymentPlan
+  startsAt         DateTime
+  endsAt           DateTime
+  priceSnapshot    Json
+  balanceDueAt     DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  listing          Listing      @relation(fields: [listingId], references: [id])
+  guest            User         @relation(fields: [guestId], references: [id])
+  hold             Hold         @relation(fields: [holdId], references: [id])
+  payments         Payment[]
+  refunds          Refund[]
+}
+
+model Payment {
+  id                 String        @id @default(cuid())
+  bookingId          String
+  amount             Int
+  type               PaymentPlan
+  status             PaymentStatus @default(INITIATED)
+  gateway            String        @default("razorpay")
+  gatewayPaymentRef  String?
+  gatewayOrderRef    String?
+  idempotencyKey     String        @unique
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  booking            Booking       @relation(fields: [bookingId], references: [id])
+}
+
+model Refund {
+  id                 String        @id @default(cuid())
+  bookingId          String
+  paymentId          String?
+  amount             Int
+  reason             String
+  gatewayRefundRef   String?
+  createdAt          DateTime      @default(now())
+  booking            Booking       @relation(fields: [bookingId], references: [id])
+}
+
+model PayoutLine {
+  id                 String       @id @default(cuid())
+  hostId             String
+  listingId          String
+  bookingId          String
+  amount             Int
+  eligibleAt         DateTime
+  status             PayoutStatus @default(NOT_ELIGIBLE)
+  batchId            String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  host               Host         @relation(fields: [hostId], references: [id])
+  listing            Listing      @relation(fields: [listingId], references: [id])
+  batch              PayoutBatch? @relation(fields: [batchId], references: [id])
+}
+
+model PayoutBatch {
+  id                 String       @id @default(cuid())
+  runDate            DateTime
+  status             PayoutStatus @default(SCHEDULED)
+  totalAmount        Int          @default(0)
+  createdAt          DateTime     @default(now())
+  lines              PayoutLine[]
+}
+
+model LedgerEvent {
+  id                 String          @id @default(cuid())
+  bookingId          String?
+  payoutLineId       String?
+  type               LedgerEventType
+  amount             Int
+  currency           String          @default("INR")
+  metadata           Json
+  createdAt          DateTime        @default(now())
+}
+
+model AuditLog {
+  id                 String   @id @default(cuid())
+  actorUserId        String?
+  action             String
+  resourceType       String
+  resourceId         String
+  metadata           Json
+  createdAt          DateTime @default(now())
+  actor              User?    @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@index([resourceType, resourceId])
+}

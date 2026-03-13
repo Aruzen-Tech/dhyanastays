@@ -1,0 +1,13 @@
+node_modules
+.pnpm-store
+
+# Environment files — ignore all, but allow *.example templates
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+dist
+coverage
+.next
+*.log

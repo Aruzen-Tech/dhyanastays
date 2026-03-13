@@ -1,0 +1,23 @@
+{
+  "name": "dhyana-stays",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.2.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "format": "pnpm -r format",
+    "infra:up": "docker compose up -d postgres redis meilisearch",
+    "infra:down": "docker compose down",
+    "prod:prepare": "pnpm install && pnpm --filter @dhyana/api prisma:generate && pnpm -r build",
+    "prod:migrate": "pnpm --filter @dhyana/api prisma:deploy",
+    "prod:seed": "pnpm --filter @dhyana/api seed",
+    "prod:start:api": "pnpm --filter @dhyana/api start:prod:local",
+    "prod:start:web": "pnpm --filter @dhyana/web start"
+  }
+}

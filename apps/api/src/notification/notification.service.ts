@@ -1,0 +1,427 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import * as nodemailer from 'nodemailer';
+
+// ─── Email payload ────────────────────────────────────────────────────────────
+
+export interface EmailPayload {
+  to: string;
+  subject: string;
+  html: string;
+  text?: string;
+}
+
+// ─── SMS payload ──────────────────────────────────────────────────────────────
+
+export interface SmsPayload {
+  to: string;   // E.164 format: +91XXXXXXXXXX
+  body: string;
+}
+
+// ─── Notification templates ───────────────────────────────────────────────────
+
+export interface BookingConfirmedPayload {
+  guestName: string;
+  guestEmail: string;
+  guestPhone?: string;
+  bookingId: string;
+  listingTitle: string;
+  checkIn: string;
+  checkOut: string;
+  totalAmount: number;
+  plan: 'FULL' | 'DEPOSIT_50';
+  depositAmount?: number;
+}
+
+export interface HostListingApprovedPayload {
+  hostName: string;
+  hostEmail: string;
+  listingTitle: string;
+  listingId: string;
+}
+
+export interface HostListingRejectedPayload {
+  hostName: string;
+  hostEmail: string;
+  listingTitle: string;
+  note?: string;
+}
+
+export interface BalanceDueReminderPayload {
+  guestName: string;
+  guestEmail: string;
+  guestPhone?: string;
+  bookingId: string;
+  listingTitle: string;
+  balanceAmount: number;
+  dueDate: string;
+}
+
+export interface BookingCancelledPayload {
+  guestName: string;
+  guestEmail: string;
+  bookingId: string;
+  listingTitle: string;
+  refundAmount: number;
+}
+
+// ─── Service ──────────────────────────────────────────────────────────────────
+
+@Injectable()
+export class NotificationService {
+  private readonly logger = new Logger(NotificationService.name);
+  private readonly emailProvider: string;
+  private readonly smsProvider: string;
+  private readonly fromEmail: string;
+  private readonly webUrl: string;
+
+  constructor(private readonly config: ConfigService) {
+    this.emailProvider = config.get<string>('EMAIL_PROVIDER', 'stub');
+    this.smsProvider = config.get<string>('SMS_PROVIDER', 'stub');
+    this.fromEmail = config.get<string>('EMAIL_FROM', 'noreply@dhyanastays.com');
+    this.webUrl = config.get<string>('WEB_URL', 'http://localhost:3000');
+  }
+
+  // ── Public notification methods ─────────────────────────────────────────────
+
+  async sendBookingConfirmed(payload: BookingConfirmedPayload): Promise<void> {
+    const depositNote =
+      payload.plan === 'DEPOSIT_50'
+        ? `<p style="color:#b45309">Balance of ₹${this.formatINR(payload.totalAmount - (payload.depositAmount ?? 0))} is due before check-in.</p>`
+        : '';
+
+    await this.sendEmail({
+      to: payload.guestEmail,
+      subject: `Booking Confirmed — ${payload.listingTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#1a5c4a">🎉 Your booking is confirmed!</h2>
+          <p>Hi ${payload.guestName},</p>
+          <p>Your stay at <strong>${payload.listingTitle}</strong> has been confirmed.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0">
+            <tr><td style="padding:8px;border:1px solid #e5e7eb;color:#6b7280">Booking ID</td>
+                <td style="padding:8px;border:1px solid #e5e7eb;font-family:monospace">${payload.bookingId.slice(0, 12)}…</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e5e7eb;color:#6b7280">Check-in</td>
+                <td style="padding:8px;border:1px solid #e5e7eb">${payload.checkIn}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e5e7eb;color:#6b7280">Check-out</td>
+                <td style="padding:8px;border:1px solid #e5e7eb">${payload.checkOut}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e5e7eb;color:#6b7280">Total</td>
+                <td style="padding:8px;border:1px solid #e5e7eb;font-weight:bold;color:#1a5c4a">₹${this.formatINR(payload.totalAmount)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e5e7eb;color:#6b7280">Payment plan</td>
+                <td style="padding:8px;border:1px solid #e5e7eb">${payload.plan === 'FULL' ? 'Paid in full' : '50% deposit paid'}</td></tr>
+          </table>
+          ${depositNote}
+          <a href="${this.webUrl}/dashboard" style="display:inline-block;background:#1a5c4a;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:8px">
+            View booking
+          </a>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">Dhyana Stays · support@dhyanastays.com</p>
+        </div>
+      `,
+      text: `Booking confirmed for ${payload.listingTitle}. Check-in: ${payload.checkIn}. Check-out: ${payload.checkOut}. Total: ₹${this.formatINR(payload.totalAmount)}.`,
+    });
+
+    if (payload.guestPhone) {
+      await this.sendSms({
+        to: payload.guestPhone,
+        body: `Dhyana Stays: Your booking for ${payload.listingTitle} (${payload.checkIn} → ${payload.checkOut}) is confirmed. Total: ₹${this.formatINR(payload.totalAmount)}. View: ${this.webUrl}/dashboard`,
+      });
+    }
+  }
+
+  async sendHostListingApproved(payload: HostListingApprovedPayload): Promise<void> {
+    await this.sendEmail({
+      to: payload.hostEmail,
+      subject: `Your listing is live — ${payload.listingTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#1a5c4a">✅ Your listing is approved!</h2>
+          <p>Hi ${payload.hostName},</p>
+          <p>Great news! Your listing <strong>${payload.listingTitle}</strong> has been approved and is now live on Dhyana Stays.</p>
+          <a href="${this.webUrl}/listings/${payload.listingId}" style="display:inline-block;background:#1a5c4a;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:8px">
+            View your listing
+          </a>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">Dhyana Stays · support@dhyanastays.com</p>
+        </div>
+      `,
+      text: `Your listing "${payload.listingTitle}" has been approved and is now live on Dhyana Stays.`,
+    });
+  }
+
+  async sendHostListingRejected(payload: HostListingRejectedPayload): Promise<void> {
+    await this.sendEmail({
+      to: payload.hostEmail,
+      subject: `Update on your listing — ${payload.listingTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#dc2626">Your listing needs attention</h2>
+          <p>Hi ${payload.hostName},</p>
+          <p>Your listing <strong>${payload.listingTitle}</strong> could not be approved at this time.</p>
+          ${payload.note ? `<div style="background:#fef2f2;border:1px solid #fecaca;padding:12px;border-radius:8px;margin:16px 0"><strong>Reason:</strong> ${payload.note}</div>` : ''}
+          <p>Please contact us at <a href="mailto:support@dhyanastays.com">support@dhyanastays.com</a> if you have questions.</p>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">Dhyana Stays · support@dhyanastays.com</p>
+        </div>
+      `,
+      text: `Your listing "${payload.listingTitle}" was not approved. ${payload.note ? 'Reason: ' + payload.note : ''} Contact support@dhyanastays.com for help.`,
+    });
+  }
+
+  async sendBalanceDueReminder(payload: BalanceDueReminderPayload): Promise<void> {
+    await this.sendEmail({
+      to: payload.guestEmail,
+      subject: `Balance payment due — ${payload.listingTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#b45309">⚠️ Balance payment due</h2>
+          <p>Hi ${payload.guestName},</p>
+          <p>Your balance payment of <strong>₹${this.formatINR(payload.balanceAmount)}</strong> for <strong>${payload.listingTitle}</strong> is due by <strong>${payload.dueDate}</strong>.</p>
+          <p>If payment is not received by the due date, your booking will be automatically cancelled.</p>
+          <a href="${this.webUrl}/dashboard" style="display:inline-block;background:#b45309;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:8px">
+            Pay balance now
+          </a>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">Dhyana Stays · support@dhyanastays.com</p>
+        </div>
+      `,
+      text: `Balance of ₹${this.formatINR(payload.balanceAmount)} due by ${payload.dueDate} for ${payload.listingTitle}. Pay at ${this.webUrl}/dashboard`,
+    });
+
+    if (payload.guestPhone) {
+      await this.sendSms({
+        to: payload.guestPhone,
+        body: `Dhyana Stays: Balance of ₹${this.formatINR(payload.balanceAmount)} due by ${payload.dueDate} for ${payload.listingTitle}. Pay: ${this.webUrl}/dashboard`,
+      });
+    }
+  }
+
+  async sendBookingCancelled(payload: BookingCancelledPayload): Promise<void> {
+    await this.sendEmail({
+      to: payload.guestEmail,
+      subject: `Booking cancelled — ${payload.listingTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#dc2626">Booking cancelled</h2>
+          <p>Hi ${payload.guestName},</p>
+          <p>Your booking for <strong>${payload.listingTitle}</strong> (ID: ${payload.bookingId.slice(0, 12)}…) has been cancelled.</p>
+          ${payload.refundAmount > 0
+            ? `<p>A refund of <strong>₹${this.formatINR(payload.refundAmount)}</strong> will be processed to your original payment method within 5–7 business days.</p>`
+            : `<p>No refund is applicable per the cancellation policy.</p>`
+          }
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">Dhyana Stays · support@dhyanastays.com</p>
+        </div>
+      `,
+      text: `Your booking for ${payload.listingTitle} has been cancelled. ${payload.refundAmount > 0 ? `Refund: ₹${this.formatINR(payload.refundAmount)}` : 'No refund applicable.'}`,
+    });
+  }
+
+  // ── Core send methods ───────────────────────────────────────────────────────
+
+  async sendEmail(payload: EmailPayload): Promise<void> {
+    try {
+      switch (this.emailProvider) {
+        case 'resend':
+          await this.sendViaResend(payload);
+          break;
+        case 'sendgrid':
+          await this.sendViaSendGrid(payload);
+          break;
+        case 'smtp':
+          await this.sendViaSmtp(payload);
+          break;
+        default:
+          this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
+          this.logger.debug(`[EMAIL STUB] Body: ${payload.text ?? payload.html.replace(/<[^>]+>/g, '')}`);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to send email to ${payload.to}: ${String(err)}`);
+      // Non-fatal — don't throw; notification failure should not break booking flow
+    }
+  }
+
+  async sendSms(payload: SmsPayload): Promise<void> {
+    try {
+      switch (this.smsProvider) {
+        case 'msg91':
+          await this.sendViaMSG91(payload);
+          break;
+        case 'twilio':
+          await this.sendViaTwilio(payload);
+          break;
+        default:
+          this.logger.log(`[SMS STUB] To: ${payload.to} | Body: ${payload.body}`);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to send SMS to ${payload.to}: ${String(err)}`);
+      // Non-fatal
+    }
+  }
+
+  // ── Email provider implementations ─────────────────────────────────────────
+
+  private async sendViaResend(payload: EmailPayload): Promise<void> {
+    const apiKey = this.config.get<string>('RESEND_API_KEY', '');
+    if (!apiKey) {
+      this.logger.warn('RESEND_API_KEY not set — falling back to stub');
+      this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
+      return;
+    }
+
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: this.fromEmail,
+        to: [payload.to],
+        subject: payload.subject,
+        html: payload.html,
+        text: payload.text,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Resend API error ${res.status}: ${body}`);
+    }
+    this.logger.log(`Email sent via Resend to ${payload.to}`);
+  }
+
+  private async sendViaSendGrid(payload: EmailPayload): Promise<void> {
+    const apiKey = this.config.get<string>('SENDGRID_API_KEY', '');
+    if (!apiKey) {
+      this.logger.warn('SENDGRID_API_KEY not set — falling back to stub');
+      this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
+      return;
+    }
+
+    const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: payload.to }] }],
+        from: { email: this.fromEmail },
+        subject: payload.subject,
+        content: [
+          { type: 'text/html', value: payload.html },
+          ...(payload.text ? [{ type: 'text/plain', value: payload.text }] : []),
+        ],
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`SendGrid API error ${res.status}: ${body}`);
+    }
+    this.logger.log(`Email sent via SendGrid to ${payload.to}`);
+  }
+
+  private async sendViaSmtp(payload: EmailPayload): Promise<void> {
+    const host = this.config.get<string>('SMTP_HOST', '');
+    if (!host) {
+      this.logger.warn('SMTP_HOST not set — falling back to stub');
+      this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
+      return;
+    }
+
+    const transporter = nodemailer.createTransport({
+      host,
+      port: this.config.get<number>('SMTP_PORT', 587),
+      secure: false,
+      auth: {
+        user: this.config.get<string>('SMTP_USER', ''),
+        pass: this.config.get<string>('SMTP_PASS', ''),
+      },
+    });
+
+    await transporter.sendMail({
+      from: this.fromEmail,
+      to: payload.to,
+      subject: payload.subject,
+      html: payload.html,
+      text: payload.text,
+    });
+    this.logger.log(`Email sent via SMTP to ${payload.to}`);
+  }
+
+  // ── SMS provider implementations ───────────────────────────────────────────
+
+  private async sendViaMSG91(payload: SmsPayload): Promise<void> {
+    const authKey = this.config.get<string>('MSG91_AUTH_KEY', '');
+    const templateId = this.config.get<string>('MSG91_BOOKING_TEMPLATE_ID', '');
+    const senderId = this.config.get<string>('MSG91_SENDER_ID', 'DHYANA');
+
+    if (!authKey) {
+      this.logger.warn('MSG91_AUTH_KEY not set — falling back to stub');
+      this.logger.log(`[SMS STUB] To: ${payload.to} | Body: ${payload.body}`);
+      return;
+    }
+
+    // MSG91 Flow API (supports DLT templates required by TRAI)
+    const mobile = payload.to.replace('+', '').replace(/\s/g, '');
+    const res = await fetch('https://api.msg91.com/api/v5/flow/', {
+      method: 'POST',
+      headers: {
+        authkey: authKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        template_id: templateId || undefined,
+        sender: senderId,
+        short_url: '0',
+        mobiles: mobile,
+        // For non-template SMS (testing only — DLT required for production India):
+        message: payload.body,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`MSG91 API error ${res.status}: ${body}`);
+    }
+    this.logger.log(`SMS sent via MSG91 to ${payload.to}`);
+  }
+
+  private async sendViaTwilio(payload: SmsPayload): Promise<void> {
+    const accountSid = this.config.get<string>('TWILIO_ACCOUNT_SID', '');
+    const authToken = this.config.get<string>('TWILIO_AUTH_TOKEN', '');
+    const fromNumber = this.config.get<string>('TWILIO_FROM_NUMBER', '');
+
+    if (!accountSid || !authToken) {
+      this.logger.warn('Twilio credentials not set — falling back to stub');
+      this.logger.log(`[SMS STUB] To: ${payload.to} | Body: ${payload.body}`);
+      return;
+    }
+
+    const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${credentials}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          From: fromNumber,
+          To: payload.to,
+          Body: payload.body,
+        }).toString(),
+      },
+    );
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`Twilio API error ${res.status}: ${body}`);
+    }
+    this.logger.log(`SMS sent via Twilio to ${payload.to}`);
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  private formatINR(paise: number): string {
+    return (paise / 100).toLocaleString('en-IN');
+  }
+}
