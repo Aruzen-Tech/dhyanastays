@@ -1,40 +1,71 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import ListingCard from '../components/ListingCard';
 import { listingsApi } from '../lib/api';
 import type { Listing } from '../lib/types';
 
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState<T>(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return debounced;
+}
+
 export default function HomePage() {
-  const [listings, setListings] = useState<Listing[]>([]);
-  const [filtered, setFiltered] = useState<Listing[]>([]);
+  const [allListings, setAllListings] = useState<Listing[]>([]);
+  const [results, setResults] = useState<Listing[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
 
+  const debouncedSearch = useDebounce(search, 350);
+
+  // Initial load
   useEffect(() => {
     listingsApi
       .getPublic()
       .then((data) => {
-        setListings(data);
-        setFiltered(data);
+        setAllListings(data);
+        setResults(data);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
+  // Search via API (Meilisearch with DB fallback)
+  const runSearch = useCallback(async (q: string) => {
+    if (!q.trim()) {
+      setResults(allListings);
+      return;
+    }
+    setSearching(true);
+    try {
+      const data = await listingsApi.search(q);
+      setResults(data);
+    } catch {
+      // Fallback to client-side filter on search API error
+      const lower = q.toLowerCase();
+      setResults(
+        allListings.filter(
+          (l) =>
+            l.title.toLowerCase().includes(lower) ||
+            l.city.toLowerCase().includes(lower) ||
+            l.state.toLowerCase().includes(lower) ||
+            l.description.toLowerCase().includes(lower),
+        ),
+      );
+    } finally {
+      setSearching(false);
+    }
+  }, [allListings]);
+
   useEffect(() => {
-    const q = search.toLowerCase();
-    setFiltered(
-      listings.filter(
-        (l) =>
-          l.title.toLowerCase().includes(q) ||
-          l.city.toLowerCase().includes(q) ||
-          l.state.toLowerCase().includes(q) ||
-          l.description.toLowerCase().includes(q),
-      ),
-    );
-  }, [search, listings]);
+    void runSearch(debouncedSearch);
+  }, [debouncedSearch, runSearch]);
 
   return (
     <>
@@ -57,11 +88,11 @@ export default function HomePage() {
           <p className="text-brand-100 text-lg md:text-xl max-w-xl mx-auto mb-10">
             Handpicked stays for mindful travellers — from Himalayan retreats to coastal hideaways.
           </p>
-
-          {/* Search bar */}
           <div className="max-w-lg mx-auto">
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">
+                {searching ? '⏳' : '🔍'}
+              </span>
               <input
                 type="text"
                 placeholder="Search by city, state, or keyword…"
@@ -77,38 +108,30 @@ export default function HomePage() {
 
       {/* Listings grid */}
       <section className="container-page py-12">
-        {/* Stats bar */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h2 className="text-xl font-bold text-gray-900">
               {search ? `Results for "${search}"` : 'All Stays'}
             </h2>
             <p className="text-gray-500 text-sm mt-0.5">
-              {loading ? 'Loading…' : `${filtered.length} curated ${filtered.length === 1 ? 'stay' : 'stays'}`}
+              {loading || searching ? 'Searching…' : `${results.length} curated ${results.length === 1 ? 'stay' : 'stays'}`}
             </p>
           </div>
           {search && (
-            <button
-              onClick={() => setSearch('')}
-              className="btn-ghost text-sm"
-            >
+            <button onClick={() => setSearch('')} className="btn-ghost text-sm">
               Clear search
             </button>
           )}
         </div>
 
-        {/* Error */}
         {error && (
           <div className="alert-error mb-6">
             ⚠️ Could not load listings: {error}
-            <span className="block text-xs mt-1 opacity-70">
-              Make sure the API is running on port 3001.
-            </span>
+            <span className="block text-xs mt-1 opacity-70">Make sure the API is running on port 3001.</span>
           </div>
         )}
 
-        {/* Loading skeleton */}
-        {loading && (
+        {(loading || searching) && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="card animate-pulse">
@@ -123,8 +146,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Empty state */}
-        {!loading && !error && filtered.length === 0 && (
+        {!loading && !searching && !error && results.length === 0 && (
           <div className="text-center py-20">
             <div className="text-6xl mb-4">🏕️</div>
             <h3 className="text-xl font-semibold text-gray-700 mb-2">
@@ -136,17 +158,14 @@ export default function HomePage() {
                 : 'Check back soon — our curators are adding new retreats.'}
             </p>
             {search && (
-              <button onClick={() => setSearch('')} className="btn-primary mt-6">
-                Browse all stays
-              </button>
+              <button onClick={() => setSearch('')} className="btn-primary mt-6">Browse all stays</button>
             )}
           </div>
         )}
 
-        {/* Grid */}
-        {!loading && filtered.length > 0 && (
+        {!loading && !searching && results.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filtered.map((listing) => (
+            {results.map((listing) => (
               <ListingCard key={listing.id} listing={listing} />
             ))}
           </div>
@@ -156,9 +175,7 @@ export default function HomePage() {
       {/* Features section */}
       <section className="bg-white border-t border-gray-100 py-16">
         <div className="container-page">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-12">
-            Why Dhyana Stays?
-          </h2>
+          <h2 className="text-2xl font-bold text-center text-gray-900 mb-12">Why Dhyana Stays?</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
               {

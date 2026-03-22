@@ -122,8 +122,10 @@ function HostDashboard() {
   const [hostProfile, setHostProfile] = useState<Host | null>(null);
   const [listings, setListings] = useState<Listing[]>([]);
   const [statement, setStatement] = useState<HostStatement | null>(null);
+  const [hostBookings, setHostBookings] = useState<Booking[]>([]);
+  const [bookingsLoading, setBookingsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'listings' | 'payouts'>('listings');
+  const [tab, setTab] = useState<'listings' | 'bookings' | 'payouts'>('listings');
 
   useEffect(() => {
     Promise.all([
@@ -138,6 +140,16 @@ function HostDashboard() {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (tab !== 'bookings' || hostBookings.length > 0) return;
+    setBookingsLoading(true);
+    bookingsApi
+      .getHostBookings()
+      .then(setHostBookings)
+      .catch(() => setHostBookings([]))
+      .finally(() => setBookingsLoading(false));
+  }, [tab]);
 
   const verificationStatus = hostProfile?.verificationStatus ?? 'PENDING';
 
@@ -179,16 +191,20 @@ function HostDashboard() {
       )}
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit">
-        {(['listings', 'payouts'] as const).map((t) => (
+      <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1 w-fit flex-wrap">
+        {([
+          { key: 'listings', label: '🏡 My Listings' },
+          { key: 'bookings', label: '📋 Bookings' },
+          { key: 'payouts', label: '💰 Payouts' },
+        ] as { key: typeof tab; label: string }[]).map((t) => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={t.key}
+            onClick={() => setTab(t.key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              tab === t ? 'bg-white shadow text-brand-700' : 'text-gray-500 hover:text-gray-700'
+              tab === t.key ? 'bg-white shadow text-brand-700' : 'text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t === 'listings' ? '🏡 My Listings' : '💰 Payouts'}
+            {t.label}
           </button>
         ))}
       </div>
@@ -239,9 +255,86 @@ function HostDashboard() {
                   {l.city}, {l.state} · {l.rateRules?.[0]?.baseNightlyRate ? formatINR(l.rateRules[0].baseNightlyRate) + '/night' : 'No rate set'}
                 </p>
               </div>
-              <Link href={`/listings/${l.id}`} className="btn-secondary text-xs py-1.5 px-3">
-                View
-              </Link>
+              <div className="flex gap-2 shrink-0">
+                <Link href={`/host/listings/${l.id}/edit`} className="btn-ghost text-xs py-1.5 px-3">
+                  Edit
+                </Link>
+                <Link href={`/listings/${l.id}`} className="btn-secondary text-xs py-1.5 px-3">
+                  View
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'bookings' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-gray-900">Booking History</h2>
+            <span className="text-sm text-gray-500">
+              {bookingsLoading ? 'Loading…' : `${hostBookings.length} booking${hostBookings.length !== 1 ? 's' : ''}`}
+            </span>
+          </div>
+
+          {bookingsLoading && (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="card p-5 animate-pulse">
+                  <div className="h-4 bg-gray-200 rounded w-1/3 mb-2" />
+                  <div className="h-3 bg-gray-200 rounded w-1/2" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!bookingsLoading && hostBookings.length === 0 && (
+            <div className="text-center py-16 card">
+              <div className="text-5xl mb-4">📋</div>
+              <h3 className="font-semibold text-gray-700 mb-2">No bookings yet</h3>
+              <p className="text-gray-400 text-sm">Bookings for your listings will appear here.</p>
+            </div>
+          )}
+
+          {!bookingsLoading && hostBookings.map((b) => (
+            <div key={b.id} className="card p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <StatusBadge status={b.status} size="sm" />
+                    <span className="text-xs text-gray-400 font-mono">{b.id.slice(0, 10)}…</span>
+                  </div>
+                  <p className="font-semibold text-gray-900 truncate">
+                    {b.listing?.title ?? `Listing ${b.listingId.slice(0, 8)}`}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    {b.listing && `📍 ${b.listing.city}, ${b.listing.state} · `}
+                    {formatDate(b.startsAt)} → {formatDate(b.endsAt)}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-4 mt-2 text-sm">
+                    <span className="text-gray-600">
+                      Plan: <strong>{b.plan === 'FULL' ? 'Full payment' : '50% deposit'}</strong>
+                    </span>
+                    <span className="text-brand-700 font-semibold">
+                      {formatINR(b.priceSnapshot.total)}
+                    </span>
+                    <span className="text-gray-400 text-xs">
+                      {b.priceSnapshot.nights} night{b.priceSnapshot.nights !== 1 ? 's' : ''} · {b.priceSnapshot.guests} guest{b.priceSnapshot.guests !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  {b.status === 'BALANCE_DUE' && b.balanceDueAt && (
+                    <div className="alert-error mt-3 text-xs">
+                      ⚠️ Balance of {formatINR(b.priceSnapshot.balanceAmount)} due by {formatDate(b.balanceDueAt)}
+                    </div>
+                  )}
+                </div>
+                <Link
+                  href={`/bookings/${b.id}`}
+                  className="btn-ghost text-xs py-1.5 px-3 shrink-0"
+                >
+                  View →
+                </Link>
+              </div>
             </div>
           ))}
         </div>
@@ -313,7 +406,12 @@ function HostDashboard() {
 function AdminDashboard() {
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold text-gray-900">Admin Overview</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-gray-900">Admin Overview</h2>
+        <Link href="/admin" className="btn-primary text-sm py-2 px-4">
+          Full Dashboard
+        </Link>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <Link href="/admin/listings" className="card p-6 hover:shadow-card-hover transition-shadow group">
           <div className="text-3xl mb-3">📋</div>
@@ -335,6 +433,27 @@ function AdminDashboard() {
             Payout Management
           </h3>
           <p className="text-sm text-gray-500 mt-1">Run weekly batches and manage host payouts</p>
+        </Link>
+        <Link href="/admin/users" className="card p-6 hover:shadow-card-hover transition-shadow group">
+          <div className="text-3xl mb-3">👥</div>
+          <h3 className="font-semibold text-gray-900 group-hover:text-brand-700 transition-colors">
+            User Management
+          </h3>
+          <p className="text-sm text-gray-500 mt-1">View and manage all platform users</p>
+        </Link>
+        <Link href="/admin/bookings" className="card p-6 hover:shadow-card-hover transition-shadow group">
+          <div className="text-3xl mb-3">📅</div>
+          <h3 className="font-semibold text-gray-900 group-hover:text-brand-700 transition-colors">
+            All Bookings
+          </h3>
+          <p className="text-sm text-gray-500 mt-1">View and manage all platform bookings</p>
+        </Link>
+        <Link href="/admin/audit" className="card p-6 hover:shadow-card-hover transition-shadow group">
+          <div className="text-3xl mb-3">📜</div>
+          <h3 className="font-semibold text-gray-900 group-hover:text-brand-700 transition-colors">
+            Audit Log
+          </h3>
+          <p className="text-sm text-gray-500 mt-1">Track all admin actions and system events</p>
         </Link>
       </div>
     </div>

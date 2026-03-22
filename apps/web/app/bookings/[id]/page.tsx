@@ -173,6 +173,47 @@ export default function BookingDetailPage() {
         )}
       </div>
 
+      {/* Guest details */}
+      {booking.guestDetails && (
+        <div className="card p-6 mb-4">
+          <h2 className="font-semibold text-gray-900 mb-3">Guest details</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-gray-400">Full name</p>
+              <p className="font-medium text-gray-900">{booking.guestDetails.fullName}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400">Phone</p>
+              <p className="font-medium text-gray-900">{booking.guestDetails.phone}</p>
+            </div>
+            {booking.guestDetails.email && (
+              <div>
+                <p className="text-xs text-gray-400">Email</p>
+                <p className="font-medium text-gray-900">{booking.guestDetails.email}</p>
+              </div>
+            )}
+            {booking.guestDetails.estimatedArrival && (
+              <div>
+                <p className="text-xs text-gray-400">Estimated arrival</p>
+                <p className="font-medium text-gray-900">{booking.guestDetails.estimatedArrival}</p>
+              </div>
+            )}
+            {booking.guestDetails.address && (
+              <div className="sm:col-span-2">
+                <p className="text-xs text-gray-400">Address</p>
+                <p className="font-medium text-gray-900">{booking.guestDetails.address}</p>
+              </div>
+            )}
+            {booking.guestDetails.specialRequests && (
+              <div className="sm:col-span-2">
+                <p className="text-xs text-gray-400">Special requests</p>
+                <p className="font-medium text-gray-900 whitespace-pre-line">{booking.guestDetails.specialRequests}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Price breakdown */}
       <div className="card p-6 mb-4">
         <h2 className="font-semibold text-gray-900 mb-3">Price breakdown</h2>

@@ -1,14 +1,31 @@
 import type {
+  AdminListingDetail,
+  AdminNotification,
+  AdminSearchResults,
+  AdminStats,
+  AdminUser,
+  AuditEntry,
   AuthTokens,
+  AvailabilityBlock,
   Booking,
+  CalendarBooking,
+  GuestDetails,
   Hold,
   Host,
+  HostPerformance,
   HostStatement,
   Listing,
+  ListingMedia,
   Payment,
   PayoutBatch,
   PayoutLine,
   PriceQuote,
+  RateLimitStats,
+  Refund,
+  RevenueDataPoint,
+  RevenueForecast,
+  SeasonalRate,
+  SystemConfigEntry,
 } from './types';
 
 // ─── Token helpers (custom JWT mode) ─────────────────────────────────────────
@@ -31,12 +48,6 @@ export const tokenStore = {
   },
 };
 
-/**
- * Pluggable token getter — replaced by AuthContext in Auth0 mode.
- *
- * In Auth0 mode, AuthContext calls `setTokenGetter(() => getAccessTokenSilently())`
- * so all API calls automatically use the Auth0 access token.
- */
 let _tokenGetter: (() => Promise<string | null>) | null = null;
 
 export function setTokenGetter(fn: () => Promise<string | null>) {
@@ -73,17 +84,13 @@ async function request<T>(
     path.startsWith('/auth/login') ||
     path.startsWith('/auth/register');
 
-  // Auto-refresh on 401 (custom JWT mode only — Auth0 handles refresh internally)
   if (res.status === 401 && !isRetry && !_tokenGetter) {
     const refreshToken = tokenStore.getRefresh();
 
-    // Never force session-expired behavior for login/register endpoints.
-    // Their 401 should surface as "Invalid credentials".
     if (path.startsWith('/auth/login') || path.startsWith('/auth/register')) {
       throw new Error('Invalid credentials');
     }
 
-    // For other auth endpoints, clear stale session.
     if (isAuthEndpoint) {
       tokenStore.clear();
       if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth')) {
@@ -92,7 +99,6 @@ async function request<T>(
       throw new Error('Session expired');
     }
 
-    // For protected non-auth endpoints, only refresh if we actually have a refresh token.
     if (refreshToken) {
       try {
         const refreshRes = await fetch('/api/auth/refresh', {
@@ -107,11 +113,10 @@ async function request<T>(
           return request<T>(path, options, true);
         }
       } catch {
-        // ignore and fall through to non-auth 401 handling below
+        // ignore and fall through
       }
     }
 
-    // Keep user on page for RBAC 401s (e.g., not admin) without forced logout.
     throw new Error('Access denied');
   }
 
@@ -126,8 +131,6 @@ async function request<T>(
       // ignore parse error
     }
 
-    // Do not surface raw unauthorized message for protected, non-auth endpoints.
-    // Keep UX stable by returning a generic access-denied message.
     if (
       res.status === 401 &&
       !path.startsWith('/auth/me') &&
@@ -146,7 +149,6 @@ async function request<T>(
     throw new Error(message);
   }
 
-  // 204 No Content
   if (res.status === 204) return undefined as T;
 
   return res.json() as Promise<T>;
@@ -179,21 +181,15 @@ export const authApi = {
 // ─── Host profile ─────────────────────────────────────────────────────────────
 
 export const hostApi = {
-  /** GET /api/host/profile — returns the authenticated host's profile + verification status */
   getProfile: () => request<Host>('/host/profile'),
 };
 
 // ─── Admin: host approvals ────────────────────────────────────────────────────
 
 export const adminHostsApi = {
-  /** GET /api/admin/hosts/pending — list hosts awaiting verification */
   getPending: () => request<Host[]>('/admin/hosts/pending'),
-
-  /** POST /api/admin/hosts/:id/approve */
   approve: (id: string) =>
     request<Host>(`/admin/hosts/${id}/approve`, { method: 'POST' }),
-
-  /** POST /api/admin/hosts/:id/reject */
   reject: (id: string) =>
     request<Host>(`/admin/hosts/${id}/reject`, { method: 'POST' }),
 };
@@ -201,13 +197,13 @@ export const adminHostsApi = {
 // ─── Listings ─────────────────────────────────────────────────────────────────
 
 export const listingsApi = {
-  /** Public discovery feed — APPROVED listings with rateRules included */
   getPublic: () => request<Listing[]>('/listings'),
+
+  search: (q: string) =>
+    request<Listing[]>(`/listings/search?q=${encodeURIComponent(q)}`),
 
   getById: (id: string) => request<Listing>(`/listings/${id}`),
 
-  // Host
-  /** Returns all listings owned by the authenticated host (any status) */
   getHostListings: () => request<Listing[]>('/host/listings'),
 
   create: (body: {
@@ -228,10 +224,57 @@ export const listingsApi = {
     description: string;
     city: string;
     state: string;
+    country: string;
+    baseNightlyRate: number;
+    maxGuests: number;
+    minNights: number;
+    cleaningFee: number;
   }>) =>
     request<Listing>(`/host/listings/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
+    }),
+
+  // Media
+  addMedia: (id: string, body: { url: string; mediaType: string; sortOrder?: number }) =>
+    request<ListingMedia>(`/host/listings/${id}/media`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  deleteMedia: (id: string, mediaId: string) =>
+    request<{ deleted: boolean }>(`/host/listings/${id}/media/${mediaId}`, {
+      method: 'DELETE',
+    }),
+
+  // Seasonal rates
+  addSeasonalRate: (id: string, body: { startsAt: string; endsAt: string; nightlyRate: number }) =>
+    request<SeasonalRate>(`/host/listings/${id}/seasonal-rates`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getSeasonalRates: (id: string) =>
+    request<SeasonalRate[]>(`/host/listings/${id}/seasonal-rates`),
+
+  deleteSeasonalRate: (id: string, rateId: string) =>
+    request<{ deleted: boolean }>(`/host/listings/${id}/seasonal-rates/${rateId}`, {
+      method: 'DELETE',
+    }),
+
+  // Availability blocks
+  addAvailabilityBlock: (id: string, body: { startsAt: string; endsAt: string; reason: string }) =>
+    request<AvailabilityBlock>(`/host/listings/${id}/availability-blocks`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getAvailabilityBlocks: (id: string) =>
+    request<AvailabilityBlock[]>(`/host/listings/${id}/availability-blocks`),
+
+  deleteAvailabilityBlock: (id: string, blockId: string) =>
+    request<{ deleted: boolean }>(`/host/listings/${id}/availability-blocks/${blockId}`, {
+      method: 'DELETE',
     }),
 
   // Admin
@@ -253,13 +296,22 @@ export const listingsApi = {
     }),
 };
 
+// ─── Storage (presigned uploads) ──────────────────────────────────────────────
+
+export const storageApi = {
+  getPresignedUrl: (folder: string, filename: string, mimeType: string) =>
+    request<{ uploadUrl: string; publicUrl: string; key: string; expiresIn: number }>(
+      '/storage/presigned',
+      {
+        method: 'POST',
+        body: JSON.stringify({ folder, filename, mimeType }),
+      },
+    ),
+};
+
 // ─── Pricing ──────────────────────────────────────────────────────────────────
 
 export const pricingApi = {
-  /**
-   * Backend QuoteDto requires: listingId, checkIn, checkOut, guests (Int ≥ 1).
-   * guests defaults to 1 if not provided.
-   */
   quote: (body: { listingId: string; checkIn: string; checkOut: string; guests?: number }) =>
     request<PriceQuote>('/pricing/quote', {
       method: 'POST',
@@ -270,10 +322,6 @@ export const pricingApi = {
 // ─── Holds ────────────────────────────────────────────────────────────────────
 
 export const holdsApi = {
-  /**
-   * Backend CreateHoldDto requires: listingId, checkIn, checkOut, guests (Int ≥ 1), idempotencyKey.
-   * guests defaults to 1 if not provided.
-   */
   create: (body: {
     listingId: string;
     checkIn: string;
@@ -290,13 +338,11 @@ export const holdsApi = {
 // ─── Bookings ─────────────────────────────────────────────────────────────────
 
 export const bookingsApi = {
-  /**
-   * Backend CreateBookingDto expects: holdId, plan (not paymentPlan), idempotencyKey.
-   */
   create: (body: {
     holdId: string;
     plan: 'FULL' | 'DEPOSIT_50';
     idempotencyKey: string;
+    guestDetails: GuestDetails;
   }) =>
     request<Booking>('/bookings', {
       method: 'POST',
@@ -305,10 +351,10 @@ export const bookingsApi = {
 
   getById: (id: string) => request<Booking>(`/bookings/${id}`),
 
-  /** GET /bookings — returns all bookings for the authenticated guest */
   getMyBookings: () => request<Booking[]>('/bookings'),
 
-  /** Returns the updated Booking (service now returns booking directly, not { booking, refundAmount }) */
+  getHostBookings: () => request<Booking[]>('/bookings/host'),
+
   cancel: (id: string, reason: string) =>
     request<Booking>(`/bookings/${id}/cancel`, {
       method: 'POST',
@@ -318,7 +364,6 @@ export const bookingsApi = {
   complete: (id: string) =>
     request<Booking>(`/bookings/${id}/complete`, { method: 'POST' }),
 
-  /** Admin: get all bookings paginated */
   adminGetAll: (page = 1, limit = 50) =>
     request<{ bookings: Booking[]; total: number; page: number; limit: number }>(
       `/bookings/admin/all?page=${page}&limit=${limit}`,
@@ -338,10 +383,6 @@ export const paymentsApi = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
-  /**
-   * LOCAL DEV ONLY — simulate Razorpay payment capture.
-   * Automatically called after init() when razorpayOrderId starts with "stub_".
-   */
   stubConfirm: (paymentId: string) =>
     request<{ payment: Payment; message: string }>(
       `/payments/stub-confirm/${paymentId}`,
@@ -371,6 +412,113 @@ export const payoutsApi = {
     }),
 
   getHostStatements: () => request<HostStatement>('/host/payouts/statements'),
+};
+
+// ─── Admin Console ───────────────────────────────────────────────────────────
+
+export const adminApi = {
+  getStats: () => request<AdminStats>('/admin/stats'),
+
+  getUsers: (page = 1, limit = 20, role?: string, search?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (role) params.set('role', role);
+    if (search) params.set('search', search);
+    return request<{ users: AdminUser[]; total: number; page: number; limit: number }>(
+      `/admin/users?${params}`,
+    );
+  },
+
+  deactivateUser: (id: string) =>
+    request<AdminUser>(`/admin/users/${id}/deactivate`, { method: 'POST' }),
+
+  activateUser: (id: string) =>
+    request<AdminUser>(`/admin/users/${id}/activate`, { method: 'POST' }),
+
+  getAuditLog: (page = 1, limit = 30, action?: string, resourceType?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (action) params.set('action', action);
+    if (resourceType) params.set('resourceType', resourceType);
+    return request<{ entries: AuditEntry[]; total: number; page: number; limit: number }>(
+      `/admin/audit-log?${params}`,
+    );
+  },
+
+  // Revenue analytics
+  getRevenue: (from: string, to: string, groupBy: 'day' | 'week' | 'month') =>
+    request<RevenueDataPoint[]>(
+      `/admin/analytics/revenue?from=${from}&to=${to}&groupBy=${groupBy}`,
+    ),
+
+  // Listing detail
+  getListingDetail: (id: string) =>
+    request<AdminListingDetail>(`/admin/listings/${id}`),
+
+  // Refunds
+  getRefunds: (page = 1, limit = 20) =>
+    request<{ refunds: Refund[]; total: number; page: number; limit: number }>(
+      `/admin/refunds?page=${page}&limit=${limit}`,
+    ),
+  createRefund: (body: { bookingId: string; amount: number; reason: string }) =>
+    request<Refund>('/admin/refunds', { method: 'POST', body: JSON.stringify(body) }),
+
+  // System settings
+  getSettings: () => request<SystemConfigEntry[]>('/admin/settings'),
+  updateSettings: (updates: Array<{ key: string; value: unknown }>) =>
+    request<SystemConfigEntry[]>('/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ updates }),
+    }),
+
+  // Calendar
+  getCalendarBookings: (month: string, listingId?: string) => {
+    const params = new URLSearchParams({ month });
+    if (listingId) params.set('listingId', listingId);
+    return request<CalendarBooking[]>(`/admin/bookings/calendar?${params}`);
+  },
+
+  // Host performance
+  getHostPerformance: () => request<HostPerformance[]>('/admin/hosts/performance'),
+
+  // Notifications
+  getNotifications: (unreadOnly = false) =>
+    request<AdminNotification[]>(`/admin/notifications?unreadOnly=${unreadOnly}`),
+  markNotificationRead: (id: string) =>
+    request<AdminNotification>(`/admin/notifications/${id}/read`, { method: 'POST' }),
+  markAllNotificationsRead: () =>
+    request<{ count: number }>('/admin/notifications/read-all', { method: 'POST' }),
+
+  // Bulk actions
+  bulkApproveListings: (ids: string[]) =>
+    request<{ count: number }>('/admin/listings/bulk-approve', {
+      method: 'POST', body: JSON.stringify({ ids }),
+    }),
+  bulkDeactivateUsers: (ids: string[]) =>
+    request<{ count: number }>('/admin/users/bulk-deactivate', {
+      method: 'POST', body: JSON.stringify({ ids }),
+    }),
+  bulkCompleteBookings: (ids: string[]) =>
+    request<{ count: number }>('/admin/bookings/bulk-complete', {
+      method: 'POST', body: JSON.stringify({ ids }),
+    }),
+
+  // Global search
+  search: (q: string) =>
+    request<AdminSearchResults>(`/admin/search?q=${encodeURIComponent(q)}`),
+
+  // Admin activity
+  getAdminActivity: (page = 1, limit = 30, adminId?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (adminId) params.set('adminId', adminId);
+    return request<{ entries: AuditEntry[]; total: number; page: number; limit: number }>(
+      `/admin/activity?${params}`,
+    );
+  },
+
+  // Rate limiter
+  getRateLimitStats: () => request<RateLimitStats>('/admin/rate-limits/stats'),
+
+  // Revenue forecast
+  getForecast: () => request<RevenueForecast[]>('/admin/analytics/forecast'),
 };
 
 // ─── Utility ──────────────────────────────────────────────────────────────────

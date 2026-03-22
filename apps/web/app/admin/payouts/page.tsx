@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
 import { formatDate, formatINR, payoutsApi } from '../../../lib/api';
+import { downloadCSV } from '../../../lib/csv-export';
 import type { PayoutBatch, PayoutLine } from '../../../lib/types';
 
 type Tab = 'eligible' | 'batches';
@@ -108,17 +109,38 @@ export default function AdminPayoutsPage() {
             Manage host payouts — weekly batch processing and statements
           </p>
         </div>
-        <button
-          onClick={handleRunWeekly}
-          disabled={runningBatch || eligible.length === 0}
-          className="btn-primary text-sm py-2.5 px-5 shrink-0"
-        >
-          {runningBatch ? (
-            <><span className="spinner" /> Running batch…</>
-          ) : (
-            `▶ Run weekly batch (${eligible.length} lines)`
-          )}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => {
+              if (eligible.length === 0) return;
+              const rows = eligible.map((l) => ({
+                ID: l.id,
+                HostID: l.hostId,
+                BookingID: l.bookingId,
+                'Amount (INR)': (l.amount / 100).toFixed(2),
+                EligibleAt: l.eligibleAt,
+                Status: l.status,
+                BatchID: l.batchId ?? '',
+              }));
+              downloadCSV(rows, 'admin-payouts');
+            }}
+            disabled={eligible.length === 0}
+            className="btn-secondary text-sm py-2.5 px-4 disabled:opacity-40"
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={handleRunWeekly}
+            disabled={runningBatch || eligible.length === 0}
+            className="btn-primary text-sm py-2.5 px-5"
+          >
+            {runningBatch ? (
+              <><span className="spinner" /> Running batch…</>
+            ) : (
+              `▶ Run weekly batch (${eligible.length} lines)`
+            )}
+          </button>
+        </div>
       </div>
 
       {error && <div className="alert-error mb-6">{error}</div>}

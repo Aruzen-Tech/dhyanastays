@@ -12,6 +12,8 @@ const nextConfig = {
     remotePatterns: [
       { protocol: 'https', hostname: '**.unsplash.com' },
       { protocol: 'https', hostname: '**.cloudfront.net' },
+      { protocol: 'https', hostname: '**.r2.cloudflarestorage.com' },
+      { protocol: 'https', hostname: 'media.dhyanastays.in' },
     ],
   },
 };

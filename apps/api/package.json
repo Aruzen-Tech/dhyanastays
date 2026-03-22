@@ -6,7 +6,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "start:prod:local": "node dist/main.js",
-    "start:dev": "nodemon --exec \"ts-node --project tsconfig.json src/main.ts\" --ext ts,json --ignore dist --ignore node_modules",
+    "start:dev": "nodemon --signal SIGTERM --exec \"ts-node --project tsconfig.json src/main.ts\" --ext ts,json --ignore dist --ignore node_modules",
     "lint": "eslint \"src/**/*.ts\"",
     "test": "jest",
     "test:e2e": "jest --config jest-e2e.config.json --runInBand --forceExit",

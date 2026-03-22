@@ -47,7 +47,6 @@ export type ListingStatus =
   | 'REJECTED'
   | 'CHANGES_REQUESTED';
 
-/** Matches the RateRule DB model (included via Prisma relation). */
 export interface RateRule {
   id: string;
   listingId: string;
@@ -55,6 +54,33 @@ export interface RateRule {
   cleaningFee: number;
   minNights: number;
   maxGuests: number;
+}
+
+export interface ListingMedia {
+  id: string;
+  listingId: string;
+  url: string;
+  mediaType: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface SeasonalRate {
+  id: string;
+  listingId: string;
+  startsAt: string;
+  endsAt: string;
+  nightlyRate: number;
+  createdAt: string;
+}
+
+export interface AvailabilityBlock {
+  id: string;
+  listingId: string;
+  startsAt: string;
+  endsAt: string;
+  reason: string;
+  createdAt: string;
 }
 
 export interface Listing {
@@ -71,16 +97,13 @@ export interface Listing {
   needsReapproval: boolean;
   createdAt: string;
   updatedAt: string;
-  /** Included when the API query uses include: { rateRules: true } */
   rateRules?: RateRule[];
+  media?: ListingMedia[];
+  seasonalRates?: SeasonalRate[];
 }
 
 // ─── Pricing ─────────────────────────────────────────────────────────────────
 
-/**
- * Matches the PriceSnapshot interface in apps/api/src/pricing/dto/quote.dto.ts.
- * Field names are intentionally identical to the backend shape.
- */
 export interface PriceQuote {
   listingId: string;
   checkIn: string;
@@ -100,9 +123,19 @@ export interface PriceQuote {
   snapshotAt: string;
 }
 
+// ─── Guest Details ────────────────────────────────────────────────────────────
+
+export interface GuestDetails {
+  fullName: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  estimatedArrival?: string;
+  specialRequests?: string;
+}
+
 // ─── Hold ────────────────────────────────────────────────────────────────────
 
-/** Matches the Hold DB model. */
 export interface Hold {
   id: string;
   listingId: string;
@@ -129,7 +162,6 @@ export type BookingStatus =
 
 export type PaymentPlan = 'FULL' | 'DEPOSIT_50';
 
-/** Matches the Booking DB model. priceSnapshot is the stored PriceQuote JSONB. */
 export interface Booking {
   id: string;
   listingId: string;
@@ -140,6 +172,7 @@ export interface Booking {
   status: BookingStatus;
   plan: PaymentPlan;
   priceSnapshot: PriceQuote;
+  guestDetails?: GuestDetails;
   balanceDueAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -200,6 +233,182 @@ export interface HostStatement {
   lines: PayoutLine[];
   totalEarned: number;
   totalPending: number;
+}
+
+// ─── Admin Dashboard ────────────────────────────────────────────────────────
+
+export interface AdminStats {
+  users: {
+    total: number;
+    guests: number;
+    hosts: number;
+    admins: number;
+    pendingHosts: number;
+  };
+  listings: {
+    total: number;
+    approved: number;
+    pending: number;
+    rejected: number;
+  };
+  bookings: {
+    total: number;
+    confirmed: number;
+    completed: number;
+    cancelled: number;
+    pendingPayment: number;
+  };
+  revenue: {
+    totalCollected: number;
+    platformFees: number;
+  };
+  payouts: {
+    eligibleAmount: number;
+    paidAmount: number;
+  };
+  recentBookings: Array<Booking & {
+    guest?: { fullName: string; email: string };
+  }>;
+  recentAudit: AuditEntry[];
+}
+
+export interface AuditEntry {
+  id: string;
+  actorUserId: string | null;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  actor?: { fullName: string; email: string } | null;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  host?: {
+    id: string;
+    verificationStatus: HostVerificationStatus;
+    payoutEnabled: boolean;
+  } | null;
+  _count?: { bookings: number };
+}
+
+// ─── Revenue Analytics ──────────────────────────────────────────────────────
+
+export interface RevenueDataPoint {
+  period: string;
+  totalCollected: number;
+  platformFees: number;
+  hostShare: number;
+  bookingCount: number;
+}
+
+// ─── Admin Listing Detail ───────────────────────────────────────────────────
+
+export interface AdminListingDetail extends Listing {
+  media: ListingMedia[];
+  rateRules: RateRule[];
+  seasonalRates: SeasonalRate[];
+  availabilityBlocks: AvailabilityBlock[];
+  host: { id: string; userId: string; user: { fullName: string; email: string } };
+  bookings: Array<Booking & { guest?: { fullName: string; email: string } }>;
+  totalRevenue: number;
+  bookingCount: number;
+}
+
+// ─── Refund ─────────────────────────────────────────────────────────────────
+
+export interface Refund {
+  id: string;
+  bookingId: string;
+  paymentId: string | null;
+  amount: number;
+  reason: string;
+  gatewayRefundRef: string | null;
+  createdAt: string;
+  booking?: Booking;
+}
+
+// ─── System Config ──────────────────────────────────────────────────────────
+
+export interface SystemConfigEntry {
+  id: string;
+  key: string;
+  value: unknown;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+// ─── Admin Notification ─────────────────────────────────────────────────────
+
+export interface AdminNotification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  metadata: Record<string, unknown>;
+  isRead: boolean;
+  createdAt: string;
+}
+
+// ─── Calendar ───────────────────────────────────────────────────────────────
+
+export interface CalendarBooking {
+  id: string;
+  listingId: string;
+  listingTitle: string;
+  guestName: string;
+  startsAt: string;
+  endsAt: string;
+  status: BookingStatus;
+}
+
+// ─── Host Performance ───────────────────────────────────────────────────────
+
+export interface HostPerformance {
+  hostId: string;
+  hostName: string;
+  hostEmail: string;
+  totalListings: number;
+  approvedListings: number;
+  totalBookings: number;
+  completedBookings: number;
+  occupancyRate: number;
+  totalRevenue: number;
+  avgBookingValue: number;
+}
+
+// ─── Global Search ──────────────────────────────────────────────────────────
+
+export interface AdminSearchResults {
+  users: Array<{ id: string; fullName: string; email: string; role: UserRole }>;
+  bookings: Array<{ id: string; status: BookingStatus; startsAt: string; endsAt: string; listingTitle: string }>;
+  listings: Array<{ id: string; title: string; city: string; status: ListingStatus }>;
+  hosts: Array<{ id: string; userId: string; fullName: string; email: string; verificationStatus: HostVerificationStatus }>;
+}
+
+// ─── Rate Limiter ───────────────────────────────────────────────────────────
+
+export interface RateLimitStats {
+  totalBlocked: number;
+  topBlockedIPs: Array<{ ip: string; count: number }>;
+  recentBlocked: Array<{ ip: string; path: string; blockedAt: string }>;
+}
+
+// ─── Revenue Forecast ───────────────────────────────────────────────────────
+
+export interface RevenueForecast {
+  period: string;
+  confirmedRevenue: number;
+  expectedDeposits: number;
+  expectedBalance: number;
+  bookingCount: number;
 }
 
 // ─── API responses ───────────────────────────────────────────────────────────

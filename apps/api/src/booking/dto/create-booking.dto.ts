@@ -1,8 +1,42 @@
-import { IsEnum, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsEmail,
+  IsEnum,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 
 export enum PaymentPlanDto {
   FULL = 'FULL',
   DEPOSIT_50 = 'DEPOSIT_50',
+}
+
+export class GuestDetailsDto {
+  @IsString()
+  @IsNotEmpty()
+  fullName!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  phone!: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  estimatedArrival?: string;
+
+  @IsOptional()
+  @IsString()
+  specialRequests?: string;
 }
 
 export class CreateBookingDto {
@@ -19,4 +53,8 @@ export class CreateBookingDto {
    */
   @IsString()
   idempotencyKey!: string;
+
+  @ValidateNested()
+  @Type(() => GuestDetailsDto)
+  guestDetails!: GuestDetailsDto;
 }

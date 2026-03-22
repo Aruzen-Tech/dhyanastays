@@ -31,6 +31,16 @@ export class BookingController {
   }
 
   /**
+   * GET /bookings/host — returns all bookings for the authenticated host's listings.
+   * Must be declared before GET :id to avoid route shadowing.
+   */
+  @Roles(UserRole.HOST)
+  @Get('host')
+  getHostBookings(@CurrentUser() user: RequestUser) {
+    return this.bookingService.getHostBookings(user.sub);
+  }
+
+  /**
    * Get booking details (guest sees own, admin sees all).
    */
   @Get(':id')

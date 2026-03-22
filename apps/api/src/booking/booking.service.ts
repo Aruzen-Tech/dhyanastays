@@ -82,6 +82,7 @@ export class BookingService {
           startsAt: hold.startsAt,
           endsAt: hold.endsAt,
           priceSnapshot: snapshot as object,
+          guestDetails: dto.guestDetails as object,
           balanceDueAt,
         },
       });
@@ -115,6 +116,28 @@ export class BookingService {
     });
   }
 
+  /**
+   * Returns all bookings for listings owned by the authenticated host,
+   * ordered most-recent first. Includes listing summary and payments.
+   */
+  async getHostBookings(userId: string) {
+    const host = await this.prisma.host.findUnique({ where: { userId } });
+    if (!host) throw new ForbiddenException('Host profile not found');
+
+    return this.prisma.booking.findMany({
+      where: {
+        listing: { hostId: host.id },
+      },
+      include: {
+        payments: true,
+        listing: {
+          select: { id: true, title: true, city: true, state: true, country: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   async getBookingById(bookingId: string, requesterId: string, requesterRole: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
@@ -128,10 +151,21 @@ export class BookingService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
-    if (requesterRole !== 'ADMIN' && booking.guestId !== requesterId) {
-      throw new ForbiddenException('Access denied');
+    if (requesterRole === 'ADMIN') return booking;
+    if (booking.guestId === requesterId) return booking;
+
+    // Allow the host who owns the listing to view the booking
+    if (requesterRole === 'HOST') {
+      const host = await this.prisma.host.findUnique({ where: { userId: requesterId } });
+      if (host) {
+        const listing = await this.prisma.listing.findFirst({
+          where: { id: booking.listingId, hostId: host.id },
+        });
+        if (listing) return booking;
+      }
     }
-    return booking;
+
+    throw new ForbiddenException('Access denied');
   }
 
   /** Admin: get all bookings with guest + listing info */

@@ -4,7 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
-import { adminHostsApi, formatDate, listingsApi } from '../../../lib/api';
+import { adminApi, adminHostsApi, formatDate, listingsApi } from '../../../lib/api';
 import type { Host, Listing } from '../../../lib/types';
 
 type Tab = 'listings' | 'hosts';
@@ -23,6 +23,7 @@ function ListingApprovals() {
   const [noteMap, setNoteMap] = useState<Record<string, string>>({});
   const [processing, setProcessing] = useState<string | null>(null);
   const [toast, setToast] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     listingsApi
@@ -64,6 +65,40 @@ function ListingApprovals() {
     }
   };
 
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === listings.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(listings.map((l) => l.id)));
+    }
+  };
+
+  const handleBulkApprove = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    if (!confirm(`Approve ${ids.length} listing(s)?`)) return;
+    setProcessing('bulk');
+    try {
+      const result = await adminApi.bulkApproveListings(ids);
+      showToast(`${result.count} listing(s) approved`);
+      setSelected(new Set());
+      setListings((prev) => prev.filter((l) => !ids.includes(l.id)));
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Bulk action failed');
+    } finally {
+      setProcessing(null);
+    }
+  };
+
   return (
     <div>
       {toast && (
@@ -74,12 +109,24 @@ function ListingApprovals() {
 
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
+          {listings.length > 0 && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected.size === listings.length && listings.length > 0}
+                onChange={toggleSelectAll}
+                className="rounded border-gray-300"
+              />
+              <span className="text-xs text-gray-500">Select all</span>
+            </label>
+          )}
           <span className="bg-amber-100 text-amber-700 text-sm font-semibold px-3 py-1 rounded-full">
             {listings.length} pending
           </span>
           <button
             onClick={() => {
               setLoading(true);
+              setSelected(new Set());
               listingsApi.getPending().then(setListings).finally(() => setLoading(false));
             }}
             className="btn-ghost text-sm"
@@ -112,11 +159,17 @@ function ListingApprovals() {
       )}
 
       {!loading && listings.map((listing) => {
-        const isProcessing = processing === listing.id;
+        const isProcessing = processing === listing.id || processing === 'bulk';
         return (
-          <div key={listing.id} className="card mb-5 overflow-hidden">
+          <div key={listing.id} className={`card mb-5 overflow-hidden ${selected.has(listing.id) ? 'ring-2 ring-brand-300' : ''}`}>
             <div className="p-6 border-b border-gray-100">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={selected.has(listing.id)}
+                  onChange={() => toggleSelect(listing.id)}
+                  className="rounded border-gray-300 mt-1 shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     <StatusBadge status={listing.status} />
@@ -195,6 +248,27 @@ function ListingApprovals() {
           </div>
         );
       })}
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white rounded-2xl shadow-2xl px-6 py-3 flex items-center gap-4">
+          <span className="text-sm font-medium">{selected.size} selected</span>
+          <div className="w-px h-5 bg-gray-600" />
+          <button
+            onClick={handleBulkApprove}
+            disabled={processing === 'bulk'}
+            className="text-sm font-medium bg-green-600 hover:bg-green-700 px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {processing === 'bulk' ? 'Processing...' : 'Bulk Approve'}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-sm text-gray-400 hover:text-white transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
     </div>
   );
 }

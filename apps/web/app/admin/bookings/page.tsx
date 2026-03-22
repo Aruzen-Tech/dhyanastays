@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
-import { bookingsApi, formatDate, formatINR } from '../../../lib/api';
+import { adminApi, bookingsApi, formatDate, formatINR } from '../../../lib/api';
+import { downloadCSV } from '../../../lib/csv-export';
 import type { Booking } from '../../../lib/types';
 
 export default function AdminBookingsPage() {
@@ -19,6 +20,7 @@ export default function AdminBookingsPage() {
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toast, setToast] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const LIMIT = 20;
 
@@ -29,6 +31,7 @@ export default function AdminBookingsPage() {
 
   const loadBookings = (p: number) => {
     setLoading(true);
+    setSelected(new Set());
     bookingsApi
       .adminGetAll(p, LIMIT)
       .then((res) => {
@@ -56,7 +59,7 @@ export default function AdminBookingsPage() {
     try {
       const updated = await bookingsApi.complete(bookingId);
       setBookings((prev) => prev.map((b) => (b.id === bookingId ? updated : b)));
-      showToast('✅ Booking marked as completed');
+      showToast('Booking marked as completed');
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Action failed');
     } finally {
@@ -73,6 +76,63 @@ export default function AdminBookingsPage() {
       showToast('Booking cancelled');
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : 'Action failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (bookings.length === 0) return;
+    const rows = bookings.map((b) => ({
+      ID: b.id,
+      Listing: b.listing?.title ?? b.listingId,
+      City: b.listing?.city ?? '',
+      State: b.listing?.state ?? '',
+      CheckIn: b.startsAt,
+      CheckOut: b.endsAt,
+      Plan: b.plan,
+      'Total (INR)': (b.priceSnapshot.total / 100).toFixed(2),
+      Status: b.status,
+      Created: b.createdAt,
+    }));
+    downloadCSV(rows, 'admin-bookings');
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === bookings.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(bookings.map((b) => b.id)));
+    }
+  };
+
+  const handleBulkComplete = async () => {
+    const ids = Array.from(selected);
+    const completable = bookings.filter(
+      (b) => ids.includes(b.id) && ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'].includes(b.status),
+    );
+    if (completable.length === 0) {
+      alert('No selected bookings are eligible for completion.');
+      return;
+    }
+    if (!confirm(`Mark ${completable.length} booking(s) as completed?`)) return;
+    setActionLoading('bulk');
+    try {
+      const result = await adminApi.bulkCompleteBookings(completable.map((b) => b.id));
+      showToast(`${result.count} booking(s) completed`);
+      setSelected(new Set());
+      loadBookings(page);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Bulk action failed');
     } finally {
       setActionLoading(null);
     }
@@ -99,12 +159,21 @@ export default function AdminBookingsPage() {
             {total} total booking{total !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          onClick={() => loadBookings(page)}
-          className="btn-ghost text-sm"
-        >
-          ↻ Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            disabled={bookings.length === 0}
+            className="btn-secondary text-sm py-2 px-4 disabled:opacity-40"
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => loadBookings(page)}
+            className="btn-ghost text-sm"
+          >
+            ↻ Refresh
+          </button>
+        </div>
       </div>
 
       {error && <div className="alert-error mb-6">{error}</div>}
@@ -137,6 +206,14 @@ export default function AdminBookingsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selected.size === bookings.length && bookings.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300"
+                    />
+                  </th>
                   <th className="text-left px-5 py-3 font-semibold text-gray-600">Booking</th>
                   <th className="text-left px-5 py-3 font-semibold text-gray-600">Listing</th>
                   <th className="text-left px-5 py-3 font-semibold text-gray-600">Dates</th>
@@ -148,12 +225,20 @@ export default function AdminBookingsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {bookings.map((b) => {
-                  const isProcessing = actionLoading === b.id;
+                  const isProcessing = actionLoading === b.id || actionLoading === 'bulk';
                   const canComplete = ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'].includes(b.status);
                   const canCancel = ['PAYMENT_PENDING', 'CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE'].includes(b.status);
 
                   return (
-                    <tr key={b.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={b.id} className={`hover:bg-gray-50 transition-colors ${selected.has(b.id) ? 'bg-brand-50/50' : ''}`}>
+                      <td className="px-3 py-4">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(b.id)}
+                          onChange={() => toggleSelect(b.id)}
+                          className="rounded border-gray-300"
+                        />
+                      </td>
                       <td className="px-5 py-4">
                         <Link
                           href={`/bookings/${b.id}`}
@@ -207,7 +292,7 @@ export default function AdminBookingsPage() {
                               disabled={isProcessing}
                               className="btn-primary text-xs py-1 px-3"
                             >
-                              {isProcessing ? <span className="spinner" /> : '✓ Complete'}
+                              {isProcessing ? <span className="spinner" /> : 'Complete'}
                             </button>
                           )}
                           {canCancel && (
@@ -255,6 +340,27 @@ export default function AdminBookingsPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white rounded-2xl shadow-2xl px-6 py-3 flex items-center gap-4">
+          <span className="text-sm font-medium">{selected.size} selected</span>
+          <div className="w-px h-5 bg-gray-600" />
+          <button
+            onClick={handleBulkComplete}
+            disabled={actionLoading === 'bulk'}
+            className="text-sm font-medium bg-green-600 hover:bg-green-700 px-4 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {actionLoading === 'bulk' ? 'Processing...' : 'Bulk Complete'}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-sm text-gray-400 hover:text-white transition-colors"
+          >
+            Clear
+          </button>
         </div>
       )}
     </div>

@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { ListingService } from './listing.service';
 
@@ -10,6 +10,12 @@ export class PublicListingController {
   @Get()
   getFeed() {
     return this.listingService.getPublicListings();
+  }
+
+  @Public()
+  @Get('search')
+  search(@Query('q') q: string = '') {
+    return this.listingService.searchListings(q);
   }
 
   @Public()
