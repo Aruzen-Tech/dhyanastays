@@ -27,12 +27,16 @@ const notificationMock = {
   sendSms: jest.fn().mockResolvedValue(undefined),
 };
 
+const configMock = {
+  get: jest.fn((_key: string, def?: string) => def ?? ''),
+};
+
 describe('ListingService', () => {
   let service: ListingService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new ListingService(prismaMock as never, notificationMock as never);
+    service = new ListingService(prismaMock as never, notificationMock as never, configMock as never);
   });
 
   it('moves to pending approval when sensitive fields are changed', async () => {
@@ -55,6 +59,6 @@ describe('ListingService', () => {
         }),
       }),
     );
-    expect(result.status).toBe(ListingStatus.PENDING_APPROVAL);
+    expect(result!.status).toBe(ListingStatus.PENDING_APPROVAL);
   });
 });

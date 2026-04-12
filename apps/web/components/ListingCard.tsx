@@ -3,14 +3,15 @@
 import Link from 'next/link';
 import { formatINR } from '../lib/api';
 import type { Listing } from '../lib/types';
+import WishlistButton from './WishlistButton';
 
-// Deterministic gradient palette — no external network requests
+// Deterministic monochrome gradient palette
 const GRADIENTS: [string, string][] = [
-  ['#1a5c4a', '#2d8268'],
-  ['#2d5a8e', '#4a7fb5'],
-  ['#6b3a2a', '#9c5a3c'],
-  ['#4a3a6b', '#7a5a9c'],
-  ['#3a5a2a', '#5a8a3c'],
+  ['#0a0a0a', '#2a2a2a'],
+  ['#1a1a1a', '#3a3a3a'],
+  ['#111111', '#333333'],
+  ['#0d0d0d', '#2d2d2d'],
+  ['#141414', '#383838'],
 ];
 
 function ListingPlaceholder({ id, title }: { id: string; title: string }) {
@@ -69,43 +70,61 @@ export default function ListingCard({ listing }: Props) {
   const maxGuests = rateRule?.maxGuests;
 
   return (
-    <Link href={`/listings/${listing.id}`} className="block group">
-      <div className="card-hover">
-        {/* Placeholder image */}
-        <div className="relative h-52 bg-brand-100 overflow-hidden">
-          <div className="w-full h-full group-hover:scale-105 transition-transform duration-300">
+    <Link href={`/listings/${listing.id}`} className="block group animate-fade-in">
+      <div className="card-hover h-full flex flex-col">
+        {/* Image / placeholder */}
+        <div className="relative h-52 overflow-hidden rounded-t-2xl">
+          <div className="w-full h-full group-hover:scale-105 transition-transform duration-500 ease-out">
             <ListingPlaceholder id={listing.id} title={listing.title} />
           </div>
-          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent" />
+          {/* Gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+
+          {/* Wishlist */}
+          <div className="absolute top-3 right-3">
+            <WishlistButton listingId={listing.id} size="sm" />
+          </div>
+
+          {/* Location pill */}
           <div className="absolute bottom-3 left-3">
-            <span className="bg-white/90 backdrop-blur text-gray-800 text-xs font-medium px-2.5 py-1 rounded-full">
+            <span
+              className="text-xs font-medium px-2.5 py-1 rounded-full"
+              style={{
+                background: 'rgba(0,0,0,0.5)',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+                color: '#ffffff',
+                border: '1px solid rgba(255,255,255,0.15)',
+              }}
+            >
               📍 {listing.city}, {listing.state}
             </span>
           </div>
         </div>
 
         {/* Content */}
-        <div className="p-4">
-          <h3 className="font-semibold text-gray-900 text-base leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors">
+        <div className="p-4 flex flex-col flex-1">
+          <h3
+            className="font-semibold text-gray-900 text-base leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors"
+            style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+          >
             {listing.title}
           </h3>
-          <p className="text-gray-500 text-sm mt-1 line-clamp-2">
+          <p className="text-gray-500 text-sm mt-1 line-clamp-2 flex-1">
             {listing.description}
           </p>
 
           <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-            <div>
-              {nightlyRate > 0 ? (
-                <span className="text-brand-700 font-bold text-base">
-                  {formatINR(nightlyRate)}
-                  <span className="text-gray-400 font-normal text-sm"> / night</span>
-                </span>
-              ) : (
-                <span className="text-gray-400 text-sm">Price on request</span>
-              )}
-            </div>
+            {nightlyRate > 0 ? (
+              <span className="text-brand-700 font-bold text-base">
+                {formatINR(nightlyRate)}
+                <span className="text-gray-400 font-normal text-xs"> / night</span>
+              </span>
+            ) : (
+              <span className="text-gray-400 text-sm">Price on request</span>
+            )}
             {maxGuests && (
-              <span className="text-gray-400 text-xs">👥 {maxGuests} guests</span>
+              <span className="text-gray-400 text-xs">👥 Up to {maxGuests}</span>
             )}
           </div>
         </div>

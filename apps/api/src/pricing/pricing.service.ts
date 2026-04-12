@@ -4,13 +4,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PriceSnapshotSignerService } from '../common/services/price-snapshot-signer.service';
 import { PriceSnapshot, QuoteDto } from './dto/quote.dto';
 
 export const PLATFORM_FEE_RATE = 0.10; // 10% platform commission
 
 @Injectable()
 export class PricingService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly snapshotSigner: PriceSnapshotSignerService,
+  ) {}
 
   async quote(dto: QuoteDto): Promise<PriceSnapshot> {
     const checkIn = new Date(dto.checkIn);
@@ -82,7 +86,7 @@ export class PricingService {
     const depositAmount = Math.round(total * 0.5);
     const balanceAmount = total - depositAmount;
 
-    return {
+    const snapshot: PriceSnapshot = {
       listingId: dto.listingId,
       checkIn: dto.checkIn,
       checkOut: dto.checkOut,
@@ -100,6 +104,13 @@ export class PricingService {
       currency: 'INR',
       snapshotAt: new Date().toISOString(),
     };
+
+    // Attach HMAC so payment service can verify the snapshot hasn't been tampered with
+    snapshot.hmac = this.snapshotSigner.sign(
+      snapshot as unknown as Record<string, unknown>,
+    );
+
+    return snapshot;
   }
 
   /**

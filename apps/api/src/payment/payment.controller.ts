@@ -6,12 +6,14 @@ import {
   Post,
   RawBodyRequest,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { UserRole } from '@prisma/client';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { IdempotencyInterceptor } from '../common/interceptors/idempotency.interceptor';
 import { InitPaymentDto } from './dto/init-payment.dto';
 import { PaymentService } from './payment.service';
 import { IsUUID } from 'class-validator';
@@ -29,6 +31,7 @@ export class PaymentController {
    * Guest initiates a payment order.
    */
   @Roles(UserRole.GUEST)
+  @UseInterceptors(IdempotencyInterceptor)
   @Post('init')
   init(@CurrentUser() user: RequestUser, @Body() dto: InitPaymentDto) {
     return this.paymentService.initPayment(user.sub, dto);
@@ -60,14 +63,4 @@ export class PaymentController {
     return this.paymentService.payBalance(user.sub, bookingId, dto.idempotencyKey);
   }
 
-  /**
-   * LOCAL DEV ONLY — simulate payment capture (stub mode).
-   * Transitions payment INITIATED → CAPTURED and booking → CONFIRMED_*.
-   * Guarded by PaymentService.stubConfirm which rejects if not in stub mode.
-   */
-  @Roles(UserRole.GUEST)
-  @Post('stub-confirm/:paymentId')
-  stubConfirm(@Param('paymentId') paymentId: string) {
-    return this.paymentService.stubConfirm(paymentId);
-  }
 }

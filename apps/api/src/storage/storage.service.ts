@@ -36,6 +36,10 @@ export class StorageService {
     this.accessKeyId = config.get<string>('S3_ACCESS_KEY_ID', '');
     this.secretAccessKey = config.get<string>('S3_SECRET_ACCESS_KEY', '');
     this.cdnUrl = config.get<string>('CDN_URL', '');
+
+    if (this.provider === 'stub' && config.get<string>('NODE_ENV') === 'production') {
+      throw new Error('STORAGE_PROVIDER must be s3 or r2 in production (not stub)');
+    }
   }
 
   /**

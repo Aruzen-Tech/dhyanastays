@@ -116,6 +116,13 @@ describe('RazorpayService', () => {
 // ─── PaymentService unit tests ───────────────────────────────────────────────
 
 describe('PaymentService', () => {
+  function makeSnapshotSignerMock() {
+    return {
+      sign: jest.fn((obj: Record<string, unknown>) => ({ ...obj, hmac: 'mock_hmac' })),
+      verify: jest.fn().mockReturnValue(true),
+    };
+  }
+
   function makeRazorpayMock(stubMode = true) {
     return {
       createOrder: jest.fn().mockResolvedValue({
@@ -156,6 +163,7 @@ describe('PaymentService', () => {
         makeBookingMock() as any,
         makeAuditMock() as any,
         makeRazorpayMock() as any,
+        makeSnapshotSignerMock() as any,
       );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -202,6 +210,7 @@ describe('PaymentService', () => {
         makeBookingMock() as any,
         makeAuditMock() as any,
         makeRazorpayMock() as any,
+        makeSnapshotSignerMock() as any,
       );
 
       const result = await service.initPayment('guest-1', {
@@ -231,6 +240,7 @@ describe('PaymentService', () => {
         makeBookingMock() as any,
         makeAuditMock() as any,
         makeRazorpayMock() as any,
+        makeSnapshotSignerMock() as any,
       );
 
       await expect(
@@ -260,6 +270,7 @@ describe('PaymentService', () => {
         makeBookingMock() as any,
         makeAuditMock() as any,
         razorpayMock as any,
+        makeSnapshotSignerMock() as any,
       );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -290,6 +301,7 @@ describe('PaymentService', () => {
         makeBookingMock() as any,
         makeAuditMock() as any,
         makeRazorpayMock() as any,
+        makeSnapshotSignerMock() as any,
       );
 
       await expect(
@@ -314,6 +326,7 @@ describe('PaymentService', () => {
         makeBookingMock() as any,
         makeAuditMock() as any,
         razorpayMock as any,
+        makeSnapshotSignerMock() as any,
       );
 
       await expect(
@@ -362,6 +375,7 @@ describe('PaymentService', () => {
         bookingMock as any,
         auditMock as any,
         razorpayMock as any,
+        makeSnapshotSignerMock() as any,
       );
 
       const result = await service.handleWebhook(capturedEvent, 'valid-sig');
@@ -413,6 +427,7 @@ describe('PaymentService', () => {
         bookingMock as any,
         makeAuditMock() as any,
         makeRazorpayMock() as any,
+        makeSnapshotSignerMock() as any,
       );
 
       await service.handleWebhook(capturedEvent, 'valid-sig');
@@ -454,6 +469,7 @@ describe('PaymentService', () => {
         makeBookingMock() as any,
         makeAuditMock() as any,
         makeRazorpayMock() as any,
+        makeSnapshotSignerMock() as any,
       );
 
       await service.handleWebhook(failedEvent, 'valid-sig');
@@ -476,6 +492,7 @@ describe('PaymentService', () => {
         makeBookingMock() as any,
         makeAuditMock() as any,
         makeRazorpayMock() as any,
+        makeSnapshotSignerMock() as any,
       );
 
       const result = await service.handleWebhook(unknownEvent, 'valid-sig');

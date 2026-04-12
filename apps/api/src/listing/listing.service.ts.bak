@@ -1,0 +1,289 @@
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { ListingStatus, Prisma } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
+import { CreateListingDto } from './dto/create-listing.dto';
+import { UpdateListingDto } from './dto/update-listing.dto';
+
+@Injectable()
+export class ListingService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
+
+  async createHostListing(userId: string, dto: CreateListingDto) {
+    const host = await this.prisma.host.findUnique({ where: { userId } });
+    if (!host || host.verificationStatus !== 'APPROVED') {
+      throw new ForbiddenException('Host must be approved before listing');
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const listing = await (this.prisma as any).$transaction(async (tx: any) => {
+      const created = await tx.listing.create({
+        data: {
+          hostId: host.id,
+          createdById: userId,
+          title: dto.title,
+          description: dto.description,
+          city: dto.city,
+          state: dto.state,
+          status: ListingStatus.PENDING_APPROVAL,
+        },
+      });
+      // Create the initial rate rule so pricing works immediately
+      await tx.rateRule.create({
+        data: {
+          listingId: created.id,
+          baseNightlyRate: dto.baseNightlyRate,
+          maxGuests: dto.maxGuests,
+          cleaningFee: 0,
+          minNights: 1,
+        },
+      });
+      return created;
+    });
+    await this.writeAudit(userId, 'LISTING_CREATE', 'listing', listing.id, {
+      status: listing.status,
+      baseNightlyRate: dto.baseNightlyRate,
+      maxGuests: dto.maxGuests,
+    });
+    return this.prisma.listing.findUnique({
+      where: { id: listing.id },
+      include: { rateRules: true },
+    });
+  }
+
+  async updateHostListing(userId: string, listingId: string, dto: UpdateListingDto) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { host: true },
+    });
+    if (!listing) {
+      throw new NotFoundException('Listing not found');
+    }
+    if (listing.host.userId !== userId) {
+      throw new ForbiddenException('Cannot edit listing you do not own');
+    }
+
+    const { baseNightlyRate, maxGuests, minNights, cleaningFee, ...listingFields } = dto;
+    const hasRateChanges = [baseNightlyRate, maxGuests, minNights, cleaningFee].some(
+      (v) => v !== undefined,
+    );
+
+    const reapprovalTriggered = this.isReapprovalTriggered(dto);
+    const data: Prisma.ListingUpdateInput = {
+      ...(listingFields as Prisma.ListingUpdateInput),
+      ...(reapprovalTriggered
+        ? { status: ListingStatus.PENDING_APPROVAL, needsReapproval: true }
+        : {}),
+    };
+
+    await this.prisma.listing.update({ where: { id: listingId }, data });
+
+    if (hasRateChanges) {
+      await this.prisma.rateRule.updateMany({
+        where: { listingId },
+        data: {
+          ...(baseNightlyRate !== undefined && { baseNightlyRate }),
+          ...(maxGuests !== undefined && { maxGuests }),
+          ...(minNights !== undefined && { minNights }),
+          ...(cleaningFee !== undefined && { cleaningFee }),
+        },
+      });
+    }
+
+    await this.writeAudit(userId, 'LISTING_UPDATE', 'listing', listingId, {
+      reapprovalTriggered,
+      fields: Object.keys(dto),
+    });
+
+    return this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { rateRules: true },
+    });
+  }
+
+  async getHostListings(userId: string) {
+    const host = await this.prisma.host.findUnique({ where: { userId } });
+    if (!host) throw new ForbiddenException('Host profile not found');
+    return this.prisma.listing.findMany({
+      where: { hostId: host.id },
+      include: { rateRules: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getPendingListings() {
+    return this.prisma.listing.findMany({
+      where: { status: ListingStatus.PENDING_APPROVAL },
+      include: { rateRules: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async reviewListing(
+    actorUserId: string,
+    listingId: string,
+    action: 'approve' | 'reject' | 'request_changes',
+    note?: string,
+  ) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+    });
+    if (!listing) {
+      throw new NotFoundException('Listing not found');
+    }
+    const status =
+      action === 'approve'
+        ? ListingStatus.APPROVED
+        : action === 'reject'
+          ? ListingStatus.REJECTED
+          : ListingStatus.CHANGES_REQUESTED;
+    const updated = await this.prisma.listing.update({
+      where: { id: listingId },
+      data: {
+        status,
+        needsReapproval: false,
+      },
+    });
+    await this.writeAudit(actorUserId, `LISTING_${action.toUpperCase()}`, 'listing', listingId, {
+      previousStatus: listing.status,
+      nextStatus: status,
+      note: note ?? null,
+    });
+
+    // Send host notification (non-blocking)
+    void this.sendListingReviewNotification(listing.hostId, listingId, listing.title, action, note);
+
+    return updated;
+  }
+
+  async getHostProfile(userId: string) {
+    const host = await this.prisma.host.findUnique({
+      where: { userId },
+      include: {
+        user: { select: { id: true, email: true, fullName: true, createdAt: true } },
+      },
+    });
+    if (!host) throw new NotFoundException('Host profile not found');
+    return host;
+  }
+
+  async getPendingHosts() {
+    return this.prisma.host.findMany({
+      where: { verificationStatus: 'PENDING' },
+      include: {
+        user: { select: { id: true, email: true, fullName: true, createdAt: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async reviewHost(
+    actorUserId: string,
+    hostId: string,
+    action: 'approve' | 'reject',
+  ) {
+    const host = await this.prisma.host.findUnique({ where: { id: hostId } });
+    if (!host) throw new NotFoundException('Host not found');
+    const status = action === 'approve' ? 'APPROVED' : 'REJECTED';
+    const updated = await this.prisma.host.update({
+      where: { id: hostId },
+      data: { verificationStatus: status as 'APPROVED' | 'REJECTED' },
+      include: {
+        user: { select: { id: true, email: true, fullName: true } },
+      },
+    });
+    await this.writeAudit(actorUserId, `HOST_${action.toUpperCase()}`, 'host', hostId, {
+      previousStatus: host.verificationStatus,
+      nextStatus: status,
+    });
+    return updated;
+  }
+
+  private async sendListingReviewNotification(
+    hostId: string,
+    listingId: string,
+    listingTitle: string,
+    action: 'approve' | 'reject' | 'request_changes',
+    note?: string,
+  ): Promise<void> {
+    try {
+      const host = await this.prisma.host.findUnique({
+        where: { id: hostId },
+        include: { user: { select: { fullName: true, email: true } } },
+      });
+      if (!host) return;
+
+      if (action === 'approve') {
+        await this.notificationService.sendHostListingApproved({
+          hostName: host.user.fullName,
+          hostEmail: host.user.email,
+          listingTitle,
+          listingId,
+        });
+      } else if (action === 'reject') {
+        await this.notificationService.sendHostListingRejected({
+          hostName: host.user.fullName,
+          hostEmail: host.user.email,
+          listingTitle,
+          note,
+        });
+      }
+      // request_changes: no separate email template yet — falls through silently
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  async getPublicListings() {
+    return this.prisma.listing.findMany({
+      where: { status: ListingStatus.APPROVED },
+      include: { rateRules: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getPublicListingById(id: string) {
+    const listing = await this.prisma.listing.findFirst({
+      where: { id, status: ListingStatus.APPROVED },
+      include: { rateRules: true },
+    });
+    if (!listing) {
+      throw new NotFoundException('Listing not found');
+    }
+    return listing;
+  }
+
+  private isReapprovalTriggered(dto: UpdateListingDto): boolean {
+    const sensitiveFields: (keyof UpdateListingDto)[] = [
+      'city',
+      'state',
+      'country',
+      'description',
+    ];
+    return sensitiveFields.some((field) => dto[field] !== undefined);
+  }
+
+  private async writeAudit(
+    actorUserId: string,
+    action: string,
+    resourceType: string,
+    resourceId: string,
+    metadata: Record<string, unknown>,
+  ) {
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId,
+        action,
+        resourceType,
+        resourceId,
+        metadata: metadata as Prisma.InputJsonValue,
+      },
+    });
+  }
+}

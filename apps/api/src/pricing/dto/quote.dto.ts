@@ -32,4 +32,6 @@ export interface PriceSnapshot {
   balanceAmount: number;
   currency: string;
   snapshotAt: string;
+  /** HMAC-SHA256 signature over financial fields — set by PricingService */
+  hmac?: string;
 }

@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'standalone',
   async rewrites() {
     return [
       {
@@ -8,10 +9,25 @@ const nextConfig = {
       },
     ];
   },
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+        ],
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '**.unsplash.com' },
       { protocol: 'https', hostname: '**.cloudfront.net' },
+      { protocol: 'https', hostname: '**.r2.cloudflarestorage.com' },
+      { protocol: 'https', hostname: 'media.dhyanastays.in' },
     ],
   },
 };

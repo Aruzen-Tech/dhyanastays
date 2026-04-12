@@ -13,5 +13,6 @@ import { NotificationModule } from '../notification/notification.module';
     AdminListingController,
     PublicListingController,
   ],
+  exports: [ListingService],
 })
 export class ListingModule {}

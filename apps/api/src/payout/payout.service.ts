@@ -187,6 +187,61 @@ export class PayoutService {
   }
 
   /**
+   * Dry-run: preview what a weekly batch would look like without executing.
+   * Returns per-host breakdown of eligible lines.
+   */
+  async dryRunBatch(): Promise<{
+    lineCount: number;
+    totalAmount: number;
+    hostCount: number;
+    breakdown: Array<{
+      hostId: string;
+      hostName: string;
+      hostEmail: string;
+      lineCount: number;
+      amount: number;
+    }>;
+  }> {
+    const eligibleLines = await this.prisma.payoutLine.findMany({
+      where: { status: 'ELIGIBLE' },
+      include: {
+        host: { include: { user: { select: { fullName: true, email: true } } } },
+      },
+    });
+
+    if (eligibleLines.length === 0) {
+      return { lineCount: 0, totalAmount: 0, hostCount: 0, breakdown: [] };
+    }
+
+    const byHost = new Map<string, { hostId: string; hostName: string; hostEmail: string; lineCount: number; amount: number }>();
+    for (const line of eligibleLines) {
+      const existing = byHost.get(line.hostId);
+      if (existing) {
+        existing.lineCount++;
+        existing.amount += line.amount;
+      } else {
+        byHost.set(line.hostId, {
+          hostId: line.hostId,
+          hostName: (line.host as any).user.fullName ?? '',
+          hostEmail: (line.host as any).user.email,
+          lineCount: 1,
+          amount: line.amount,
+        });
+      }
+    }
+
+    const breakdown = Array.from(byHost.values()).sort((a, b) => b.amount - a.amount);
+    const totalAmount = eligibleLines.reduce((s, l) => s + l.amount, 0);
+
+    return {
+      lineCount: eligibleLines.length,
+      totalAmount,
+      hostCount: breakdown.length,
+      breakdown,
+    };
+  }
+
+  /**
    * Get all eligible payout lines (admin view).
    */
   async getEligibleLines() {

@@ -19,5 +19,8 @@
     "prod:seed": "pnpm --filter @dhyana/api seed",
     "prod:start:api": "pnpm --filter @dhyana/api start:prod:local",
     "prod:start:web": "pnpm --filter @dhyana/web start"
+  },
+  "devDependencies": {
+    "docx": "^9.6.1"
   }
 }

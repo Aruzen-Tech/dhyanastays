@@ -1,4 +1,11 @@
-import { IsInt, IsString, Max, MaxLength, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import sanitizeHtml from 'sanitize-html';
+
+const ALLOWED_HTML: sanitizeHtml.IOptions = {
+  allowedTags: ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li'],
+  allowedAttributes: {},
+};
 
 export class CreateListingDto {
   @IsString()
@@ -6,6 +13,9 @@ export class CreateListingDto {
   title!: string;
 
   @IsString()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? sanitizeHtml(value, ALLOWED_HTML) : value,
+  )
   description!: string;
 
   @IsString()
@@ -24,4 +34,16 @@ export class CreateListingDto {
   @Min(1)
   @Max(50)
   maxGuests!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude?: number;
 }

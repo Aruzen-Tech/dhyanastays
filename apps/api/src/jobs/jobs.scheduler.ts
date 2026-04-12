@@ -27,7 +27,7 @@ export class JobsScheduler {
   @Cron(CronExpression.EVERY_MINUTE)
   async scheduleHoldExpiry() {
     this.logger.debug('Enqueuing hold-expiry job');
-    await this.holdExpiryQueue.add('expire', {}, { removeOnComplete: 100, removeOnFail: 50 });
+    await this.holdExpiryQueue.add('expire', {}, { removeOnComplete: 100, removeOnFail: 50, attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
   }
 
   /**
@@ -36,7 +36,7 @@ export class JobsScheduler {
   @Cron('0 */15 * * * *')
   async scheduleBalanceDue() {
     this.logger.debug('Enqueuing balance-due job');
-    await this.balanceDueQueue.add('check', {}, { removeOnComplete: 100, removeOnFail: 50 });
+    await this.balanceDueQueue.add('check', {}, { removeOnComplete: 100, removeOnFail: 50, attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
   }
 
   /**
@@ -48,7 +48,7 @@ export class JobsScheduler {
     await this.payoutEligibilityQueue.add(
       'mark',
       {},
-      { removeOnComplete: 100, removeOnFail: 50 },
+      { removeOnComplete: 100, removeOnFail: 50, attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
     );
   }
 
@@ -61,7 +61,7 @@ export class JobsScheduler {
     await this.weeklyPayoutQueue.add(
       'run',
       {},
-      { removeOnComplete: 10, removeOnFail: 20 },
+      { removeOnComplete: 10, removeOnFail: 20, attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
     );
   }
 }

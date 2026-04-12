@@ -96,12 +96,14 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       const result = await service.createBooking('guest-1', {
         holdId: 'hold-1',
         plan: 'FULL' as any,
         idempotencyKey: 'idem-1',
+        guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
       });
 
       expect(result.status).toBe('PAYMENT_PENDING');
@@ -137,12 +139,14 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       await service.createBooking('guest-1', {
         holdId: 'hold-1',
         plan: 'DEPOSIT_50' as any,
         idempotencyKey: 'idem-2',
+        guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
       });
 
       const createCall = txMock.booking.create.mock.calls[0][0];
@@ -176,6 +180,7 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       await expect(
@@ -183,6 +188,7 @@ describe('BookingService', () => {
           holdId: 'hold-1',
           plan: 'FULL' as any,
           idempotencyKey: 'idem-3',
+          guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
         }),
       ).rejects.toThrow('Hold has expired');
     });
@@ -206,6 +212,7 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       await expect(
@@ -213,6 +220,7 @@ describe('BookingService', () => {
           holdId: 'hold-1',
           plan: 'FULL' as any,
           idempotencyKey: 'idem-4',
+          guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
         }),
       ).rejects.toThrow('Hold belongs to another user');
     });
@@ -236,12 +244,14 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       const result = await service.createBooking('guest-1', {
         holdId: 'hold-1',
         plan: 'FULL' as any,
         idempotencyKey: 'idem-5',
+        guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
       });
 
       expect(result).toBe(existingBooking);
@@ -265,6 +275,7 @@ describe('BookingService', () => {
         auditMock as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       const count = await service.transitionToBalanceDue();
@@ -314,6 +325,7 @@ describe('BookingService', () => {
         auditMock as any,
         ledgerMock as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {
@@ -360,6 +372,7 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {});
@@ -393,6 +406,7 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       await expect(
@@ -418,6 +432,7 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
       );
 
       await expect(
