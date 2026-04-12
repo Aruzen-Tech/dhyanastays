@@ -63,7 +63,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       : {
           jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
           ignoreExpiration: false,
-          secretOrKey: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret',
+          secretOrKey: process.env.JWT_ACCESS_SECRET || (() => { throw new Error('JWT_ACCESS_SECRET is required'); })(),
           algorithms: ['HS256'] as const,
         };
 

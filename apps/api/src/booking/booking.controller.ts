@@ -5,10 +5,14 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { BookingService } from './booking.service';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
+import { ListingService } from '../listing/listing.service';
 
 @Controller('bookings')
 export class BookingController {
-  constructor(private readonly bookingService: BookingService) {}
+  constructor(
+    private readonly bookingService: BookingService,
+    private readonly listingService: ListingService,
+  ) {}
 
   /**
    * Guest creates a booking from a valid hold.
@@ -49,6 +53,15 @@ export class BookingController {
   }
 
   /**
+   * Guest gets preparation guide for a confirmed booking.
+   */
+  @Roles(UserRole.GUEST)
+  @Get(':id/preparation')
+  getPreparation(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.listingService.getPreparationForBooking(user.sub, id);
+  }
+
+  /**
    * Guest or Admin cancels a booking.
    */
   @Post(':id/cancel')
@@ -77,10 +90,14 @@ export class BookingController {
   getAllBookings(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
   ) {
     return this.bookingService.getAllBookings(
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 50,
+      status,
+      search,
     );
   }
 }

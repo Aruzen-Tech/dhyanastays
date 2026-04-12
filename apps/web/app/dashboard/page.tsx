@@ -9,23 +9,37 @@ import {
   bookingsApi,
   formatDate,
   formatINR,
+  guestApi,
   hostApi,
+  hostAnalyticsApi,
   listingsApi,
   payoutsApi,
 } from '../../lib/api';
-import type { Booking, Host, HostStatement, Listing } from '../../lib/types';
+import type { Booking, GuestDashboardStats, Host, HostStatement, HostStats, Listing, LoyaltyInfo } from '../../lib/types';
 
 // ─── Guest Dashboard ──────────────────────────────────────────────────────────
 
 function GuestDashboard() {
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [stats, setStats] = useState<GuestDashboardStats | null>(null);
+  const [hasPreferences, setHasPreferences] = useState(true);
+  const [loyalty, setLoyalty] = useState<LoyaltyInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    bookingsApi
-      .getMyBookings()
-      .then(setBookings)
+    Promise.all([
+      bookingsApi.getMyBookings(),
+      guestApi.getStats().catch(() => null),
+      guestApi.getPreferences().catch(() => null),
+      guestApi.getLoyalty().catch(() => null),
+    ])
+      .then(([bk, st, pref, loy]) => {
+        setBookings(bk);
+        setStats(st);
+        setHasPreferences(!!pref);
+        setLoyalty(loy);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -42,6 +56,95 @@ function GuestDashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Stats cards */}
+      {stats && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="card p-4 text-center">
+            <p className="text-xs text-gray-500 mb-1">Total Bookings</p>
+            <p className="text-xl font-bold text-brand-700">{stats.totalBookings}</p>
+          </div>
+          <div className="card p-4 text-center">
+            <p className="text-xs text-gray-500 mb-1">Upcoming Stays</p>
+            <p className="text-xl font-bold text-blue-600">{stats.upcomingStays}</p>
+          </div>
+          <div className="card p-4 text-center">
+            <p className="text-xs text-gray-500 mb-1">Completed</p>
+            <p className="text-xl font-bold text-green-600">{stats.completedStays}</p>
+          </div>
+          <div className="card p-4 text-center">
+            <p className="text-xs text-gray-500 mb-1">Total Spent</p>
+            <p className="text-xl font-bold text-amber-600">{formatINR(stats.totalSpent)}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Loyalty tier badge */}
+      {loyalty && (
+        <Link href="/guest/loyalty" className="card p-4 flex items-center gap-4 hover:shadow-card-hover transition-shadow"
+          style={{ borderLeft: `4px solid ${loyalty.color}` }}>
+          <span className="text-3xl">{loyalty.icon}</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-900 text-sm">{loyalty.label} Member</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {loyalty.nextTier
+                ? `${loyalty.staysToNext} more ${loyalty.staysToNext === 1 ? 'stay' : 'stays'} to ${loyalty.nextTier.charAt(0) + loyalty.nextTier.slice(1).toLowerCase()}`
+                : 'Highest tier — Sage'}
+            </p>
+          </div>
+          {loyalty.platformFeeDiscount > 0 && (
+            <span className="text-xs font-semibold text-green-700 bg-green-50 px-2 py-1 rounded-full whitespace-nowrap">
+              {Math.round(loyalty.platformFeeDiscount * 100)}% off fee
+            </span>
+          )}
+          <span className="text-gray-400 text-sm">→</span>
+        </Link>
+      )}
+
+      {/* Quick links */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Link href="/" className="card p-4 hover:shadow-card-hover transition-shadow group text-center">
+          <div className="text-2xl mb-1">&#127758;</div>
+          <p className="text-sm font-medium text-gray-700 group-hover:text-brand-700">Explore</p>
+        </Link>
+        <Link href="/guest/wishlist" className="card p-4 hover:shadow-card-hover transition-shadow group text-center">
+          <div className="text-2xl mb-1">&#10084;&#65039;</div>
+          <p className="text-sm font-medium text-gray-700 group-hover:text-brand-700">Wishlist</p>
+        </Link>
+        <Link href="/guest/reviews" className="card p-4 hover:shadow-card-hover transition-shadow group text-center">
+          <div className="text-2xl mb-1">&#11088;</div>
+          <p className="text-sm font-medium text-gray-700 group-hover:text-brand-700">My Reviews</p>
+        </Link>
+        <Link href="/guest/profile" className="card p-4 hover:shadow-card-hover transition-shadow group text-center">
+          <div className="text-2xl mb-1">&#128100;</div>
+          <p className="text-sm font-medium text-gray-700 group-hover:text-brand-700">Profile</p>
+        </Link>
+      </div>
+
+      {/* Referral banner */}
+      <Link href="/guest/referrals" className="card p-4 flex items-center gap-4 bg-amber-50 border border-amber-200 hover:shadow-card-hover transition-shadow">
+        <span className="text-2xl">🎁</span>
+        <div className="flex-1">
+          <p className="font-semibold text-amber-800 text-sm">Earn ₹500 per referral</p>
+          <p className="text-xs text-amber-700/70">Invite friends — they get ₹250 off their first stay too</p>
+        </div>
+        <span className="text-amber-400">→</span>
+      </Link>
+
+      {/* Preferences prompt */}
+      {!hasPreferences && (
+        <Link
+          href="/guest/preferences"
+          className="card p-4 flex items-center gap-4 bg-brand-50 border-brand-200 hover:shadow-card-hover transition-shadow"
+        >
+          <span className="text-2xl">🧘</span>
+          <div className="flex-1">
+            <p className="font-semibold text-brand-700 text-sm">Set Your Wellness Preferences</p>
+            <p className="text-xs text-brand-600/70">Help hosts personalise your retreat experience</p>
+          </div>
+          <span className="text-brand-400">→</span>
+        </Link>
+      )}
+
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-900">My Bookings</h2>
         <Link href="/" className="btn-primary text-sm">
@@ -123,6 +226,7 @@ function HostDashboard() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [statement, setStatement] = useState<HostStatement | null>(null);
   const [hostBookings, setHostBookings] = useState<Booking[]>([]);
+  const [stats, setStats] = useState<HostStats | null>(null);
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'listings' | 'bookings' | 'payouts'>('listings');
@@ -132,11 +236,13 @@ function HostDashboard() {
       hostApi.getProfile(),
       listingsApi.getHostListings(),
       payoutsApi.getHostStatements().catch(() => null),
+      hostAnalyticsApi.getStats().catch(() => null),
     ])
-      .then(([profile, ls, st]) => {
+      .then(([profile, ls, st, hostStats]) => {
         setHostProfile(profile);
         setListings(ls);
         setStatement(st);
+        setStats(hostStats);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -188,6 +294,54 @@ function HostDashboard() {
           <span className="text-green-600">✓</span>
           <p className="text-sm text-green-700 font-medium">Host profile verified</p>
         </div>
+      )}
+
+      {/* Quick Stats */}
+      {!loading && stats && verificationStatus === 'APPROVED' && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="card p-4 text-center">
+              <p className="text-xs text-gray-500 mb-1">Total Revenue</p>
+              <p className="text-xl font-bold text-brand-700">{formatINR(stats.totalRevenue)}</p>
+            </div>
+            <div className="card p-4 text-center">
+              <p className="text-xs text-gray-500 mb-1">Earned (Paid Out)</p>
+              <p className="text-xl font-bold text-green-600">{formatINR(stats.totalEarned)}</p>
+            </div>
+            <div className="card p-4 text-center">
+              <p className="text-xs text-gray-500 mb-1">Occupancy (30d)</p>
+              <p className="text-xl font-bold text-amber-600">{stats.occupancyRate}%</p>
+            </div>
+            <div className="card p-4 text-center">
+              <p className="text-xs text-gray-500 mb-1">Upcoming Check-ins</p>
+              <p className="text-xl font-bold text-blue-600">{stats.upcomingCheckins}</p>
+            </div>
+          </div>
+
+          {/* Quick Links */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Link href="/host/analytics" className="card p-4 hover:shadow-card-hover transition-shadow group text-center">
+              <div className="text-2xl mb-1">📊</div>
+              <p className="text-sm font-medium text-gray-700 group-hover:text-brand-700">Analytics</p>
+            </Link>
+            <Link href="/host/calendar" className="card p-4 hover:shadow-card-hover transition-shadow group text-center">
+              <div className="text-2xl mb-1">📅</div>
+              <p className="text-sm font-medium text-gray-700 group-hover:text-brand-700">Calendar</p>
+            </Link>
+            <Link href="/host/performance" className="card p-4 hover:shadow-card-hover transition-shadow group text-center">
+              <div className="text-2xl mb-1">📈</div>
+              <p className="text-sm font-medium text-gray-700 group-hover:text-brand-700">Performance</p>
+            </Link>
+            <Link href="/host/forecast" className="card p-4 hover:shadow-card-hover transition-shadow group text-center">
+              <div className="text-2xl mb-1">🔮</div>
+              <p className="text-sm font-medium text-gray-700 group-hover:text-brand-700">Forecast</p>
+            </Link>
+            <Link href="/host/messages" className="card p-4 hover:shadow-card-hover transition-shadow group text-center">
+              <div className="text-2xl mb-1">💬</div>
+              <p className="text-sm font-medium text-gray-700 group-hover:text-brand-700">Messages</p>
+            </Link>
+          </div>
+        </>
       )}
 
       {/* Tabs */}

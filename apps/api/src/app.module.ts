@@ -18,7 +18,14 @@ import { JobsModule } from './jobs/jobs.module';
 import { NotificationModule } from './notification/notification.module';
 import { StorageModule } from './storage/storage.module';
 import { AdminModule } from './admin/admin.module';
+import { GuestModule } from './guest/guest.module';
+import { HostAnalyticsModule } from './host-analytics/host-analytics.module';
+import { MessagingModule } from './messaging/messaging.module';
+import { GuestAssistanceModule } from './guest-assistance/guest-assistance.module';
+import { ReferralModule } from './referral/referral.module';
 import { ThrottleTrackerInterceptor } from './common/interceptors/throttle-tracker.interceptor';
+import { LoggerModule } from './common/logger/logger.module';
+import { DlqModule } from './common/queues/dlq.module';
 import { envValidationSchema } from './config/env.validation';
 
 /** Quick TCP check — resolves true if Redis port is reachable AND version >= 5.0 */
@@ -69,7 +76,7 @@ export class AppModule {
       );
     }
 
-    const redisImports: Array<DynamicModule | typeof JobsModule> = redisUp
+    const redisImports: Array<DynamicModule | typeof JobsModule | typeof DlqModule> = redisUp
       ? [
           BullModule.forRootAsync({
             inject: [ConfigService],
@@ -83,6 +90,7 @@ export class AppModule {
             }),
           }),
           JobsModule,
+          DlqModule,
         ]
       : [];
 
@@ -113,6 +121,9 @@ export class AppModule {
           ],
         }),
 
+        // Structured logging
+        LoggerModule,
+
         // Core infrastructure
         PrismaModule,
         CommonModule,
@@ -132,6 +143,21 @@ export class AppModule {
 
         // Admin console
         AdminModule,
+
+        // Guest features (profile, wishlist, reviews, notifications)
+        GuestModule,
+
+        // Host analytics & notifications
+        HostAnalyticsModule,
+
+        // Messaging (Guest↔Host, Host↔Admin)
+        MessagingModule,
+
+        // Guest Assistance (directions, manual, issues, check-in/out)
+        GuestAssistanceModule,
+
+        // Referral system & credit ledger
+        ReferralModule,
 
         // Redis-dependent modules (BullMQ + Jobs) — only if Redis is reachable
         ...redisImports,

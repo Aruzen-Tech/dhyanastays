@@ -83,6 +83,18 @@ export interface AvailabilityBlock {
   createdAt: string;
 }
 
+export interface Tag {
+  id: string;
+  category: string;
+  name: string;
+}
+
+export interface ListingTag {
+  listingId: string;
+  tagId: string;
+  tag: Tag;
+}
+
 export interface Listing {
   id: string;
   hostId: string;
@@ -92,6 +104,8 @@ export interface Listing {
   city: string;
   state: string;
   country: string;
+  latitude?: number | null;
+  longitude?: number | null;
   timezone: string;
   status: ListingStatus;
   needsReapproval: boolean;
@@ -100,6 +114,7 @@ export interface Listing {
   rateRules?: RateRule[];
   media?: ListingMedia[];
   seasonalRates?: SeasonalRate[];
+  tags?: ListingTag[];
 }
 
 // ─── Pricing ─────────────────────────────────────────────────────────────────
@@ -233,6 +248,32 @@ export interface HostStatement {
   lines: PayoutLine[];
   totalEarned: number;
   totalPending: number;
+}
+
+export interface PayoutDryRunHost {
+  hostId: string;
+  hostName: string;
+  hostEmail: string;
+  lineCount: number;
+  amount: number;
+}
+
+export interface PayoutDryRun {
+  lineCount: number;
+  totalAmount: number;
+  hostCount: number;
+  breakdown: PayoutDryRunHost[];
+}
+
+export interface RefundValidation {
+  bookingId: string;
+  status: string;
+  listingTitle: string;
+  guestName: string;
+  guestEmail: string;
+  totalPaid: number;
+  totalRefunded: number;
+  maxRefundable: number;
 }
 
 // ─── Admin Dashboard ────────────────────────────────────────────────────────
@@ -409,6 +450,367 @@ export interface RevenueForecast {
   expectedDeposits: number;
   expectedBalance: number;
   bookingCount: number;
+}
+
+// ─── Host Analytics ─────────────────────────────────────────────────────────
+
+export interface HostStats {
+  totalListings: number;
+  activeListings: number;
+  totalBookings: number;
+  totalRevenue: number;
+  totalEarned: number;
+  occupancyRate: number;
+  upcomingCheckins: number;
+}
+
+export interface HostRevenueDataPoint {
+  period: string;
+  revenue: number;
+  bookings: number;
+}
+
+export interface HostListingPerformance {
+  listingId: string;
+  title: string;
+  city: string;
+  state: string;
+  status: ListingStatus;
+  baseRate: number;
+  totalBookings: number;
+  totalRevenue: number;
+  occupancyRate: number;
+  bookedDays30: number;
+}
+
+export interface HostForecastBucket {
+  label: string;
+  days: number;
+  revenue: number;
+  bookings: number;
+}
+
+export interface HostCalendarBooking {
+  id: string;
+  listingId: string;
+  startsAt: string;
+  endsAt: string;
+  status: BookingStatus;
+  priceSnapshot: PriceQuote;
+  listing: { id: string; title: string; city: string };
+  guest: { fullName: string; email: string };
+}
+
+export interface HostBookingRow {
+  id: string;
+  listingId: string;
+  guestId: string;
+  startsAt: string;
+  endsAt: string;
+  status: BookingStatus;
+  plan: PaymentPlan;
+  priceSnapshot: PriceQuote;
+  createdAt: string;
+  listing: { id: string; title: string; city: string; state: string };
+  guest: { fullName: string; email: string };
+  payments: Payment[];
+}
+
+export interface HostNotification {
+  id: string;
+  hostId: string;
+  type: string;
+  title: string;
+  message: string;
+  metadata: Record<string, unknown>;
+  isRead: boolean;
+  createdAt: string;
+}
+
+// ─── Guest Profile ──────────────────────────────────────────────────────────
+
+export interface GuestProfile {
+  id: string;
+  email: string;
+  fullName: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  role: UserRole;
+  createdAt: string;
+  _count: {
+    bookings: number;
+    reviews: number;
+    wishlists: number;
+  };
+}
+
+export interface GuestDashboardStats {
+  totalBookings: number;
+  upcomingStays: number;
+  completedStays: number;
+  totalSpent: number;
+}
+
+// ─── Wishlist ───────────────────────────────────────────────────────────────
+
+export interface WishlistItem {
+  id: string;
+  listingId: string;
+  createdAt: string;
+  listing: {
+    id: string;
+    title: string;
+    city: string;
+    state: string;
+    status: ListingStatus;
+    media: ListingMedia[];
+    rateRules: { baseNightlyRate: number; maxGuests: number }[];
+  };
+}
+
+// ─── Reviews ────────────────────────────────────────────────────────────────
+
+export interface Review {
+  id: string;
+  bookingId: string;
+  userId: string;
+  listingId: string;
+  rating: number;
+  comment: string | null;
+  createdAt: string;
+  updatedAt: string;
+  user?: { fullName: string; avatarUrl: string | null };
+  listing?: { id: string; title: string; city: string; state: string };
+}
+
+export interface ListingReviews {
+  reviews: Review[];
+  avgRating: number;
+  count: number;
+}
+
+// ─── Guest Notification ─────────────────────────────────────────────────────
+
+export interface GuestNotification {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  message: string;
+  metadata: Record<string, unknown>;
+  isRead: boolean;
+  createdAt: string;
+}
+
+// ─── Messaging ─────────────────────────────────────────────────────────────
+
+export interface MessageUser {
+  id: string;
+  fullName: string;
+  role: UserRole;
+  avatarUrl: string | null;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  senderRole: UserRole;
+  body: string;
+  isRead: boolean;
+  createdAt: string;
+  sender: MessageUser;
+}
+
+export interface Conversation {
+  id: string;
+  type: 'GUEST_HOST' | 'HOST_ADMIN';
+  subject: string | null;
+  userOne: MessageUser;
+  userTwo: MessageUser;
+  listing: { id: string; title: string } | null;
+  booking: { id: string; status: BookingStatus; startsAt: string; endsAt: string } | null;
+  messages: ConversationMessage[];
+  updatedAt: string;
+}
+
+export interface ConversationListItem {
+  id: string;
+  type: 'GUEST_HOST' | 'HOST_ADMIN';
+  subject: string | null;
+  otherUser: MessageUser;
+  listing: { id: string; title: string } | null;
+  lastMessage: { body: string; createdAt: string; senderId: string; isRead: boolean } | null;
+  unreadCount: number;
+  updatedAt: string;
+}
+
+// ─── Guest Preferences ─────────────────────────────────────────────────────
+
+export interface GuestPreference {
+  id: string;
+  userId: string;
+  dietaryNeeds: string[];
+  wellnessInterests: string[];
+  accessibility: string | null;
+  roomPreference: string | null;
+  experienceLevel: string | null;
+  arrivalPreference: string | null;
+  emergencyContact: { name: string; phone: string; relation: string } | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Preparation Guide ────────────────────────────────────────────────────
+
+export interface PreparationGuide {
+  packingList?: string[];
+  whatToExpect?: string;
+  dailySchedule?: string;
+  dietaryInfo?: string;
+  arrivalInstructions?: string;
+  additionalNotes?: string;
+}
+
+export interface BookingPreparation {
+  bookingId: string;
+  listingTitle: string;
+  preparationGuide: PreparationGuide | null;
+}
+
+// ─── Guest Assistance ─────────────────────────────────────────────────────────
+
+export interface PropertyDirections {
+  address?: string;
+  gpsLat?: number;
+  gpsLng?: number;
+  landmarks?: string;
+  transportOptions?: string;
+  parkingInfo?: string;
+  nearestAirport?: string;
+  nearestStation?: string;
+  additionalNotes?: string;
+}
+
+export interface BookingDirections {
+  bookingId: string;
+  listingTitle: string;
+  propertyDirections: PropertyDirections | null;
+}
+
+export interface ManualSection {
+  title: string;
+  content: string;
+}
+
+export interface PropertyManual {
+  sections: ManualSection[];
+}
+
+export interface BookingManual {
+  bookingId: string;
+  listingTitle: string;
+  propertyManual: PropertyManual | null;
+}
+
+export type IssueCategory = 'MAINTENANCE' | 'CLEANLINESS' | 'NOISE' | 'SAFETY' | 'OTHER';
+export type IssueUrgency = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+export type IssueStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
+
+export interface GuestIssue {
+  id: string;
+  bookingId: string;
+  listingId: string;
+  guestId: string;
+  category: IssueCategory;
+  description: string;
+  urgency: IssueUrgency;
+  photoUrl: string | null;
+  status: IssueStatus;
+  hostNotes: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  listing?: { id: string; title: string };
+  guest?: { fullName: string; email: string };
+  booking?: { id: string; startsAt: string; endsAt: string };
+}
+
+export interface CheckInData {
+  confirmedName: string;
+  arrivalTime: string;
+  specialNotes: string | null;
+  checkedInAt: string;
+}
+
+export interface CheckOutData {
+  feedback: string | null;
+  conditionNotes: string | null;
+  checkedOutAt: string;
+}
+
+export interface CheckInOutStatus {
+  bookingId: string;
+  checkInData: CheckInData | null;
+  checkOutData: CheckOutData | null;
+  canCheckIn: boolean;
+  canCheckOut: boolean;
+}
+
+// ─── Referral & Credits ─────────────────────────────────────────────────────
+
+export type ReferralStatus = 'PENDING' | 'SIGNED_UP' | 'FIRST_BOOKING' | 'CREDITED';
+
+export interface ReferralEntry {
+  id: string;
+  guestName: string;
+  status: ReferralStatus;
+  credit: number; // paise
+  creditedAt: string | null;
+  createdAt: string;
+}
+
+export interface ReferralInfo {
+  referralCode: string;
+  shareUrl: string;
+  referrerReward: number; // paise
+  referredReward: number; // paise
+  totalReferrals: number;
+  creditedReferrals: number;
+  totalEarned: number; // paise
+  creditBalance: number; // paise
+  referrals: ReferralEntry[];
+}
+
+export interface CreditLedgerEntry {
+  id: string;
+  amount: number; // paise
+  reason: string;
+  referenceId: string | null;
+  createdAt: string;
+}
+
+export interface CreditLedger {
+  balance: number; // paise
+  entries: CreditLedgerEntry[];
+}
+
+// ─── Loyalty Tier ──────────────────────────────────────────────────────────────
+
+export type LoyaltyTier = 'SEEKER' | 'PRACTITIONER' | 'SAGE';
+
+export interface LoyaltyInfo {
+  tier: LoyaltyTier;
+  label: string;
+  icon: string;
+  description: string;
+  color: string;
+  completedStays: number;
+  nextTier: string | null;
+  staysToNext: number;
+  platformFeeDiscount: number;
+  benefits: string[];
 }
 
 // ─── API responses ───────────────────────────────────────────────────────────

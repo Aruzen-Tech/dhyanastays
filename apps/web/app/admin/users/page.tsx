@@ -34,6 +34,7 @@ export default function AdminUsersPage() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [actionLoading, setActionLoading] = useState('');
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -85,29 +86,34 @@ export default function AdminUsersPage() {
 
   // ─── Actions ─────────────────────────────────────────────────────────────
 
+  const clearRowError = (userId: string) =>
+    setRowErrors((prev) => { const n = { ...prev }; delete n[userId]; return n; });
+
   const handleDeactivate = async (userId: string) => {
-    if (!confirm('Deactivate this user? They will lose access to the platform.')) return;
+    clearRowError(userId);
     setActionLoading(userId);
     try {
       const updated = await adminApi.deactivateUser(userId);
       setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
       showToast('User deactivated', 'success');
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Action failed', 'error');
+      const msg = e instanceof Error ? e.message : 'Action failed';
+      setRowErrors((prev) => ({ ...prev, [userId]: msg }));
     } finally {
       setActionLoading('');
     }
   };
 
   const handleActivate = async (userId: string) => {
-    if (!confirm('Activate this user? They will regain access to the platform.')) return;
+    clearRowError(userId);
     setActionLoading(userId);
     try {
       const updated = await adminApi.activateUser(userId);
       setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
       showToast('User activated', 'success');
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Action failed', 'error');
+      const msg = e instanceof Error ? e.message : 'Action failed';
+      setRowErrors((prev) => ({ ...prev, [userId]: msg }));
     } finally {
       setActionLoading('');
     }
@@ -151,14 +157,19 @@ export default function AdminUsersPage() {
       (u) => ids.includes(u.id) && u.role !== 'ADMIN' && u.isActive,
     );
     if (deactivatable.length === 0) {
-      alert('No selected users are eligible for deactivation (admins and already-inactive users are excluded).');
+      showToast('No selected users are eligible (admins and inactive users excluded)', 'error');
       return;
     }
-    if (!confirm(`Deactivate ${deactivatable.length} user(s)?`)) return;
     setActionLoading('bulk');
     try {
       const result = await adminApi.bulkDeactivateUsers(deactivatable.map((u) => u.id));
-      showToast(`${result.count} user(s) deactivated`, 'success');
+      const skipped = deactivatable.length - result.count;
+      showToast(
+        skipped > 0
+          ? `${result.count} deactivated · ${skipped} skipped (already inactive or protected)`
+          : `${result.count} user(s) deactivated`,
+        'success',
+      );
       setSelected(new Set());
       loadUsers(page);
     } catch (e: unknown) {
@@ -391,21 +402,31 @@ export default function AdminUsersPage() {
                         {u.role === 'ADMIN' ? (
                           <span className="text-xs text-gray-400 font-medium">Admin</span>
                         ) : u.isActive ? (
-                          <button
-                            onClick={() => handleDeactivate(u.id)}
-                            disabled={isProcessing}
-                            className="btn-danger text-xs py-1 px-3"
-                          >
-                            {isProcessing ? <span className="spinner" /> : 'Deactivate'}
-                          </button>
+                          <div>
+                            <button
+                              onClick={() => handleDeactivate(u.id)}
+                              disabled={isProcessing}
+                              className="btn-danger text-xs py-1 px-3"
+                            >
+                              {isProcessing ? <span className="spinner" /> : 'Deactivate'}
+                            </button>
+                            {rowErrors[u.id] && (
+                              <p className="text-xs text-red-600 mt-1 max-w-[140px]">{rowErrors[u.id]}</p>
+                            )}
+                          </div>
                         ) : (
-                          <button
-                            onClick={() => handleActivate(u.id)}
-                            disabled={isProcessing}
-                            className="text-xs py-1 px-3 rounded-lg font-medium bg-green-50 text-green-700 hover:bg-green-100 transition-colors disabled:opacity-40"
-                          >
-                            {isProcessing ? <span className="spinner" /> : 'Activate'}
-                          </button>
+                          <div>
+                            <button
+                              onClick={() => handleActivate(u.id)}
+                              disabled={isProcessing}
+                              className="text-xs py-1 px-3 rounded-lg font-medium bg-green-50 text-green-700 hover:bg-green-100 transition-colors disabled:opacity-40"
+                            >
+                              {isProcessing ? <span className="spinner" /> : 'Activate'}
+                            </button>
+                            {rowErrors[u.id] && (
+                              <p className="text-xs text-red-600 mt-1 max-w-[140px]">{rowErrors[u.id]}</p>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>

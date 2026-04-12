@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { BookingService } from '../booking/booking.service';
 import { AuditService } from '../common/services/audit.service';
+import { PriceSnapshotSignerService } from '../common/services/price-snapshot-signer.service';
 import { RazorpayService } from './razorpay.service';
 import { InitPaymentDto, PaymentTypeDto } from './dto/init-payment.dto';
 import { PriceSnapshot } from '../pricing/dto/quote.dto';
@@ -25,6 +26,7 @@ export class PaymentService {
     private readonly bookingService: BookingService,
     private readonly auditService: AuditService,
     private readonly razorpay: RazorpayService,
+    private readonly snapshotSigner: PriceSnapshotSignerService,
   ) {}
 
   /**
@@ -52,6 +54,14 @@ export class PaymentService {
     if (booking.guestId !== guestId) throw new ForbiddenException('Access denied');
 
     const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
+
+    // Verify price snapshot integrity — reject if tampered
+    if (snapshot.hmac) {
+      const { hmac, ...snapshotWithoutHmac } = snapshot;
+      if (!this.snapshotSigner.verify(snapshotWithoutHmac as unknown as Record<string, unknown>, hmac)) {
+        throw new BadRequestException('Price snapshot tampered — payment rejected');
+      }
+    }
 
     // Determine amount based on payment type
     let amountInr: number;
@@ -285,68 +295,4 @@ export class PaymentService {
     });
   }
 
-  /**
-   * LOCAL DEV ONLY — simulate Razorpay payment.captured webhook.
-   * Only available when Razorpay is in stub mode (no real credentials).
-   * Transitions: payment INITIATED → CAPTURED, booking PAYMENT_PENDING → CONFIRMED_*
-   */
-  async stubConfirm(paymentId: string) {
-    if (!this.razorpay.isStubMode()) {
-      throw new BadRequestException(
-        'stub-confirm is only available in stub mode (local dev). ' +
-          'Use the real Razorpay webhook in production.',
-      );
-    }
-
-    const payment = await this.prisma.payment.findUnique({
-      where: { id: paymentId },
-    });
-    if (!payment) throw new NotFoundException('Payment not found');
-
-    // Idempotent — already confirmed
-    if (payment.status === 'CAPTURED') {
-      return { payment, message: 'Already captured (idempotent)' };
-    }
-
-    if (payment.status !== 'INITIATED') {
-      throw new BadRequestException(
-        `Cannot confirm payment in status: ${payment.status}`,
-      );
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updatedPayment = await (this.prisma as any).$transaction(async (tx: TxClient) => {
-      const p = await tx.payment.update({
-        where: { id: paymentId },
-        data: {
-          status: 'CAPTURED',
-          gatewayPaymentRef: `stub_pay_${paymentId}`,
-        },
-      });
-
-      await this.bookingService.confirmPayment(
-        payment.bookingId,
-        paymentId,
-        payment.amount,
-        tx,
-      );
-
-      await this.auditService.log(
-        null,
-        'PAYMENT_STUB_CONFIRMED',
-        'payment',
-        paymentId,
-        { bookingId: payment.bookingId, amount: payment.amount },
-        tx,
-      );
-
-      return p;
-    });
-
-    this.logger.log(
-      `[STUB] Payment ${paymentId} confirmed for booking ${payment.bookingId}`,
-    );
-
-    return { payment: updatedPayment, message: 'Stub payment confirmed' };
-  }
 }

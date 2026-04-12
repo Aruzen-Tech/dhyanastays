@@ -85,6 +85,13 @@ export class AdminController {
   }
 
   // ── Feature 3: Refunds ──
+
+  /** GET /api/admin/refunds/validate/:bookingId — pre-validate booking before issuing refund */
+  @Get('refunds/validate/:bookingId')
+  validateRefundBooking(@Param('bookingId') bookingId: string) {
+    return this.adminService.validateRefundBooking(bookingId);
+  }
+
   @Get('refunds')
   getRefunds(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.adminService.getRefunds(

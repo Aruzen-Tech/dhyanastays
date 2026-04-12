@@ -2,19 +2,32 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
+import WishlistButton from '../../../components/WishlistButton';
+
+const ListingMap = dynamic(() => import('../../../components/ListingMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-[300px] rounded-xl bg-gray-100 animate-pulse flex items-center justify-center">
+      <span className="text-gray-400">Loading map...</span>
+    </div>
+  ),
+});
 import {
   bookingsApi,
   formatDate,
   formatINR,
   generateUUID,
+  guestMessagingApi,
   holdsApi,
   listingsApi,
   paymentsApi,
   pricingApi,
+  reviewsApi,
 } from '../../../lib/api';
-import type { Booking, GuestDetails, Hold, Listing, PriceQuote } from '../../../lib/types';
+import type { Booking, GuestDetails, Hold, Listing, ListingReviews, PriceQuote } from '../../../lib/types';
 
 // ─── Razorpay type declaration ────────────────────────────────────────────────
 
@@ -74,6 +87,20 @@ function HeroPlaceholder({ id, city, state, title }: { id: string; city: string;
   );
 }
 
+function StarDisplay({ rating, size = 'sm' }: { rating: number; size?: 'sm' | 'md' }) {
+  const cls = size === 'sm' ? 'w-4 h-4' : 'w-5 h-5';
+  return (
+    <div className="flex gap-0.5">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <svg key={star} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
+          fill={star <= Math.round(rating) ? '#f59e0b' : '#e5e7eb'} className={cls}>
+          <path d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.007 5.404.433c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.433 2.082-5.006z" />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
 type Step = 'details' | 'quote' | 'guestdetails' | 'booking' | 'payment' | 'confirmed';
 
 export default function ListingDetailPage() {
@@ -103,6 +130,7 @@ export default function ListingDetailPage() {
   });
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [listingReviews, setListingReviews] = useState<ListingReviews | null>(null);
 
   useEffect(() => {
     listingsApi
@@ -110,6 +138,10 @@ export default function ListingDetailPage() {
       .then(setListing)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+
+    reviewsApi.getListingReviews(id)
+      .then(setListingReviews)
+      .catch(() => {});
   }, [id]);
 
   const today = new Date().toISOString().split('T')[0];
@@ -188,41 +220,35 @@ export default function ListingDetailPage() {
         idempotencyKey: generateUUID(),
       });
 
-      if (result.razorpayOrderId?.startsWith('stub_')) {
-        // Dev stub mode — auto confirm
-        await paymentsApi.stubConfirm(result.paymentId);
-        setStep('confirmed');
-      } else {
-        // Production: open real Razorpay Checkout
-        await loadRazorpayScript();
-        await new Promise<void>((resolve, reject) => {
-          const options = {
-            key: result.keyId,
-            amount: result.amount,
-            currency: result.currency,
-            order_id: result.razorpayOrderId,
-            name: 'Dhyana Stays',
-            description: `Booking ${booking.id.slice(0, 8)}`,
-            image: '/logo.png',
-            prefill: {
-              name: guestDetails.fullName,
-              email: guestDetails.email || undefined,
-              contact: guestDetails.phone,
-            },
-            theme: { color: '#1a5c4a' },
-            handler: () => {
-              // Payment captured — webhook will confirm booking asynchronously
-              resolve();
-            },
-            modal: {
-              ondismiss: () => reject(new Error('Payment was cancelled. Your booking is saved — you can pay later from your dashboard.')),
-            },
-          };
-          const rzp = new window.Razorpay(options);
-          rzp.open();
-        });
-        setStep('confirmed');
-      }
+      // Open Razorpay Checkout
+      await loadRazorpayScript();
+      await new Promise<void>((resolve, reject) => {
+        const options = {
+          key: result.keyId,
+          amount: result.amount,
+          currency: result.currency,
+          order_id: result.razorpayOrderId,
+          name: 'Dhyana Stays',
+          description: `Booking ${booking.id.slice(0, 8)}`,
+          image: '/logo.png',
+          prefill: {
+            name: guestDetails.fullName,
+            email: guestDetails.email || undefined,
+            contact: guestDetails.phone,
+          },
+          theme: { color: '#1a5c4a' },
+          handler: () => {
+            // Payment captured — webhook will confirm booking asynchronously
+            resolve();
+          },
+          modal: {
+            ondismiss: () => reject(new Error('Payment was cancelled. Your booking is saved — you can pay later from your dashboard.')),
+          },
+        };
+        const rzp = new window.Razorpay(options);
+        rzp.open();
+      });
+      setStep('confirmed');
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Payment failed');
     } finally {
@@ -288,15 +314,49 @@ export default function ListingDetailPage() {
             </div>
           )}
 
-          {/* Title + status */}
+          {/* Title + status + wishlist */}
           <div className="flex items-start justify-between gap-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">{listing.title}</h1>
-              <p className="text-gray-500 mt-1">
-                📍 {listing.city}, {listing.state}, {listing.country}
-              </p>
+              <div className="flex items-center gap-3 mt-1">
+                <p className="text-gray-500">
+                  📍 {listing.city}, {listing.state}, {listing.country}
+                </p>
+                {listingReviews && listingReviews.count > 0 && (
+                  <span className="flex items-center gap-1 text-sm text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#f59e0b" className="w-4 h-4">
+                      <path d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.007 5.404.433c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.433 2.082-5.006z" />
+                    </svg>
+                    {listingReviews.avgRating} ({listingReviews.count})
+                  </span>
+                )}
+              </div>
             </div>
-            <StatusBadge status={listing.status} />
+            <div className="flex items-center gap-2">
+              {user?.role === 'GUEST' && (listing as any).host?.userId && (
+                <button
+                  onClick={() => {
+                    const hostUserId = (listing as any).host.userId;
+                    guestMessagingApi
+                      .startConversation({
+                        recipientId: hostUserId,
+                        listingId: listing.id,
+                        message: `Hi, I have a question about "${listing.title}"`,
+                      })
+                      .then((conv) => router.push(`/guest/messages/${conv.id}`))
+                      .catch((e: Error) => alert(e.message));
+                  }}
+                  className="btn-ghost text-sm flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                  Message Host
+                </button>
+              )}
+              <WishlistButton listingId={listing.id} size="md" className="!text-gray-400 hover:!text-red-500" />
+              <StatusBadge status={listing.status} />
+            </div>
           </div>
 
           {/* Description */}
@@ -304,6 +364,34 @@ export default function ListingDetailPage() {
             <h2 className="font-semibold text-gray-900 mb-3">About this stay</h2>
             <p className="text-gray-600 leading-relaxed">{listing.description}</p>
           </div>
+
+          {/* Tags / Amenities */}
+          {listing.tags && listing.tags.length > 0 && (() => {
+            const byCategory: Record<string, string[]> = {};
+            listing.tags!.forEach((lt) => {
+              if (!byCategory[lt.tag.category]) byCategory[lt.tag.category] = [];
+              byCategory[lt.tag.category].push(lt.tag.name);
+            });
+            return (
+              <div className="card p-6">
+                <h2 className="font-semibold text-gray-900 mb-4">Amenities &amp; Features</h2>
+                <div className="space-y-3">
+                  {Object.entries(byCategory).map(([category, names]) => (
+                    <div key={category}>
+                      <p className="text-xs text-gray-400 capitalize mb-1.5">{category}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {names.map((name) => (
+                          <span key={name} className="px-3 py-1 bg-brand-50 text-brand-700 rounded-full text-xs font-medium border border-brand-100">
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Details grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -319,6 +407,20 @@ export default function ListingDetailPage() {
               </div>
             ))}
           </div>
+
+          {/* Location map */}
+          {listing.latitude && listing.longitude && (
+            <div className="card p-6">
+              <h2 className="font-semibold text-gray-900 mb-3">Location</h2>
+              <ListingMap
+                listings={[listing]}
+                height="300px"
+                center={[listing.latitude, listing.longitude]}
+                zoom={13}
+                interactive={true}
+              />
+            </div>
+          )}
 
           {/* Seasonal rates (if any) */}
           {listing.seasonalRates && listing.seasonalRates.length > 0 && (
@@ -355,6 +457,47 @@ export default function ListingDetailPage() {
               </li>
             </ul>
           </div>
+
+          {/* Guest reviews */}
+          {listingReviews && listingReviews.count > 0 && (
+            <div className="card p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="font-semibold text-gray-900">
+                  Guest reviews ({listingReviews.count})
+                </h2>
+                <div className="flex items-center gap-2">
+                  <StarDisplay rating={listingReviews.avgRating} size="md" />
+                  <span className="font-bold text-gray-900">{listingReviews.avgRating}</span>
+                </div>
+              </div>
+              <div className="space-y-4">
+                {listingReviews.reviews.slice(0, 5).map((review) => (
+                  <div key={review.id} className="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                    <div className="flex items-center gap-3 mb-1.5">
+                      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-sm font-bold text-gray-500">
+                        {(review.user?.fullName ?? 'G').charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{review.user?.fullName ?? 'Guest'}</p>
+                        <div className="flex items-center gap-2">
+                          <StarDisplay rating={review.rating} />
+                          <span className="text-xs text-gray-400">{formatDate(review.createdAt)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    {review.comment && (
+                      <p className="text-sm text-gray-600 ml-11">{review.comment}</p>
+                    )}
+                  </div>
+                ))}
+                {listingReviews.count > 5 && (
+                  <p className="text-sm text-gray-400 text-center">
+                    Showing 5 of {listingReviews.count} reviews
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right: Booking panel */}

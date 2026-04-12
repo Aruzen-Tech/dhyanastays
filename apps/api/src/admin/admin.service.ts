@@ -320,6 +320,36 @@ export class AdminService {
   }
 
   // ── Feature 3: Refunds ──
+
+  /** Pre-validate a booking before issuing a refund — returns max refundable amount */
+  async validateRefundBooking(bookingId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        listing: { select: { title: true } },
+        guest: { select: { fullName: true, email: true } },
+        payments: { where: { status: 'CAPTURED' } },
+        refunds: true,
+      },
+    });
+    if (!booking) throw new BadRequestException('Booking not found');
+
+    const totalPaid = booking.payments.reduce((s, p) => s + p.amount, 0);
+    const totalRefunded = booking.refunds.reduce((s, r) => s + r.amount, 0);
+    const maxRefundable = totalPaid - totalRefunded;
+
+    return {
+      bookingId,
+      status: booking.status,
+      listingTitle: booking.listing?.title ?? '',
+      guestName: booking.guest?.fullName ?? '',
+      guestEmail: booking.guest?.email ?? '',
+      totalPaid,
+      totalRefunded,
+      maxRefundable,
+    };
+  }
+
   async getRefunds(page: number, limit: number) {
     const [refunds, total] = await Promise.all([
       this.prisma.refund.findMany({

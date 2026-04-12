@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dhyana Stays — Development Report</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f8fafc; color: #1e293b; line-height: 1.6; }
+  .page { max-width: 960px; margin: 0 auto; padding: 40px 32px; }
+
+  /* Header */
+  .report-header { background: linear-gradient(135deg, #1a5c4a 0%, #2d8268 60%, #d97706 100%); color: white; border-radius: 16px; padding: 48px 40px; margin-bottom: 40px; }
+  .report-header h1 { font-size: 2.4rem; font-weight: 700; margin-bottom: 8px; }
+  .report-header .subtitle { font-size: 1.1rem; opacity: 0.85; margin-bottom: 24px; }
+  .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 24px; }
+  .meta-card { background: rgba(255,255,255,0.15); border-radius: 10px; padding: 16px; text-align: center; }
+  .meta-card .num { font-size: 2rem; font-weight: 700; }
+  .meta-card .label { font-size: 0.75rem; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 2px; }
+
+  /* Download button */
+  .download-bar { text-align: center; margin-bottom: 32px; }
+  .btn-download { display: inline-block; background: #1a5c4a; color: white; padding: 12px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 0.95rem; cursor: pointer; border: none; }
+  .btn-download:hover { background: #155241; }
+
+  /* TOC */
+  .toc { background: white; border-radius: 12px; padding: 28px 32px; margin-bottom: 32px; border: 1px solid #e2e8f0; }
+  .toc h2 { font-size: 1.1rem; font-weight: 700; color: #1a5c4a; margin-bottom: 16px; }
+  .toc ol { padding-left: 20px; }
+  .toc li { margin-bottom: 6px; }
+  .toc a { color: #1a5c4a; text-decoration: none; font-size: 0.9rem; }
+  .toc a:hover { text-decoration: underline; }
+
+  /* Sections */
+  .section { background: white; border-radius: 12px; padding: 32px; margin-bottom: 24px; border: 1px solid #e2e8f0; }
+  .section h2 { font-size: 1.4rem; font-weight: 700; color: #1a5c4a; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 2px solid #e2e8f0; }
+  .section h3 { font-size: 1.05rem; font-weight: 600; color: #334155; margin: 20px 0 10px; }
+  .section p { color: #475569; margin-bottom: 12px; font-size: 0.92rem; }
+
+  /* Status badges */
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .badge-done { background: #dcfce7; color: #166534; }
+  .badge-partial { background: #fef9c3; color: #854d0e; }
+  .badge-future { background: #e0f2fe; color: #075985; }
+
+  /* Feature tables */
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-bottom: 16px; }
+  th { background: #f1f5f9; color: #64748b; font-weight: 600; padding: 10px 12px; text-align: left; border-bottom: 2px solid #e2e8f0; }
+  td { padding: 9px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafafa; }
+
+  /* Feature grid */
+  .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }
+  .feature-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; }
+  .feature-card .icon { font-size: 1.4rem; margin-bottom: 6px; }
+  .feature-card h4 { font-size: 0.85rem; font-weight: 600; color: #1e293b; margin-bottom: 4px; }
+  .feature-card p { font-size: 0.78rem; color: #64748b; margin: 0; }
+
+  /* Module list */
+  .module-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .module-item { background: #f8fafc; border-radius: 8px; padding: 12px 16px; border-left: 3px solid #1a5c4a; }
+  .module-item strong { font-size: 0.88rem; color: #1e293b; display: block; }
+  .module-item span { font-size: 0.78rem; color: #64748b; }
+
+  /* Endpoint list */
+  .endpoint-group { margin-bottom: 16px; }
+  .endpoint { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.82rem; }
+  .method { font-weight: 700; font-size: 0.72rem; padding: 2px 7px; border-radius: 4px; min-width: 48px; text-align: center; }
+  .method-get { background: #dcfce7; color: #166534; }
+  .method-post { background: #dbeafe; color: #1d4ed8; }
+  .method-patch { background: #fef9c3; color: #854d0e; }
+  .method-delete { background: #fee2e2; color: #991b1b; }
+  .endpoint-path { font-family: 'Courier New', monospace; color: #334155; }
+  .endpoint-desc { color: #94a3b8; margin-left: auto; font-size: 0.78rem; }
+
+  /* Security grid */
+  .security-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .security-item { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; }
+  .security-item h4 { font-size: 0.85rem; font-weight: 600; color: #166534; margin-bottom: 4px; }
+  .security-item p { font-size: 0.78rem; color: #4b5563; margin: 0; }
+
+  /* Tech stack */
+  .stack-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .stack-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; text-align: center; }
+  .stack-item .tech-name { font-weight: 600; font-size: 0.88rem; color: #1e293b; }
+  .stack-item .tech-role { font-size: 0.75rem; color: #64748b; }
+
+  /* Page inventory */
+  .page-category { margin-bottom: 20px; }
+  .page-category h3 { font-size: 0.95rem; font-weight: 700; color: #1a5c4a; margin-bottom: 8px; }
+  .page-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+  .page-item { font-size: 0.8rem; padding: 4px 8px; background: #f8fafc; border-radius: 4px; font-family: 'Courier New', monospace; color: #334155; }
+
+  /* DB Models */
+  .model-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .model-item { background: #f8fafc; border-radius: 6px; padding: 10px 12px; border-left: 3px solid #6366f1; }
+  .model-item strong { font-size: 0.83rem; color: #1e293b; display: block; }
+  .model-item span { font-size: 0.74rem; color: #64748b; }
+
+  /* Jobs */
+  .job-card { background: #f8fafc; border-radius: 8px; padding: 14px 16px; margin-bottom: 8px; border-left: 3px solid #d97706; }
+  .job-card h4 { font-size: 0.88rem; font-weight: 600; color: #1e293b; margin-bottom: 3px; }
+  .job-card p { font-size: 0.78rem; color: #64748b; margin: 0; }
+  .cron-badge { font-family: monospace; background: #fef3c7; color: #92400e; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; }
+
+  /* Roadmap */
+  .roadmap-phase { margin-bottom: 16px; }
+  .roadmap-phase h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 6px; }
+  .roadmap-phase ul { padding-left: 20px; }
+  .roadmap-phase li { font-size: 0.85rem; color: #475569; margin-bottom: 3px; }
+
+  /* Footer */
+  .report-footer { text-align: center; padding: 32px; color: #94a3b8; font-size: 0.85rem; }
+
+  @media print {
+    body { background: white; }
+    .btn-download { display: none; }
+    .download-bar { display: none; }
+    .section { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="report-header">
+    <h1>🏡 Dhyana Stays</h1>
+    <div class="subtitle">Platform Development Report — Phase 1 Complete</div>
+    <div style="font-size:0.85rem;opacity:0.7;">Generated: April 2026 &nbsp;|&nbsp; Aruzen Tech</div>
+    <div class="meta-grid">
+      <div class="meta-card"><div class="num">18</div><div class="label">Modules</div></div>
+      <div class="meta-card"><div class="num">100+</div><div class="label">API Endpoints</div></div>
+      <div class="meta-card"><div class="num">28</div><div class="label">DB Models</div></div>
+      <div class="meta-card"><div class="num">50</div><div class="label">Frontend Pages</div></div>
+    </div>
+  </div>
+
+  <!-- Download -->
+  <div class="download-bar">
+    <button class="btn-download" onclick="window.print()">⬇ Download / Print as PDF</button>
+  </div>
+
+  <!-- Table of Contents -->
+  <div class="toc" id="toc">
+    <h2>Table of Contents</h2>
+    <ol>
+      <li><a href="#overview">Platform Overview</a></li>
+      <li><a href="#tech-stack">Technology Stack</a></li>
+      <li><a href="#backend">Backend — NestJS API</a></li>
+      <li><a href="#database">Database Models</a></li>
+      <li><a href="#endpoints">API Endpoints</a></li>
+      <li><a href="#frontend">Frontend — Next.js</a></li>
+      <li><a href="#security">Security Practices</a></li>
+      <li><a href="#jobs">Background Jobs</a></li>
+      <li><a href="#notifications">Notifications System</a></li>
+      <li><a href="#features-by-role">Features by Role</a></li>
+      <li><a href="#guest-hub">Guest Hub</a></li>
+      <li><a href="#roadmap">Roadmap — Future Phases</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. Overview -->
+  <div class="section" id="overview">
+    <h2>1. Platform Overview</h2>
+    <p>Dhyana Stays is a full-stack wellness retreat booking platform built for the Indian market. It connects mindful travellers with curated retreat properties — from Himalayan yoga centres to coastal Ayurveda resorts.</p>
+    <p>The platform handles the complete booking lifecycle: discovery → quote → hold → payment → stay → review, with dedicated consoles for guests, hosts, and administrators.</p>
+
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="icon">🔄</div>
+        <h4>Full Booking Lifecycle</h4>
+        <p>7-step flow from discovery to completion with 8 booking statuses and automated transitions</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">👥</div>
+        <h4>Three User Roles</h4>
+        <p>Guest, Host, and Admin each with dedicated dashboards, APIs, and access-controlled pages</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">💳</div>
+        <h4>Razorpay Payments</h4>
+        <p>Full/deposit payment plans, webhook verification, automatic refunds, and weekly host payouts</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🗺️</div>
+        <h4>Map Discovery</h4>
+        <p>Leaflet-based map with grid/map/split views, geo-bounding-box filtering, and marker popups</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">💬</div>
+        <h4>Built-in Messaging</h4>
+        <p>Guest↔Host and Host↔Admin conversations with unread counts and real-time polling</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🌿</div>
+        <h4>Wellness-Focused UX</h4>
+        <p>Retreat preparation guides, wellness preferences, digital check-in/out, and property manuals</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Tech Stack -->
+  <div class="section" id="tech-stack">
+    <h2>2. Technology Stack</h2>
+    <div class="stack-grid">
+      <div class="stack-item"><div class="tech-name">NestJS</div><div class="tech-role">Backend API</div></div>
+      <div class="stack-item"><div class="tech-name">Next.js 15</div><div class="tech-role">Frontend</div></div>
+      <div class="stack-item"><div class="tech-name">PostgreSQL</div><div class="tech-role">Database</div></div>
+      <div class="stack-item"><div class="tech-name">Prisma</div><div class="tech-role">ORM</div></div>
+      <div class="stack-item"><div class="tech-name">Redis</div><div class="tech-role">Job Queue</div></div>
+      <div class="stack-item"><div class="tech-name">BullMQ</div><div class="tech-role">Background Jobs</div></div>
+      <div class="stack-item"><div class="tech-name">Razorpay</div><div class="tech-role">Payments</div></div>
+      <div class="stack-item"><div class="tech-name">Meilisearch</div><div class="tech-role">Full-text Search</div></div>
+      <div class="stack-item"><div class="tech-name">Leaflet</div><div class="tech-role">Maps</div></div>
+      <div class="stack-item"><div class="tech-name">Tailwind CSS</div><div class="tech-role">Styling</div></div>
+      <div class="stack-item"><div class="tech-name">Auth0 / JWT</div><div class="tech-role">Authentication</div></div>
+      <div class="stack-item"><div class="tech-name">pnpm Workspaces</div><div class="tech-role">Monorepo</div></div>
+    </div>
+
+    <h3>Repository Structure</h3>
+    <table>
+      <tr><th>Path</th><th>Description</th></tr>
+      <tr><td><code>apps/api/</code></td><td>NestJS backend — REST API on port 3001</td></tr>
+      <tr><td><code>apps/web/</code></td><td>Next.js 15 frontend — served on port 3000</td></tr>
+      <tr><td><code>packages/shared/</code></td><td>Shared TypeScript types and utilities</td></tr>
+      <tr><td><code>apps/api/prisma/</code></td><td>Database schema, migrations, and seed</td></tr>
+    </table>
+  </div>
+
+  <!-- 3. Backend -->
+  <div class="section" id="backend">
+    <h2>3. Backend — NestJS API</h2>
+    <p>The API is a modular NestJS application with 18 feature modules, global guards/interceptors, and full TypeScript coverage.</p>
+
+    <h3>Modules</h3>
+    <div class="module-list">
+      <div class="module-item"><strong>auth</strong><span>JWT (HS256) + Auth0 (RS256/JWKS), register, login, refresh, sync</span></div>
+      <div class="module-item"><strong>listing</strong><span>Full CRUD, media, seasonal rates, availability blocks, tags, approval workflow</span></div>
+      <div class="module-item"><strong>booking</strong><span>Booking lifecycle, status transitions, guest details, preparation guide</span></div>
+      <div class="module-item"><strong>hold</strong><span>15-minute date holds with idempotency keys</span></div>
+      <div class="module-item"><strong>payment</strong><span>Razorpay integration, webhook, balance pay, HMAC verification</span></div>
+      <div class="module-item"><strong>pricing</strong><span>Quote engine, seasonal rates, cleaning fee, platform fee (10%), deposits</span></div>
+      <div class="module-item"><strong>payout</strong><span>Weekly batch payouts, host statements, 24h eligibility window</span></div>
+      <div class="module-item"><strong>guest</strong><span>Profile, wellness preferences, wishlist, reviews, notifications</span></div>
+      <div class="module-item"><strong>guest-assistance</strong><span>Directions, property manuals, issue reporting, digital check-in/out</span></div>
+      <div class="module-item"><strong>messaging</strong><span>Guest↔Host + Host↔Admin conversations, messages, unread counts</span></div>
+      <div class="module-item"><strong>host-analytics</strong><span>Revenue charts, listing performance, forecast, calendar, payout statements</span></div>
+      <div class="module-item"><strong>admin</strong><span>Full platform management — users, listings, bookings, payouts, audit, settings</span></div>
+      <div class="module-item"><strong>notification</strong><span>Email (Resend/SendGrid/SMTP) + SMS (MSG91/Twilio) with stub fallback</span></div>
+      <div class="module-item"><strong>storage</strong><span>Presigned URL upload — S3, Cloudflare R2, or local stub</span></div>
+      <div class="module-item"><strong>jobs</strong><span>BullMQ processors: hold expiry, balance due, payout eligibility, weekly payout</span></div>
+      <div class="module-item"><strong>common</strong><span>Guards, interceptors, decorators, audit service, ledger service</span></div>
+      <div class="module-item"><strong>prisma</strong><span>Database service, connection pooling, seed script</span></div>
+      <div class="module-item"><strong>config</strong><span>Joi-based env validation with production-only strict rules</span></div>
+    </div>
+
+    <h3>Cross-Cutting Infrastructure</h3>
+    <table>
+      <tr><th>Component</th><th>Purpose</th></tr>
+      <tr><td>JwtAuthGuard</td><td>Validates JWT on every request, respects @Public() decorator</td></tr>
+      <tr><td>RolesGuard</td><td>Enforces GUEST / HOST / ADMIN role restrictions per endpoint</td></tr>
+      <tr><td>IdempotencyInterceptor</td><td>DB-backed idempotency for payments and bookings (24h window)</td></tr>
+      <tr><td>ThrottleTrackerInterceptor</td><td>Tracks rate-limit violations, stores in DB for admin review</td></tr>
+      <tr><td>GlobalExceptionFilter</td><td>Normalises all errors with correlation IDs</td></tr>
+      <tr><td>AuditService</td><td>Immutable audit log for every create/update/delete operation</td></tr>
+      <tr><td>LedgerService</td><td>Double-entry financial ledger for every money movement</td></tr>
+      <tr><td>PriceSnapshotSigner</td><td>HMAC-signs price quotes — prevents client-side price tampering</td></tr>
+    </table>
+  </div>
+
+  <!-- 4. Database -->
+  <div class="section" id="database">
+    <h2>4. Database Models (28 Prisma models)</h2>
+
+    <h3>Core Models</h3>
+    <div class="model-grid">
+      <div class="model-item"><strong>User</strong><span>All roles — email, fullName, role, active flag</span></div>
+      <div class="model-item"><strong>Host</strong><span>Verification status, payout account, created by User</span></div>
+      <div class="model-item"><strong>GuestPreference</strong><span>Dietary needs, wellness interests, accessibility, emergency contact</span></div>
+      <div class="model-item"><strong>Listing</strong><span>Full property — status workflow, lat/lng, JSON guides</span></div>
+      <div class="model-item"><strong>ListingMedia</strong><span>Photos with sortOrder for gallery ordering</span></div>
+      <div class="model-item"><strong>Tag / ListingTag</strong><span>Category+name tags for amenities/features</span></div>
+      <div class="model-item"><strong>RateRule</strong><span>Base rate, max guests, min nights, cleaning fee</span></div>
+      <div class="model-item"><strong>SeasonalRate</strong><span>Date-range rate overrides for peak/off-peak</span></div>
+      <div class="model-item"><strong>AvailabilityBlock</strong><span>Blocked dates (maintenance, personal use)</span></div>
+      <div class="model-item"><strong>Hold</strong><span>15-min reservation lock with price snapshot</span></div>
+      <div class="model-item"><strong>Booking</strong><span>8 statuses, guest details JSON, check-in/out data</span></div>
+      <div class="model-item"><strong>Payment</strong><span>Razorpay order/payment IDs, status, captured amount</span></div>
+      <div class="model-item"><strong>Refund</strong><span>Refund records tied to bookings with policy amounts</span></div>
+      <div class="model-item"><strong>PayoutLine</strong><span>Per-booking host earnings with eligibility tracking</span></div>
+      <div class="model-item"><strong>PayoutBatch</strong><span>Weekly payout aggregation per host</span></div>
+      <div class="model-item"><strong>AdminNotification</strong><span>In-app alerts for platform events</span></div>
+      <div class="model-item"><strong>HostNotification</strong><span>In-app alerts for host events (new bookings, issues)</span></div>
+      <div class="model-item"><strong>GuestNotification</strong><span>In-app alerts for guest events (confirmed, cancelled)</span></div>
+      <div class="model-item"><strong>Conversation</strong><span>Message thread (GUEST_HOST or HOST_ADMIN type)</span></div>
+      <div class="model-item"><strong>Message</strong><span>Individual message with sender role</span></div>
+      <div class="model-item"><strong>Review</strong><span>1:1 with booking, star rating + comment</span></div>
+      <div class="model-item"><strong>Wishlist</strong><span>Guest saved listings, unique per user+listing</span></div>
+      <div class="model-item"><strong>GuestIssue</strong><span>Issue reports — category, urgency, status, host notes</span></div>
+      <div class="model-item"><strong>AuditLog</strong><span>Immutable action trail — actor, target, data diff</span></div>
+      <div class="model-item"><strong>LedgerEvent</strong><span>Financial double-entry for every money movement</span></div>
+      <div class="model-item"><strong>SystemConfig</strong><span>Key/value platform settings editable by admin</span></div>
+      <div class="model-item"><strong>IdempotencyKey</strong><span>24h dedup cache for payments and bookings</span></div>
+      <div class="model-item"><strong>DlqItem</strong><span>Dead-letter queue for failed background jobs</span></div>
+    </div>
+
+    <h3>Booking Status Flow</h3>
+    <p style="font-family:monospace;font-size:0.82rem;background:#f8fafc;padding:12px;border-radius:8px;color:#334155;">
+      HOLD → PAYMENT_PENDING → CONFIRMED_DEPOSIT → BALANCE_DUE → CONFIRMED_PAID → COMPLETED<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↘ CANCELLED / REFUNDED (at any point)
+    </p>
+  </div>
+
+  <!-- 5. Endpoints -->
+  <div class="section" id="endpoints">
+    <h2>5. API Endpoints (100+ total)</h2>
+
+    <h3>Authentication</h3>
+    <div class="endpoint-group">
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/auth/register</span><span class="endpoint-desc">Register (GUEST or HOST)</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/auth/login</span><span class="endpoint-desc">Login with email/password</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/auth/refresh</span><span class="endpoint-desc">Refresh access token</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/auth/me</span><span class="endpoint-desc">Current user profile</span></div>
+    </div>
+
+    <h3>Public Listings</h3>
+    <div class="endpoint-group">
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/listings</span><span class="endpoint-desc">Approved listings feed</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/listings/search?q=</span><span class="endpoint-desc">Meilisearch + DB fallback</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/listings/map?swLat&amp;swLng&amp;neLat&amp;neLng</span><span class="endpoint-desc">Geo bounding-box filter</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/listings/:id</span><span class="endpoint-desc">Listing detail</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/pricing/quote</span><span class="endpoint-desc">Price quote for dates</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/listings/:id/reviews</span><span class="endpoint-desc">Public reviews + avg rating</span></div>
+    </div>
+
+    <h3>Booking Flow (Guest)</h3>
+    <div class="endpoint-group">
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/holds</span><span class="endpoint-desc">Hold dates (15 min)</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/bookings</span><span class="endpoint-desc">Create booking from hold</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/payments/init</span><span class="endpoint-desc">Init Razorpay checkout</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/payments/webhook</span><span class="endpoint-desc">Razorpay webhook (HMAC verified)</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/bookings/:id/cancel</span><span class="endpoint-desc">Cancel with refund calculation</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/bookings/:id</span><span class="endpoint-desc">Booking detail</span></div>
+    </div>
+
+    <h3>Guest Features</h3>
+    <div class="endpoint-group">
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/guest/profile</span><span class="endpoint-desc">Guest profile + stats</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/guest/preferences</span><span class="endpoint-desc">Wellness preferences</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/guest/wishlist</span><span class="endpoint-desc">Saved listings</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/bookings/:id/directions</span><span class="endpoint-desc">Property directions</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/bookings/:id/manual</span><span class="endpoint-desc">Property manual</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/bookings/:id/check-in</span><span class="endpoint-desc">Digital check-in</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/bookings/:id/issues</span><span class="endpoint-desc">Report maintenance issue</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/guest/conversations</span><span class="endpoint-desc">Message threads</span></div>
+    </div>
+
+    <h3>Host Features</h3>
+    <div class="endpoint-group">
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/host/listings</span><span class="endpoint-desc">Create listing</span></div>
+      <div class="endpoint"><span class="method method-patch">PATCH</span><span class="endpoint-path">/api/host/listings/:id</span><span class="endpoint-desc">Update listing</span></div>
+      <div class="endpoint"><span class="method method-patch">PATCH</span><span class="endpoint-path">/api/host/listings/:id/preparation</span><span class="endpoint-desc">Update prep guide</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/host/analytics/stats</span><span class="endpoint-desc">Revenue, bookings, ratings</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/host/payouts/statements</span><span class="endpoint-desc">Payout history</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/host/issues</span><span class="endpoint-desc">Guest-reported issues</span></div>
+    </div>
+
+    <h3>Admin Console</h3>
+    <div class="endpoint-group">
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/admin/stats</span><span class="endpoint-desc">Platform-wide statistics</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/admin/listings/:id/approve</span><span class="endpoint-desc">Approve listing</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/admin/hosts/:id/approve</span><span class="endpoint-desc">Approve host</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/admin/payouts/run-weekly</span><span class="endpoint-desc">Trigger weekly payouts</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/admin/refunds</span><span class="endpoint-desc">Manual refund</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/admin/audit-log</span><span class="endpoint-desc">Full audit trail</span></div>
+      <div class="endpoint"><span class="method method-get">GET</span><span class="endpoint-path">/api/admin/search</span><span class="endpoint-desc">Global search across all entities</span></div>
+      <div class="endpoint"><span class="method method-post">POST</span><span class="endpoint-path">/api/admin/listings/bulk-approve</span><span class="endpoint-desc">Bulk approve listings</span></div>
+    </div>
+  </div>
+
+  <!-- 6. Frontend -->
+  <div class="section" id="frontend">
+    <h2>6. Frontend — Next.js 15</h2>
+    <p>50 pages across 5 sections (public, guest, host, admin, bookings). All pages are client-rendered with server-side metadata. Auth context supports both Auth0 and custom JWT.</p>
+
+    <div class="page-category">
+      <h3>Public Pages (5)</h3>
+      <div class="page-list">
+        <div class="page-item">/</div>
+        <div class="page-item">/listings/[id]</div>
+        <div class="page-item">/auth/login</div>
+        <div class="page-item">/auth/register</div>
+        <div class="page-item">/auth/callback</div>
+      </div>
+    </div>
+
+    <div class="page-category">
+      <h3>Guest Pages (8)</h3>
+      <div class="page-list">
+        <div class="page-item">/dashboard</div>
+        <div class="page-item">/guest/profile</div>
+        <div class="page-item">/guest/preferences</div>
+        <div class="page-item">/guest/wishlist</div>
+        <div class="page-item">/guest/reviews</div>
+        <div class="page-item">/guest/messages</div>
+        <div class="page-item">/guest/messages/[id]</div>
+        <div class="page-item">/bookings/[id]</div>
+      </div>
+    </div>
+
+    <div class="page-category">
+      <h3>Booking Detail Sub-pages (6)</h3>
+      <div class="page-list">
+        <div class="page-item">/bookings/[id]/preparation</div>
+        <div class="page-item">/bookings/[id]/directions</div>
+        <div class="page-item">/bookings/[id]/manual</div>
+        <div class="page-item">/bookings/[id]/check-in</div>
+        <div class="page-item">/bookings/[id]/check-out</div>
+        <div class="page-item">/bookings/[id]/issues</div>
+      </div>
+    </div>
+
+    <div class="page-category">
+      <h3>Host Pages (12)</h3>
+      <div class="page-list">
+        <div class="page-item">/host/listings/new</div>
+        <div class="page-item">/host/listings/[id]/edit</div>
+        <div class="page-item">/host/listings/[id]/preparation</div>
+        <div class="page-item">/host/bookings</div>
+        <div class="page-item">/host/calendar</div>
+        <div class="page-item">/host/messages</div>
+        <div class="page-item">/host/messages/[id]</div>
+        <div class="page-item">/host/analytics</div>
+        <div class="page-item">/host/performance</div>
+        <div class="page-item">/host/forecast</div>
+        <div class="page-item">/host/issues</div>
+        <div class="page-item">/host/payouts</div>
+      </div>
+    </div>
+
+    <div class="page-category">
+      <h3>Admin Pages (19)</h3>
+      <div class="page-list">
+        <div class="page-item">/admin (dashboard)</div>
+        <div class="page-item">/admin/listings</div>
+        <div class="page-item">/admin/listings/[id]</div>
+        <div class="page-item">/admin/hosts</div>
+        <div class="page-item">/admin/hosts/performance</div>
+        <div class="page-item">/admin/bookings</div>
+        <div class="page-item">/admin/calendar</div>
+        <div class="page-item">/admin/users</div>
+        <div class="page-item">/admin/payouts</div>
+        <div class="page-item">/admin/refunds</div>
+        <div class="page-item">/admin/analytics</div>
+        <div class="page-item">/admin/forecast</div>
+        <div class="page-item">/admin/messages</div>
+        <div class="page-item">/admin/messages/[id]</div>
+        <div class="page-item">/admin/issues</div>
+        <div class="page-item">/admin/audit</div>
+        <div class="page-item">/admin/activity</div>
+        <div class="page-item">/admin/rate-limits</div>
+        <div class="page-item">/admin/settings</div>
+      </div>
+    </div>
+
+    <h3>Shared Components (11)</h3>
+    <table>
+      <tr><th>Component</th><th>Purpose</th></tr>
+      <tr><td>Navbar</td><td>Role-aware navigation with notification bells and dropdowns</td></tr>
+      <tr><td>ListingCard</td><td>Listing preview with gradient placeholder, price, and wishlist button</td></tr>
+      <tr><td>ListingMap</td><td>Leaflet map — markers, auto-fit bounds, split-view with hover sync</td></tr>
+      <tr><td>StatusBadge</td><td>Colour-coded badges for all status enums</td></tr>
+      <tr><td>WishlistButton</td><td>Heart toggle for guest wishlist</td></tr>
+      <tr><td>MessageThread</td><td>Chat bubbles with auto-scroll and send input</td></tr>
+      <tr><td>ConversationList</td><td>Conversation sidebar with unread count and last-message preview</td></tr>
+      <tr><td>GuestNotificationBell</td><td>Guest in-app notifications with unread badge</td></tr>
+      <tr><td>HostNotificationBell</td><td>Host in-app notifications with type icons</td></tr>
+      <tr><td>AdminNotificationBell</td><td>Admin notifications polling every 30s</td></tr>
+      <tr><td>AdminSearchOverlay</td><td>Cmd+K global search across Users / Listings / Bookings / Hosts</td></tr>
+    </table>
+  </div>
+
+  <!-- 7. Security -->
+  <div class="section" id="security">
+    <h2>7. Security Practices</h2>
+    <div class="security-grid">
+      <div class="security-item">
+        <h4>Dual-mode Authentication</h4>
+        <p>Custom JWT (HS256) for development; Auth0 JWKS (RS256) for production. Automatic token refresh on 401 responses.</p>
+      </div>
+      <div class="security-item">
+        <h4>Role-Based Access Control</h4>
+        <p>Every endpoint decorated with @Roles(). JwtAuthGuard + RolesGuard applied globally. Guests cannot access host/admin routes and vice versa.</p>
+      </div>
+      <div class="security-item">
+        <h4>HMAC Price Snapshots</h4>
+        <p>Every price quote is HMAC-signed before being sent to the client. The backend rejects any booking whose price snapshot fails verification — prevents client-side price manipulation.</p>
+      </div>
+      <div class="security-item">
+        <h4>Idempotency Keys</h4>
+        <p>Payments and bookings require a UUID idempotency key. DB-backed deduplication prevents double charges from network retries (24-hour window).</p>
+      </div>
+      <div class="security-item">
+        <h4>Razorpay Webhook Verification</h4>
+        <p>All incoming Razorpay webhook events are verified using HMAC-SHA256 signature. Events with invalid signatures are rejected with 400.</p>
+      </div>
+      <div class="security-item">
+        <h4>Rate Limiting</h4>
+        <p>100 requests per minute per IP globally (NestJS Throttler). Login endpoint has a stricter LoginThrottleGuard. Violations tracked in DB for admin review.</p>
+      </div>
+      <div class="security-item">
+        <h4>Production ENV Validation</h4>
+        <p>Joi schema blocks startup if stub providers (Razorpay, email, SMS, storage) are used in NODE_ENV=production. Prevents accidental misconfiguration.</p>
+      </div>
+      <div class="security-item">
+        <h4>Security Headers</h4>
+        <p>Helmet middleware (NestJS) adds X-Frame-Options, NOSNIFF, HSTS, and CSP headers. Next.js adds X-Frame-Options: DENY and Referrer-Policy on all routes.</p>
+      </div>
+      <div class="security-item">
+        <h4>Audit Logging</h4>
+        <p>Every create/update/delete writes an immutable audit entry (actor, action, target, diff). Full audit log accessible to admin with filtering and pagination.</p>
+      </div>
+      <div class="security-item">
+        <h4>Financial Ledger</h4>
+        <p>Double-entry ledger records every money movement: payment capture, refund, payout. Cannot be modified — provides a full financial audit trail.</p>
+      </div>
+      <div class="security-item">
+        <h4>Input Validation</h4>
+        <p>class-validator DTOs on all POST/PATCH endpoints. Whitelist mode strips unknown fields. Custom validators for amounts, dates, and status transitions.</p>
+      </div>
+      <div class="security-item">
+        <h4>CORS Policy</h4>
+        <p>Configurable ALLOWED_ORIGINS. In production must not be localhost (validated by env schema). Credentials enabled for cookie-based auth.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. Background Jobs -->
+  <div class="section" id="jobs">
+    <h2>8. Background Jobs (BullMQ + Redis)</h2>
+    <p>When Redis is available, four scheduled jobs run automatically. When Redis is absent (local dev without Docker), the app boots without jobs — all other features work normally.</p>
+
+    <div class="job-card">
+      <h4>Hold Expiry <span class="cron-badge">every 1 minute</span></h4>
+      <p>Scans for holds older than 15 minutes and releases the dates. Prevents abandoned holds from blocking bookings indefinitely.</p>
+    </div>
+    <div class="job-card">
+      <h4>Balance Due Transition <span class="cron-badge">every 15 minutes</span></h4>
+      <p>Moves CONFIRMED_DEPOSIT bookings to BALANCE_DUE when 48h before check-in. Also auto-cancels bookings where balance was not paid within the grace period. Sends reminder emails/SMS.</p>
+    </div>
+    <div class="job-card">
+      <h4>Payout Eligibility <span class="cron-badge">every 1 hour</span></h4>
+      <p>Marks payout lines as ELIGIBLE 24 hours after guest check-in. This delay allows time for dispute resolution before host is paid.</p>
+    </div>
+    <div class="job-card">
+      <h4>Weekly Payout Batch <span class="cron-badge">Monday 09:00 IST</span></h4>
+      <p>Aggregates all ELIGIBLE payout lines per host, creates a PayoutBatch record, and transitions lines to SCHEDULED. Admin marks batches as PAID after bank transfer.</p>
+    </div>
+  </div>
+
+  <!-- 9. Notifications -->
+  <div class="section" id="notifications">
+    <h2>9. Notifications System</h2>
+    <p>Three-layer notification system: in-app (DB-backed), email, and SMS. All sends are non-blocking — notification failures never interrupt booking or listing flows.</p>
+
+    <h3>Email Triggers</h3>
+    <table>
+      <tr><th>Event</th><th>Recipient</th><th>Content</th></tr>
+      <tr><td>Booking confirmed</td><td>Guest + Host</td><td>Booking ID, dates, total, payment plan</td></tr>
+      <tr><td>Booking cancelled</td><td>Guest + Host</td><td>Booking ID, refund amount</td></tr>
+      <tr><td>Balance payment due</td><td>Guest</td><td>Amount due, due date, pay link</td></tr>
+      <tr><td>Listing approved</td><td>Host</td><td>Listing is now live, view link</td></tr>
+      <tr><td>Listing rejected</td><td>Host</td><td>Reason/note from admin</td></tr>
+    </table>
+
+    <h3>In-App DB Notification Triggers</h3>
+    <table>
+      <tr><th>Event</th><th>Guest</th><th>Host</th><th>Admin</th></tr>
+      <tr><td>New booking</td><td>✅ confirmed</td><td>✅ new booking</td><td>✅ new booking</td></tr>
+      <tr><td>Booking cancelled</td><td>✅ cancelled</td><td>✅ cancelled</td><td>—</td></tr>
+      <tr><td>Balance due</td><td>✅ reminder</td><td>—</td><td>—</td></tr>
+      <tr><td>Listing submitted</td><td>—</td><td>—</td><td>✅ pending review</td></tr>
+      <tr><td>Listing approved/rejected</td><td>—</td><td>✅ status update</td><td>—</td></tr>
+    </table>
+
+    <h3>Email Providers (configurable)</h3>
+    <p>Resend · SendGrid · SMTP (nodemailer) · Stub (logs to console in dev)</p>
+    <h3>SMS Providers (configurable)</h3>
+    <p>MSG91 (DLT-compliant for India) · Twilio · Stub (logs to console in dev)</p>
+  </div>
+
+  <!-- 10. Features by Role -->
+  <div class="section" id="features-by-role">
+    <h2>10. Features by Role</h2>
+
+    <h3>Guest</h3>
+    <table>
+      <tr><th>Feature</th><th>Status</th><th>Details</th></tr>
+      <tr><td>Browse &amp; search listings</td><td><span class="badge badge-done">Done</span></td><td>Grid / Map / Split views, text search, Meilisearch</td></tr>
+      <tr><td>View listing detail</td><td><span class="badge badge-done">Done</span></td><td>Photos, description, rates, reviews, location map</td></tr>
+      <tr><td>Price quote</td><td><span class="badge badge-done">Done</span></td><td>Nightly breakdown, cleaning fee, 10% platform fee, deposit</td></tr>
+      <tr><td>Hold dates</td><td><span class="badge badge-done">Done</span></td><td>15-minute hold, price snapshot, idempotency</td></tr>
+      <tr><td>Book &amp; pay</td><td><span class="badge badge-done">Done</span></td><td>Full pay or 50% deposit, Razorpay checkout</td></tr>
+      <tr><td>Cancel booking</td><td><span class="badge badge-done">Done</span></td><td>Auto-refund based on cancellation policy</td></tr>
+      <tr><td>Preparation guide</td><td><span class="badge badge-done">Done</span></td><td>Packing list, daily schedule, dietary info, arrival instructions</td></tr>
+      <tr><td>Property directions</td><td><span class="badge badge-done">Done</span></td><td>GPS, landmarks, transport options, nearest airport/station</td></tr>
+      <tr><td>Property manual</td><td><span class="badge badge-done">Done</span></td><td>WiFi, house rules, appliances, tips</td></tr>
+      <tr><td>Digital check-in/out</td><td><span class="badge badge-done">Done</span></td><td>Name, arrival time, notes; feedback on check-out</td></tr>
+      <tr><td>Issue reporting</td><td><span class="badge badge-done">Done</span></td><td>Maintenance, cleanliness, noise, safety — with urgency levels</td></tr>
+      <tr><td>Message host</td><td><span class="badge badge-done">Done</span></td><td>Start from listing or booking page; threaded conversations</td></tr>
+      <tr><td>Leave review</td><td><span class="badge badge-done">Done</span></td><td>1–5 stars + comment, one per completed booking</td></tr>
+      <tr><td>Wishlist</td><td><span class="badge badge-done">Done</span></td><td>Save listings, heart toggle, dedicated wishlist page</td></tr>
+      <tr><td>Wellness preferences</td><td><span class="badge badge-done">Done</span></td><td>Dietary, accessibility, wellness interests, emergency contact</td></tr>
+      <tr><td>Notifications</td><td><span class="badge badge-done">Done</span></td><td>In-app bell + email + SMS on key events</td></tr>
+    </table>
+
+    <h3>Host</h3>
+    <table>
+      <tr><th>Feature</th><th>Status</th><th>Details</th></tr>
+      <tr><td>Create listing</td><td><span class="badge badge-done">Done</span></td><td>Title, description, location, base rate, max guests</td></tr>
+      <tr><td>Edit listing</td><td><span class="badge badge-done">Done</span></td><td>All fields, re-approval trigger on key changes</td></tr>
+      <tr><td>Photo management</td><td><span class="badge badge-done">Done</span></td><td>Presigned S3/R2 upload, gallery reorder, delete</td></tr>
+      <tr><td>Seasonal pricing</td><td><span class="badge badge-done">Done</span></td><td>Date-range rate overrides for peak season</td></tr>
+      <tr><td>Blocked dates</td><td><span class="badge badge-done">Done</span></td><td>Mark dates as unavailable with reason</td></tr>
+      <tr><td>Preparation guide</td><td><span class="badge badge-done">Done</span></td><td>Packing list, daily schedule, dietary info, arrival instructions</td></tr>
+      <tr><td>Property directions</td><td><span class="badge badge-done">Done</span></td><td>GPS coords, landmarks, transport, parking</td></tr>
+      <tr><td>Property manual</td><td><span class="badge badge-done">Done</span></td><td>Sectioned content guide (WiFi, rules, appliances, tips)</td></tr>
+      <tr><td>Dashboard</td><td><span class="badge badge-done">Done</span></td><td>Total revenue, booking count, avg rating, occupancy</td></tr>
+      <tr><td>Revenue analytics</td><td><span class="badge badge-done">Done</span></td><td>Charts by week/month/year</td></tr>
+      <tr><td>Listing performance</td><td><span class="badge badge-done">Done</span></td><td>Per-listing revenue, bookings, rating</td></tr>
+      <tr><td>Revenue forecast</td><td><span class="badge badge-done">Done</span></td><td>30-day forward projection based on confirmed bookings</td></tr>
+      <tr><td>Bookings calendar</td><td><span class="badge badge-done">Done</span></td><td>Monthly calendar view of all bookings across listings</td></tr>
+      <tr><td>Guest issue management</td><td><span class="badge badge-done">Done</span></td><td>View, update status, add host notes</td></tr>
+      <tr><td>Messaging</td><td><span class="badge badge-done">Done</span></td><td>Guest and Admin threads with unread counts</td></tr>
+      <tr><td>Payout statements</td><td><span class="badge badge-done">Done</span></td><td>Weekly batch history, per-booking earnings</td></tr>
+      <tr><td>Notifications</td><td><span class="badge badge-done">Done</span></td><td>In-app bell + email on new bookings, cancellations, approvals</td></tr>
+    </table>
+
+    <h3>Admin</h3>
+    <table>
+      <tr><th>Feature</th><th>Status</th></tr>
+      <tr><td>Dashboard with platform stats</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Listing approval workflow</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Host verification</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>User management (activate/deactivate)</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Bulk operations (approve, deactivate, complete)</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Revenue analytics &amp; forecast</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Booking management &amp; calendar</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Payout management (run, mark paid)</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Refund management</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Issue management dashboard</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Audit log</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Global search (Cmd+K)</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>System settings</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Rate limit stats</td><td><span class="badge badge-done">Done</span></td></tr>
+      <tr><td>Messaging (with hosts)</td><td><span class="badge badge-done">Done</span></td></tr>
+    </table>
+  </div>
+
+  <!-- 11. Guest Hub -->
+  <div class="section" id="guest-hub">
+    <h2>11. Guest Hub — Completed Phases</h2>
+    <p>The Guest Hub is the wellness-specific layer on top of the core booking platform. Each phase adds features that go beyond standard booking platforms.</p>
+
+    <h3>Phase 1 — Wellness Preferences &amp; Retreat Preparation ✅</h3>
+    <ul style="padding-left:20px;margin-bottom:16px;">
+      <li style="margin-bottom:6px;font-size:0.88rem;">Guest preference form: dietary needs (vegetarian, vegan, gluten-free, ayurvedic), wellness interests (yoga, meditation, Ayurveda, detox), accessibility requirements, room preference, experience level, emergency contact</li>
+      <li style="margin-bottom:6px;font-size:0.88rem;">Host-authored preparation guide per listing: packing list, what to expect, daily schedule, dietary information, arrival instructions, additional notes</li>
+      <li style="margin-bottom:6px;font-size:0.88rem;">Preparation guide shown to guests only after booking is confirmed</li>
+    </ul>
+
+    <h3>Phase 2 — Guest–Host Messaging ✅</h3>
+    <ul style="padding-left:20px;margin-bottom:16px;">
+      <li style="margin-bottom:6px;font-size:0.88rem;">Start a conversation from the listing detail page or booking page</li>
+      <li style="margin-bottom:6px;font-size:0.88rem;">Threaded message view with send/receive bubbles and auto-scroll</li>
+      <li style="margin-bottom:6px;font-size:0.88rem;">Unread count badge on navbar; 60s polling on conversation list, 15s on open thread</li>
+      <li style="margin-bottom:6px;font-size:0.88rem;">Host↔Admin messaging channel for operations support</li>
+    </ul>
+
+    <h3>Phase 3 — Guest Assistance Hub ✅</h3>
+    <ul style="padding-left:20px;margin-bottom:16px;">
+      <li style="margin-bottom:6px;font-size:0.88rem;">Property directions: GPS coordinates, landmarks, transport options, nearest airport/station, parking info</li>
+      <li style="margin-bottom:6px;font-size:0.88rem;">Digital property manual: WiFi passwords, house rules, appliance guides, emergency contacts, local tips</li>
+      <li style="margin-bottom:6px;font-size:0.88rem;">Issue reporting: 4 categories (Maintenance, Cleanliness, Noise, Safety), 4 urgency levels, photo URL, status tracking (Open → In Progress → Resolved → Closed)</li>
+      <li style="margin-bottom:6px;font-size:0.88rem;">Digital check-in: confirm name, estimated arrival, special notes — triggers host notification</li>
+      <li style="margin-bottom:6px;font-size:0.88rem;">Digital check-out: feedback and condition notes — triggers host notification and review prompt</li>
+    </ul>
+  </div>
+
+  <!-- 12. Roadmap -->
+  <div class="section" id="roadmap">
+    <h2>12. Roadmap — Future Phases</h2>
+    <p>These phases are defined in the product specification and are ready for development. Each builds on Phase 1's foundation.</p>
+
+    <div class="roadmap-phase">
+      <h3><span class="badge badge-future">Phase 4</span> Encrypted Access Code Delivery</h3>
+      <ul>
+        <li>Timed release of door codes, gate codes, and WiFi passwords</li>
+        <li>Encrypted at rest; decrypted only within the check-in time window</li>
+        <li>Prevents early access and automates key handover</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-phase">
+      <h3><span class="badge badge-future">Phase 5</span> Referral System &amp; Loyalty Tiers</h3>
+      <ul>
+        <li>Guest referral codes with credit rewards for both referrer and referred</li>
+        <li>Loyalty tiers: Seeker (0–2), Practitioner (3–5), Sage (6+) based on completed bookings</li>
+        <li>Platform fee discounts per loyalty tier applied at quote time</li>
+        <li>Credit ledger system for tracking earned and spent credits</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-phase">
+      <h3><span class="badge badge-future">Phase 6</span> Help Center &amp; Price Alerts</h3>
+      <ul>
+        <li>Self-service FAQ: Booking, Payments, Cancellations, Preparation, Account sections</li>
+        <li>Contact form with booking reference — routes to support team email</li>
+        <li>Price drop alerts: guest sets a target price for a listing → notified when rate drops</li>
+        <li>Automated alert triggering when host updates listing rates</li>
+      </ul>
+    </div>
+
+    <div class="roadmap-phase">
+      <h3><span class="badge badge-future">Future</span> Advanced Features (Phase 7+)</h3>
+      <ul>
+        <li>Advanced Search &amp; Discovery (experience-based filtering, map clusters, property types)</li>
+        <li>Add-on Marketplace (spa sessions, yoga classes, excursions, meals)</li>
+        <li>AI Itinerary Planner based on guest wellness preferences</li>
+        <li>Mobile App (React Native iOS + Android)</li>
+        <li>Group Planning &amp; Expense Splitting</li>
+        <li>International Scaling (multi-currency, multi-language)</li>
+        <li>Smart Property Automation (IoT integration)</li>
+        <li>SOS &amp; Emergency features</li>
+        <li>Trip Savings (SIP-style advance booking)</li>
+        <li>Investor Dashboard &amp; BI Analytics</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="report-footer">
+    <p>Dhyana Stays Platform · Development Report · April 2026</p>
+    <p style="margin-top:4px;">Built by Aruzen Tech &nbsp;|&nbsp; Phase 1 Complete &nbsp;|&nbsp; Production Ready</p>
+  </div>
+
+</div>
+
+<script>
+  // Auto-trigger print dialog if ?print=1 is in URL
+  if (window.location.search.includes('print=1')) {
+    window.print();
+  }
+</script>
+</body>
+</html>

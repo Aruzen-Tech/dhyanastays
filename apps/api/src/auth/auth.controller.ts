@@ -7,6 +7,7 @@ import { RegisterDto } from './dto/register.dto';
 import { SyncUserDto } from './dto/sync-user.dto';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { LoginThrottleGuard } from './guards/login-throttle.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -21,6 +22,7 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(LoginThrottleGuard)
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);

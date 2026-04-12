@@ -24,6 +24,15 @@ export class PayoutController {
   }
 
   /**
+   * Admin: dry-run — preview batch without executing (per-host breakdown).
+   */
+  @Roles(UserRole.ADMIN)
+  @Get('admin/payouts/dry-run')
+  dryRun() {
+    return this.payoutService.dryRunBatch();
+  }
+
+  /**
    * Admin: run the weekly payout batch.
    */
   @Roles(UserRole.ADMIN)

@@ -14,6 +14,7 @@ import { UpdateListingDto } from './dto/update-listing.dto';
 import { AddMediaDto } from './dto/add-media.dto';
 import { AddSeasonalRateDto } from './dto/add-seasonal-rate.dto';
 import { AddAvailabilityBlockDto } from './dto/add-availability-block.dto';
+import { UpdatePreparationDto } from './dto/update-preparation.dto';
 
 @Injectable()
 export class ListingService {
@@ -40,6 +41,8 @@ export class ListingService {
           description: dto.description,
           city: dto.city,
           state: dto.state,
+          ...(dto.latitude !== undefined && { latitude: dto.latitude }),
+          ...(dto.longitude !== undefined && { longitude: dto.longitude }),
           status: ListingStatus.PENDING_APPROVAL,
         },
       });
@@ -59,6 +62,17 @@ export class ListingService {
       baseNightlyRate: dto.baseNightlyRate,
       maxGuests: dto.maxGuests,
     });
+
+    // Admin notification: new listing pending approval
+    void this.prisma.adminNotification.create({
+      data: {
+        type: 'LISTING_PENDING_APPROVAL',
+        title: 'New listing awaiting approval',
+        message: `"${dto.title}" in ${dto.city}, ${dto.state} needs review.`,
+        metadata: { listingId: listing.id, hostId: host.id },
+      },
+    }).catch(() => {});
+
     return this.prisma.listing.findUnique({
       where: { id: listing.id },
       include: { rateRules: true, media: true },
@@ -218,6 +232,26 @@ export class ListingService {
   async getPublicListings() {
     return this.prisma.listing.findMany({
       where: { status: ListingStatus.APPROVED },
+      include: {
+        rateRules: true,
+        media: { orderBy: { sortOrder: 'asc' }, take: 1 },
+        tags: { include: { tag: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getListingsByBounds(swLat: number, swLng: number, neLat: number, neLng: number) {
+    return this.prisma.listing.findMany({
+      where: {
+        status: ListingStatus.APPROVED,
+        AND: [
+          { latitude: { not: null } },
+          { latitude: { gte: swLat, lte: neLat } },
+          { longitude: { not: null } },
+          { longitude: { gte: swLng, lte: neLng } },
+        ],
+      },
       include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
       orderBy: { createdAt: 'desc' },
     });
@@ -230,6 +264,8 @@ export class ListingService {
         rateRules: true,
         media: { orderBy: { sortOrder: 'asc' } },
         seasonalRates: { orderBy: { startsAt: 'asc' } },
+        host: { select: { userId: true, user: { select: { fullName: true } } } },
+        tags: { include: { tag: true } },
       },
     });
     if (!listing) throw new NotFoundException('Listing not found');
@@ -348,6 +384,37 @@ export class ListingService {
     return { deleted: true };
   }
 
+  // ─── Tags / Amenities ───────────────────────────────────────────────────────
+
+  async getAllTags() {
+    return this.prisma.tag.findMany({ orderBy: [{ category: 'asc' }, { name: 'asc' }] });
+  }
+
+  async setListingTags(userId: string, listingId: string, tagIds: string[]) {
+    await this.verifyOwnership(userId, listingId);
+    // Delete existing, then re-create
+    await this.prisma.listingTag.deleteMany({ where: { listingId } });
+    if (tagIds.length > 0) {
+      const validTags = await this.prisma.tag.findMany({ where: { id: { in: tagIds } } });
+      const validIds = validTags.map((t) => t.id);
+      await this.prisma.listingTag.createMany({
+        data: validIds.map((tagId) => ({ listingId, tagId })),
+        skipDuplicates: true,
+      });
+    }
+    return this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { tags: { include: { tag: true } }, rateRules: true },
+    });
+  }
+
+  async getListingTags(listingId: string) {
+    return this.prisma.listingTag.findMany({
+      where: { listingId },
+      include: { tag: true },
+    });
+  }
+
   private async verifyOwnership(userId: string, listingId: string) {
     const listing = await this.prisma.listing.findUnique({
       where: { id: listingId },
@@ -380,6 +447,15 @@ export class ListingService {
           listingTitle,
           listingId,
         });
+        await this.prisma.hostNotification.create({
+          data: {
+            hostId,
+            type: 'LISTING_APPROVED',
+            title: 'Listing approved',
+            message: `Your listing "${listingTitle}" is now live on Dhyana Stays.`,
+            metadata: { listingId },
+          },
+        });
       } else if (action === 'reject') {
         await this.notificationService.sendHostListingRejected({
           hostName: host.user.fullName,
@@ -387,10 +463,131 @@ export class ListingService {
           listingTitle,
           note,
         });
+        await this.prisma.hostNotification.create({
+          data: {
+            hostId,
+            type: action === 'reject' ? 'LISTING_REJECTED' : 'LISTING_CHANGES_REQUESTED',
+            title: action === 'reject' ? 'Listing rejected' : 'Changes requested',
+            message: `Your listing "${listingTitle}" ${action === 'reject' ? 'was not approved' : 'needs changes'}.${note ? ' Note: ' + note : ''}`,
+            metadata: { listingId, note },
+          },
+        });
       }
     } catch {
       // Non-fatal
     }
+  }
+
+  // ─── Preparation Guide ──────────────────────────────────────────────────
+
+  async getPreparationGuide(userId: string, listingId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { host: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.host.userId !== userId) {
+      throw new ForbiddenException('Cannot access listing you do not own');
+    }
+    return { preparationGuide: listing.preparationGuide ?? null };
+  }
+
+  async updatePreparationGuide(userId: string, listingId: string, dto: UpdatePreparationDto) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { host: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.host.userId !== userId) {
+      throw new ForbiddenException('Cannot edit listing you do not own');
+    }
+
+    const updated = await this.prisma.listing.update({
+      where: { id: listingId },
+      data: { preparationGuide: dto as object },
+      select: { id: true, preparationGuide: true },
+    });
+    return updated;
+  }
+
+  async getPreparationForBooking(userId: string, bookingId: string) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { listing: { select: { id: true, title: true, preparationGuide: true } } },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.guestId !== userId) {
+      throw new ForbiddenException('Not your booking');
+    }
+    const confirmedStatuses = ['CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE', 'COMPLETED'];
+    if (!confirmedStatuses.includes(booking.status)) {
+      throw new ForbiddenException('Preparation guide is available only for confirmed bookings');
+    }
+    return {
+      bookingId: booking.id,
+      listingTitle: booking.listing.title,
+      preparationGuide: booking.listing.preparationGuide ?? null,
+    };
+  }
+
+  // ─── Property Directions ──────────────────────────────────────────────
+
+  async getDirections(userId: string, listingId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { host: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.host.userId !== userId) {
+      throw new ForbiddenException('Cannot access listing you do not own');
+    }
+    return { propertyDirections: listing.propertyDirections ?? null };
+  }
+
+  async updateDirections(userId: string, listingId: string, dto: object) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { host: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.host.userId !== userId) {
+      throw new ForbiddenException('Cannot edit listing you do not own');
+    }
+    return this.prisma.listing.update({
+      where: { id: listingId },
+      data: { propertyDirections: dto },
+      select: { id: true, propertyDirections: true },
+    });
+  }
+
+  // ─── Property Manual ────────────────────────────────────────────────
+
+  async getManual(userId: string, listingId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { host: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.host.userId !== userId) {
+      throw new ForbiddenException('Cannot access listing you do not own');
+    }
+    return { propertyManual: listing.propertyManual ?? null };
+  }
+
+  async updateManual(userId: string, listingId: string, dto: object) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { host: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.host.userId !== userId) {
+      throw new ForbiddenException('Cannot edit listing you do not own');
+    }
+    return this.prisma.listing.update({
+      where: { id: listingId },
+      data: { propertyManual: dto },
+      select: { id: true, propertyManual: true },
+    });
   }
 
   private isReapprovalTriggered(dto: UpdateListingDto): boolean {

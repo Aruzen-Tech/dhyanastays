@@ -44,6 +44,7 @@ export interface AuthContextValue {
     password: string,
     fullName: string,
     role: 'GUEST' | 'HOST',
+    referralCode?: string,
   ) => Promise<void>;
   /** Auth0 login redirect (Mode A only) */
   loginWithAuth0: (options?: { role?: 'GUEST' | 'HOST' }) => void;
@@ -102,8 +103,8 @@ function CustomAuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const register = useCallback(
-    async (email: string, password: string, fullName: string, role: 'GUEST' | 'HOST') => {
-      const tokens = await authApi.register({ email, password, fullName, role });
+    async (email: string, password: string, fullName: string, role: 'GUEST' | 'HOST', referralCode?: string) => {
+      const tokens = await authApi.register({ email, password, fullName, role, ...(referralCode && { referralCode }) });
       applyTokens(tokens);
     },
     [applyTokens],

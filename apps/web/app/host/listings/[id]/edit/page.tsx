@@ -4,7 +4,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../../../../context/AuthContext';
 import { listingsApi, storageApi, formatDate, formatINR } from '../../../../../lib/api';
-import type { AvailabilityBlock, Listing, ListingMedia, SeasonalRate } from '../../../../../lib/types';
+import type { AvailabilityBlock, Listing, ListingMedia, SeasonalRate, Tag } from '../../../../../lib/types';
 
 export default function EditListingPage() {
   const { id } = useParams<{ id: string }>();
@@ -41,6 +41,13 @@ export default function EditListingPage() {
 
   // Availability blocks state
   const [availBlocks, setAvailBlocks] = useState<AvailabilityBlock[]>([]);
+
+  // Tags state
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [savingTags, setSavingTags] = useState(false);
+  const [tagsSuccess, setTagsSuccess] = useState('');
+
   const [blockForm, setBlockForm] = useState({ startsAt: '', endsAt: '', reason: '' });
   const [addingBlock, setAddingBlock] = useState(false);
   const [blockError, setBlockError] = useState('');
@@ -81,6 +88,14 @@ export default function EditListingPage() {
     if (!user || user.role !== 'HOST' || !id) return;
     listingsApi.getSeasonalRates(id).then(setSeasonalRates).catch(() => {});
     listingsApi.getAvailabilityBlocks(id).then(setAvailBlocks).catch(() => {});
+    // Load all available tags + current listing tags
+    Promise.all([
+      listingsApi.getAllTags().catch(() => [] as Tag[]),
+      listingsApi.getListingTags(id).catch(() => []),
+    ]).then(([tags, listingTags]) => {
+      setAllTags(tags);
+      setSelectedTagIds(listingTags.map((lt) => lt.tagId));
+    });
   }, [id, user]);
 
   const set = (field: keyof typeof form) =>
@@ -355,6 +370,22 @@ export default function EditListingPage() {
         </div>
       </form>
 
+      {/* ── Preparation guide link ── */}
+      <div className="card p-6 mt-8 flex items-center justify-between">
+        <div>
+          <h2 className="font-semibold text-gray-900">Retreat preparation guide</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Help guests prepare — packing list, schedule, dietary info, arrival instructions.
+          </p>
+        </div>
+        <button
+          onClick={() => router.push(`/host/listings/${id}/preparation`)}
+          className="btn-secondary text-sm py-1.5 px-4 whitespace-nowrap"
+        >
+          Edit guide →
+        </button>
+      </div>
+
       {/* ── Photo gallery ── */}
       <div className="card p-6 mt-8 space-y-4">
         <div className="flex items-center justify-between">
@@ -498,6 +529,77 @@ export default function EditListingPage() {
         </form>
         {blockError && <p className="text-xs text-red-600">{blockError}</p>}
       </div>
+
+      {/* ── Tags / Amenities ── */}
+      {allTags.length > 0 && (
+        <div className="card p-6 mt-6 mb-10 space-y-4">
+          <div>
+            <h2 className="font-semibold text-gray-900">Amenities &amp; Features</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Tag your listing so guests can find it with filters.</p>
+          </div>
+
+          {(() => {
+            const byCategory: Record<string, Tag[]> = {};
+            allTags.forEach((t) => {
+              if (!byCategory[t.category]) byCategory[t.category] = [];
+              byCategory[t.category].push(t);
+            });
+            return (
+              <div className="space-y-3">
+                {Object.entries(byCategory).map(([category, tags]) => (
+                  <div key={category}>
+                    <p className="text-xs text-gray-400 capitalize mb-1.5">{category}</p>
+                    <div className="flex flex-wrap gap-2">
+                      {tags.map((tag) => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() =>
+                            setSelectedTagIds((prev) =>
+                              prev.includes(tag.id)
+                                ? prev.filter((t) => t !== tag.id)
+                                : [...prev, tag.id],
+                            )
+                          }
+                          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                            selectedTagIds.includes(tag.id)
+                              ? 'bg-brand-700 text-white border-brand-700'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                          }`}
+                        >
+                          {tag.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {tagsSuccess && <p className="text-xs text-green-600">{tagsSuccess}</p>}
+          <button
+            type="button"
+            disabled={savingTags}
+            onClick={async () => {
+              setSavingTags(true);
+              setTagsSuccess('');
+              try {
+                await listingsApi.setListingTags(id, selectedTagIds);
+                setTagsSuccess('Amenities saved.');
+                setTimeout(() => setTagsSuccess(''), 3000);
+              } catch {
+                // silently ignore
+              } finally {
+                setSavingTags(false);
+              }
+            }}
+            className="btn-secondary text-sm py-1.5 px-4"
+          >
+            {savingTags ? <><span className="spinner" /> Saving…</> : 'Save amenities'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

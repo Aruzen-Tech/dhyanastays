@@ -4,6 +4,9 @@ import { CurrentUser, RequestUser } from '../common/decorators/current-user.deco
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
+import { UpdatePreparationDto } from './dto/update-preparation.dto';
+import { UpdateDirectionsDto } from '../guest-assistance/dto/update-directions.dto';
+import { UpdateManualDto } from '../guest-assistance/dto/update-manual.dto';
 import { AddMediaDto } from './dto/add-media.dto';
 import { AddSeasonalRateDto } from './dto/add-seasonal-rate.dto';
 import { AddAvailabilityBlockDto } from './dto/add-availability-block.dto';
@@ -38,6 +41,54 @@ export class HostListingController {
     return this.listingService.updateHostListing(user.sub, id, dto);
   }
 
+  // ── Preparation guide ────────────────────────────────────────────────────────
+
+  @Get('host/listings/:id/preparation')
+  getPreparation(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.listingService.getPreparationGuide(user.sub, id);
+  }
+
+  @Patch('host/listings/:id/preparation')
+  updatePreparation(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() dto: UpdatePreparationDto,
+  ) {
+    return this.listingService.updatePreparationGuide(user.sub, id, dto);
+  }
+
+  // ── Directions ───────────────────────────────────────────────────────────────
+
+  @Get('host/listings/:id/directions')
+  getDirections(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.listingService.getDirections(user.sub, id);
+  }
+
+  @Patch('host/listings/:id/directions')
+  updateDirections(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateDirectionsDto,
+  ) {
+    return this.listingService.updateDirections(user.sub, id, dto);
+  }
+
+  // ── Manual ──────────────────────────────────────────────────────────────────
+
+  @Get('host/listings/:id/manual')
+  getManual(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.listingService.getManual(user.sub, id);
+  }
+
+  @Patch('host/listings/:id/manual')
+  updateManual(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateManualDto,
+  ) {
+    return this.listingService.updateManual(user.sub, id, dto);
+  }
+
   // ── Media ────────────────────────────────────────────────────────────────────
 
   @Post('host/listings/:id/media')
@@ -56,6 +107,27 @@ export class HostListingController {
     @Param('mediaId') mediaId: string,
   ) {
     return this.listingService.deleteMedia(user.sub, id, mediaId);
+  }
+
+  // ── Tags / Amenities ─────────────────────────────────────────────────────────
+
+  @Get('host/tags')
+  getAllTags() {
+    return this.listingService.getAllTags();
+  }
+
+  @Get('host/listings/:id/tags')
+  getListingTags(@Param('id') id: string) {
+    return this.listingService.getListingTags(id);
+  }
+
+  @Post('host/listings/:id/tags')
+  setListingTags(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { tagIds: string[] },
+  ) {
+    return this.listingService.setListingTags(user.sub, id, body.tagIds ?? []);
   }
 
   // ── Seasonal rates ────────────────────────────────────────────────────────────

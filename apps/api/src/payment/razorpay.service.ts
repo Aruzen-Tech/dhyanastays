@@ -29,6 +29,12 @@ export class RazorpayService {
     this.stubMode = !this.keyId || !this.keySecret;
 
     if (this.stubMode) {
+      const nodeEnv = this.config.get<string>('NODE_ENV', 'development');
+      if (nodeEnv === 'production') {
+        throw new Error(
+          'Razorpay credentials (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET) are required in production',
+        );
+      }
       this.logger.warn(
         'Razorpay credentials not configured — running in STUB mode. ' +
           'Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET in .env',

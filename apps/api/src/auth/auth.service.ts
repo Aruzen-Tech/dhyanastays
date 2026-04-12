@@ -12,12 +12,16 @@ import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SyncUserDto } from './dto/sync-user.dto';
 import type { RequestUser } from './strategies/jwt.strategy';
+import { LoginRateLimiterService } from './services/login-rate-limiter.service';
+import { ReferralService } from '../referral/referral.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly loginRateLimiter: LoginRateLimiterService,
+    private readonly referralService: ReferralService,
   ) {}
 
   // ─── Custom JWT auth (used when AUTH0_DOMAIN is NOT set) ──────────────────
@@ -60,6 +64,11 @@ export class AuthService {
       return created;
     });
 
+    // Non-blocking: apply referral code if provided
+    if (dto.referralCode) {
+      void this.referralService.applyReferralCode(user.id, dto.referralCode).catch(() => {});
+    }
+
     return this.issueTokens(user.id, user.email, user.role);
   }
 
@@ -79,6 +88,7 @@ export class AuthService {
     if (!valid) {
       throw new UnauthorizedException('Invalid credentials');
     }
+    await this.loginRateLimiter.resetOnSuccess(dto.email);
     return this.issueTokens(user.id, user.email, user.role);
   }
 

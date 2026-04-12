@@ -9,6 +9,7 @@ import { PricingService } from '../pricing/pricing.service';
 import { AuditService } from '../common/services/audit.service';
 import { LedgerService } from '../common/services/ledger.service';
 import { NotificationService } from '../notification/notification.service';
+import { ReferralService } from '../referral/referral.service';
 import { CreateBookingDto, PaymentPlanDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { PriceSnapshot } from '../pricing/dto/quote.dto';
@@ -27,6 +28,7 @@ export class BookingService {
     private readonly auditService: AuditService,
     private readonly ledgerService: LedgerService,
     private readonly notificationService: NotificationService,
+    private readonly referralService: ReferralService,
   ) {}
 
   /**
@@ -145,7 +147,10 @@ export class BookingService {
         payments: true,
         refunds: true,
         listing: {
-          select: { id: true, title: true, city: true, state: true, country: true },
+          select: {
+            id: true, title: true, city: true, state: true, country: true,
+            host: { select: { userId: true, user: { select: { fullName: true } } } },
+          },
         },
       },
     });
@@ -168,20 +173,33 @@ export class BookingService {
     throw new ForbiddenException('Access denied');
   }
 
-  /** Admin: get all bookings with guest + listing info */
-  async getAllBookings(page = 1, limit = 50) {
+  /** Admin: get all bookings with guest + listing info, optional status/search filters */
+  async getAllBookings(page = 1, limit = 50, status?: string, search?: string) {
+    const where: any = {};
+    if (status) where.status = status;
+    if (search) {
+      where.OR = [
+        { id: { contains: search, mode: 'insensitive' } },
+        { listing: { title: { contains: search, mode: 'insensitive' } } },
+        { guest: { fullName: { contains: search, mode: 'insensitive' } } },
+        { guest: { email: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
     const skip = (page - 1) * limit;
     const [bookings, total] = await Promise.all([
       this.prisma.booking.findMany({
+        where,
         skip,
         take: limit,
         include: {
           listing: { select: { id: true, title: true, city: true, state: true } },
+          guest: { select: { fullName: true, email: true } },
           payments: { select: { id: true, amount: true, status: true, type: true } },
         },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.booking.count(),
+      this.prisma.booking.count({ where }),
     ]);
     return { bookings, total, page, limit };
   }
@@ -273,21 +291,78 @@ export class BookingService {
     try {
       const [guest, listing] = await Promise.all([
         this.prisma.user.findUnique({ where: { id: booking.guestId }, select: { fullName: true, email: true } }),
-        this.prisma.listing.findUnique({ where: { id: booking.listingId }, select: { title: true } }),
+        this.prisma.listing.findUnique({
+          where: { id: booking.listingId },
+          select: { title: true, host: { select: { id: true, user: { select: { fullName: true, email: true } } } } },
+        }),
       ]);
       if (!guest || !listing) return;
       const snapshot = booking.priceSnapshot as PriceSnapshot;
+      const checkIn = new Date(booking.startsAt).toLocaleDateString('en-IN');
+      const checkOut = new Date(booking.endsAt).toLocaleDateString('en-IN');
+
+      // Guest email
       await this.notificationService.sendBookingConfirmed({
         guestName: guest.fullName,
         guestEmail: guest.email,
         bookingId,
         listingTitle: listing.title,
-        checkIn: new Date(booking.startsAt).toLocaleDateString('en-IN'),
-        checkOut: new Date(booking.endsAt).toLocaleDateString('en-IN'),
+        checkIn,
+        checkOut,
         totalAmount: snapshot.total,
         plan: booking.plan as 'FULL' | 'DEPOSIT_50',
         depositAmount: snapshot.depositAmount,
       });
+
+      // Host email
+      if (listing.host?.user) {
+        await this.notificationService.sendHostNewBooking({
+          hostName: listing.host.user.fullName,
+          hostEmail: listing.host.user.email,
+          guestName: guest.fullName,
+          bookingId,
+          listingTitle: listing.title,
+          checkIn,
+          checkOut,
+          totalAmount: snapshot.total,
+          plan: booking.plan as 'FULL' | 'DEPOSIT_50',
+        });
+      }
+
+      // DB notifications (non-blocking, fire-and-forget)
+      const notifMeta = { bookingId, listingTitle: listing.title, checkIn, checkOut };
+
+      await Promise.allSettled([
+        // Guest DB notification
+        this.prisma.guestNotification.create({
+          data: {
+            userId: booking.guestId,
+            type: 'BOOKING_CONFIRMED',
+            title: 'Booking confirmed',
+            message: `Your booking for ${listing.title} (${checkIn} – ${checkOut}) is confirmed.`,
+            metadata: notifMeta,
+          },
+        }),
+        // Host DB notification
+        listing.host ? this.prisma.hostNotification.create({
+          data: {
+            hostId: listing.host.id,
+            type: 'NEW_BOOKING',
+            title: 'New booking received',
+            message: `${guest.fullName} booked ${listing.title} (${checkIn} – ${checkOut}).`,
+            metadata: notifMeta,
+          },
+        }) : Promise.resolve(),
+        // Admin DB notification
+        this.prisma.adminNotification.create({
+          data: {
+            type: 'NEW_BOOKING',
+            title: 'New booking',
+            message: `${guest.fullName} booked ${listing.title} for ${checkIn} – ${checkOut}. Total: ₹${(snapshot.total / 100).toLocaleString('en-IN')}.`,
+            metadata: notifMeta,
+          },
+        }),
+      ]);
     } catch {
       // Non-fatal — notification failure must not break booking flow
     }
@@ -406,16 +481,31 @@ export class BookingService {
         });
         if (!guest) continue;
         const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
+        const listingTitle = booking.listing?.title ?? 'your stay';
+        const balanceAmount = snapshot.balanceAmount ?? Math.ceil(snapshot.total / 2);
+        const dueDate = booking.balanceDueAt
+          ? new Date(booking.balanceDueAt).toLocaleDateString('en-IN')
+          : 'soon';
+
         await this.notificationService.sendBalanceDueReminder({
           guestName: guest.fullName,
           guestEmail: guest.email,
           bookingId: booking.id,
-          listingTitle: booking.listing?.title ?? 'your stay',
-          balanceAmount: snapshot.balanceAmount ?? Math.ceil(snapshot.total / 2),
-          dueDate: booking.balanceDueAt
-            ? new Date(booking.balanceDueAt).toLocaleDateString('en-IN')
-            : 'soon',
+          listingTitle,
+          balanceAmount,
+          dueDate,
         });
+
+        // Guest DB notification
+        await this.prisma.guestNotification.create({
+          data: {
+            userId: booking.guestId,
+            type: 'BALANCE_DUE',
+            title: 'Balance payment due',
+            message: `Your balance of ₹${(balanceAmount / 100).toLocaleString('en-IN')} for ${listingTitle} is due by ${dueDate}.`,
+            metadata: { bookingId: booking.id, listingTitle, balanceAmount, dueDate },
+          },
+        }).catch(() => {});
       } catch {
         // Non-fatal
       }
@@ -481,22 +571,66 @@ export class BookingService {
       return { booking: updated, refundAmount };
     });
 
-    // Send cancellation notification (non-blocking)
+    // Send cancellation notifications (non-blocking)
     void (async () => {
       try {
-        const guest = await this.prisma.user.findUnique({
-          where: { id: booking.guestId },
-          select: { fullName: true, email: true },
-        });
+        const [guest, listing] = await Promise.all([
+          this.prisma.user.findUnique({
+            where: { id: booking.guestId },
+            select: { fullName: true, email: true },
+          }),
+          this.prisma.listing.findUnique({
+            where: { id: booking.listingId },
+            select: { title: true, host: { select: { id: true, user: { select: { fullName: true, email: true } } } } },
+          }),
+        ]);
+        const listingTitle = listing?.title ?? 'your stay';
+
+        // Guest email
         if (guest) {
           await this.notificationService.sendBookingCancelled({
             guestName: guest.fullName,
             guestEmail: guest.email,
             bookingId,
-            listingTitle: (booking as { listing?: { title: string } }).listing?.title ?? 'your stay',
+            listingTitle,
             refundAmount: result.refundAmount,
           });
         }
+
+        // Host email
+        if (guest && listing?.host?.user) {
+          await this.notificationService.sendHostBookingCancelled({
+            hostName: listing.host.user.fullName,
+            hostEmail: listing.host.user.email,
+            guestName: guest.fullName,
+            bookingId,
+            listingTitle,
+            refundAmount: result.refundAmount,
+          });
+        }
+
+        // DB notifications
+        const notifMeta = { bookingId, listingTitle, refundAmount: result.refundAmount };
+        await Promise.allSettled([
+          this.prisma.guestNotification.create({
+            data: {
+              userId: booking.guestId,
+              type: 'BOOKING_CANCELLED',
+              title: 'Booking cancelled',
+              message: `Your booking for ${listingTitle} has been cancelled.${result.refundAmount > 0 ? ` Refund: ₹${(result.refundAmount / 100).toLocaleString('en-IN')}` : ''}`,
+              metadata: notifMeta,
+            },
+          }),
+          listing?.host ? this.prisma.hostNotification.create({
+            data: {
+              hostId: listing.host.id,
+              type: 'BOOKING_CANCELLED',
+              title: 'Booking cancelled',
+              message: `${guest?.fullName ?? 'A guest'}'s booking for ${listingTitle} has been cancelled.`,
+              metadata: notifMeta,
+            },
+          }) : Promise.resolve(),
+        ]);
       } catch {
         // Non-fatal
       }
@@ -528,6 +662,9 @@ export class BookingService {
     await this.auditService.log(actorId, 'BOOKING_COMPLETE', 'booking', bookingId, {
       previousStatus: booking.status,
     });
+
+    // Non-blocking: trigger referral credit check
+    void this.referralService.onReferredUserFirstBooking(booking.guestId).catch(() => {});
 
     return updated;
   }

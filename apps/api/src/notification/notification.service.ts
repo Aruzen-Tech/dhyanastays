@@ -65,6 +65,27 @@ export interface BookingCancelledPayload {
   refundAmount: number;
 }
 
+export interface HostNewBookingPayload {
+  hostName: string;
+  hostEmail: string;
+  guestName: string;
+  bookingId: string;
+  listingTitle: string;
+  checkIn: string;
+  checkOut: string;
+  totalAmount: number;
+  plan: 'FULL' | 'DEPOSIT_50';
+}
+
+export interface HostBookingCancelledPayload {
+  hostName: string;
+  hostEmail: string;
+  guestName: string;
+  bookingId: string;
+  listingTitle: string;
+  refundAmount: number;
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 @Injectable()
@@ -75,11 +96,23 @@ export class NotificationService {
   private readonly fromEmail: string;
   private readonly webUrl: string;
 
+  private readonly isProduction: boolean;
+
   constructor(private readonly config: ConfigService) {
     this.emailProvider = config.get<string>('EMAIL_PROVIDER', 'stub');
     this.smsProvider = config.get<string>('SMS_PROVIDER', 'stub');
     this.fromEmail = config.get<string>('EMAIL_FROM', 'noreply@dhyanastays.com');
     this.webUrl = config.get<string>('WEB_URL', 'http://localhost:3000');
+    this.isProduction = config.get<string>('NODE_ENV') === 'production';
+
+    if (this.isProduction) {
+      if (this.emailProvider === 'stub') {
+        throw new Error('EMAIL_PROVIDER must not be stub in production');
+      }
+      if (this.smsProvider === 'stub') {
+        throw new Error('SMS_PROVIDER must not be stub in production');
+      }
+    }
   }
 
   // ── Public notification methods ─────────────────────────────────────────────
@@ -212,6 +245,58 @@ export class NotificationService {
     });
   }
 
+  async sendHostNewBooking(payload: HostNewBookingPayload): Promise<void> {
+    await this.sendEmail({
+      to: payload.hostEmail,
+      subject: `New booking — ${payload.listingTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#1a5c4a">🎉 New booking received!</h2>
+          <p>Hi ${payload.hostName},</p>
+          <p><strong>${payload.guestName}</strong> has booked your listing <strong>${payload.listingTitle}</strong>.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0">
+            <tr><td style="padding:8px;border:1px solid #e5e7eb;color:#6b7280">Check-in</td>
+                <td style="padding:8px;border:1px solid #e5e7eb">${payload.checkIn}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e5e7eb;color:#6b7280">Check-out</td>
+                <td style="padding:8px;border:1px solid #e5e7eb">${payload.checkOut}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e5e7eb;color:#6b7280">Total</td>
+                <td style="padding:8px;border:1px solid #e5e7eb;font-weight:bold;color:#1a5c4a">₹${this.formatINR(payload.totalAmount)}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #e5e7eb;color:#6b7280">Plan</td>
+                <td style="padding:8px;border:1px solid #e5e7eb">${payload.plan === 'FULL' ? 'Paid in full' : '50% deposit'}</td></tr>
+          </table>
+          <a href="${this.webUrl}/host/bookings" style="display:inline-block;background:#1a5c4a;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:8px">
+            View bookings
+          </a>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">Dhyana Stays · support@dhyanastays.com</p>
+        </div>
+      `,
+      text: `New booking for ${payload.listingTitle} by ${payload.guestName}. Check-in: ${payload.checkIn}. Check-out: ${payload.checkOut}. Total: ₹${this.formatINR(payload.totalAmount)}.`,
+    });
+  }
+
+  async sendHostBookingCancelled(payload: HostBookingCancelledPayload): Promise<void> {
+    await this.sendEmail({
+      to: payload.hostEmail,
+      subject: `Booking cancelled — ${payload.listingTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#dc2626">Booking cancelled</h2>
+          <p>Hi ${payload.hostName},</p>
+          <p>A booking by <strong>${payload.guestName}</strong> for <strong>${payload.listingTitle}</strong> (ID: ${payload.bookingId.slice(0, 12)}…) has been cancelled.</p>
+          ${payload.refundAmount > 0
+            ? `<p>A refund of <strong>₹${this.formatINR(payload.refundAmount)}</strong> is being processed to the guest.</p>`
+            : `<p>No refund was issued per the cancellation policy.</p>`
+          }
+          <a href="${this.webUrl}/host/bookings" style="display:inline-block;background:#1a5c4a;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:8px">
+            View bookings
+          </a>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">Dhyana Stays · support@dhyanastays.com</p>
+        </div>
+      `,
+      text: `Booking for ${payload.listingTitle} by ${payload.guestName} was cancelled. ${payload.refundAmount > 0 ? `Refund: ₹${this.formatINR(payload.refundAmount)}` : 'No refund.'}`,
+    });
+  }
+
   // ── Core send methods ───────────────────────────────────────────────────────
 
   async sendEmail(payload: EmailPayload): Promise<void> {
@@ -259,6 +344,9 @@ export class NotificationService {
   private async sendViaResend(payload: EmailPayload): Promise<void> {
     const apiKey = this.config.get<string>('RESEND_API_KEY', '');
     if (!apiKey) {
+      if (this.isProduction) {
+        throw new Error('RESEND_API_KEY is required when EMAIL_PROVIDER=resend in production');
+      }
       this.logger.warn('RESEND_API_KEY not set — falling back to stub');
       this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
       return;
@@ -289,6 +377,9 @@ export class NotificationService {
   private async sendViaSendGrid(payload: EmailPayload): Promise<void> {
     const apiKey = this.config.get<string>('SENDGRID_API_KEY', '');
     if (!apiKey) {
+      if (this.isProduction) {
+        throw new Error('SENDGRID_API_KEY is required when EMAIL_PROVIDER=sendgrid in production');
+      }
       this.logger.warn('SENDGRID_API_KEY not set — falling back to stub');
       this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
       return;
@@ -321,6 +412,9 @@ export class NotificationService {
   private async sendViaSmtp(payload: EmailPayload): Promise<void> {
     const host = this.config.get<string>('SMTP_HOST', '');
     if (!host) {
+      if (this.isProduction) {
+        throw new Error('SMTP_HOST is required when EMAIL_PROVIDER=smtp in production');
+      }
       this.logger.warn('SMTP_HOST not set — falling back to stub');
       this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
       return;
@@ -354,6 +448,9 @@ export class NotificationService {
     const senderId = this.config.get<string>('MSG91_SENDER_ID', 'DHYANA');
 
     if (!authKey) {
+      if (this.isProduction) {
+        throw new Error('MSG91_AUTH_KEY is required when SMS_PROVIDER=msg91 in production');
+      }
       this.logger.warn('MSG91_AUTH_KEY not set — falling back to stub');
       this.logger.log(`[SMS STUB] To: ${payload.to} | Body: ${payload.body}`);
       return;
@@ -390,6 +487,9 @@ export class NotificationService {
     const fromNumber = this.config.get<string>('TWILIO_FROM_NUMBER', '');
 
     if (!accountSid || !authToken) {
+      if (this.isProduction) {
+        throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are required when SMS_PROVIDER=twilio in production');
+      }
       this.logger.warn('Twilio credentials not set — falling back to stub');
       this.logger.log(`[SMS STUB] To: ${payload.to} | Body: ${payload.body}`);
       return;

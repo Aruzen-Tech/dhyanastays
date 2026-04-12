@@ -26,7 +26,12 @@ describe('AuthService', () => {
     const jwtService = {
       signAsync: jest.fn().mockResolvedValue('token'),
     } as unknown as JwtService;
-    service = new AuthService(prismaMock as never, jwtService);
+    const rateLimiterMock = {
+      check: jest.fn().mockResolvedValue({ blocked: false }),
+      resetOnSuccess: jest.fn().mockResolvedValue(undefined),
+    };
+    const referralMock = { applyReferralCode: jest.fn().mockResolvedValue(undefined) };
+    service = new AuthService(prismaMock as never, jwtService, rateLimiterMock as never, referralMock as never);
   });
 
   it('rejects admin self registration', async () => {

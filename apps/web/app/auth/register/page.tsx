@@ -1,13 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 
 export default function RegisterPage() {
   const { register, loginWithAuth0, isAuth0Mode } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -15,6 +16,7 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<'GUEST' | 'HOST'>('GUEST');
   const [agreed, setAgreed] = useState(false);
+  const [referralCode, setReferralCode] = useState(searchParams.get('ref') ?? '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -109,7 +111,7 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      await register(email, password, fullName, role);
+      await register(email, password, fullName, role, referralCode.trim() || undefined);
       router.push('/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Registration failed');
@@ -234,6 +236,26 @@ export default function RegisterPage() {
               />
               {confirmPassword && confirmPassword !== password && (
                 <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+              )}
+            </div>
+
+            {/* Referral code */}
+            <div>
+              <label htmlFor="referralCode" className="label">
+                Referral code
+                <span className="text-gray-400 font-normal ml-1">(optional)</span>
+              </label>
+              <input
+                id="referralCode"
+                type="text"
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+                placeholder="e.g. ABC12345"
+                maxLength={12}
+                className="input font-mono uppercase"
+              />
+              {referralCode.trim() && (
+                <p className="text-xs text-green-600 mt-1">🎁 You&apos;ll receive ₹250 credit after your first stay</p>
               )}
             </div>
 

@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum UserRole {
@@ -59,6 +60,28 @@ enum PayoutStatus {
   REVERSED
 }
 
+enum IssueCategory {
+  MAINTENANCE
+  CLEANLINESS
+  NOISE
+  SAFETY
+  OTHER
+}
+
+enum IssueUrgency {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum IssueStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
 enum LedgerEventType {
   PAYMENT_CAPTURED
   REFUND_ISSUED
@@ -82,7 +105,21 @@ model User {
   listings       Listing[]
   holds          Hold[]
   bookings       Booking[]
+  phone          String?
+  avatarUrl      String?
   auditLogs      AuditLog[]  @relation("AuditActor")
+  wishlists      Wishlist[]
+  reviews        Review[]
+  guestNotifications GuestNotification[]
+  guestPreference    GuestPreference?
+  conversationsAsOne Conversation[]     @relation("ConversationsAsOne")
+  conversationsAsTwo Conversation[]     @relation("ConversationsAsTwo")
+  sentMessages       Message[]
+  guestIssues        GuestIssue[]
+  referralCode       String?     @unique
+  referrals          Referral[]  @relation("ReferrerReferrals")
+  referredBy         Referral?   @relation("ReferredUserReferral")
+  creditLedger       CreditLedger[]
 }
 
 model Host {
@@ -96,6 +133,7 @@ model Host {
   user                User                   @relation(fields: [userId], references: [id])
   listings            Listing[]
   payoutLines         PayoutLine[]
+  notifications       HostNotification[]
 }
 
 model Listing {
@@ -107,8 +145,13 @@ model Listing {
   city                String
   state               String
   country             String               @default("India")
+  latitude            Float?
+  longitude           Float?
   timezone            String               @default("Asia/Kolkata")
   status              ListingStatus        @default(PENDING_APPROVAL)
+  preparationGuide    Json?
+  propertyDirections  Json?
+  propertyManual      Json?
   needsReapproval     Boolean              @default(false)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
@@ -122,6 +165,13 @@ model Listing {
   holds               Hold[]
   bookings            Booking[]
   payoutLines         PayoutLine[]
+  wishlists           Wishlist[]
+  reviews             Review[]
+  conversations       Conversation[]
+  issues               GuestIssue[]
+
+  @@index([hostId])
+  @@index([status, createdAt])
 }
 
 model ListingMedia {
@@ -163,6 +213,8 @@ model RateRule {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
   listing           Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
 }
 
 model SeasonalRate {
@@ -173,6 +225,8 @@ model SeasonalRate {
   nightlyRate     Int
   createdAt       DateTime @default(now())
   listing         Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, startsAt, endsAt])
 }
 
 model AvailabilityBlock {
@@ -183,6 +237,8 @@ model AvailabilityBlock {
   reason         String
   createdAt      DateTime @default(now())
   listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId, startsAt, endsAt])
 }
 
 model Hold {
@@ -198,6 +254,8 @@ model Hold {
   listing          Listing     @relation(fields: [listingId], references: [id])
   guest            User        @relation(fields: [guestId], references: [id])
   booking          Booking?
+
+  @@index([listingId])
 }
 
 model Booking {
@@ -211,6 +269,8 @@ model Booking {
   endsAt           DateTime
   priceSnapshot    Json
   guestDetails     Json?
+  checkInData      Json?
+  checkOutData     Json?
   balanceDueAt     DateTime?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -219,6 +279,14 @@ model Booking {
   hold             Hold         @relation(fields: [holdId], references: [id])
   payments         Payment[]
   refunds          Refund[]
+  review           Review?
+  conversations    Conversation[]
+  issues           GuestIssue[]
+
+  @@index([listingId, status])
+  @@index([guestId, status])
+  @@index([status, createdAt])
+  @@index([listingId, startsAt, endsAt])
 }
 
 model Payment {
@@ -234,6 +302,9 @@ model Payment {
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   booking            Booking       @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+  @@index([status, createdAt])
 }
 
 model Refund {
@@ -245,6 +316,8 @@ model Refund {
   gatewayRefundRef   String?
   createdAt          DateTime      @default(now())
   booking            Booking       @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
 }
 
 model PayoutLine {
@@ -261,6 +334,8 @@ model PayoutLine {
   host               Host         @relation(fields: [hostId], references: [id])
   listing            Listing      @relation(fields: [listingId], references: [id])
   batch              PayoutBatch? @relation(fields: [batchId], references: [id])
+
+  @@index([hostId, status])
 }
 
 model PayoutBatch {
@@ -281,6 +356,8 @@ model LedgerEvent {
   currency           String          @default("INR")
   metadata           Json
   createdAt          DateTime        @default(now())
+
+  @@index([bookingId])
 }
 
 model AuditLog {
@@ -314,4 +391,188 @@ model AdminNotification {
   createdAt DateTime @default(now())
 
   @@index([isRead, createdAt])
+}
+
+model HostNotification {
+  id        String   @id @default(cuid())
+  hostId    String
+  type      String
+  title     String
+  message   String
+  metadata  Json     @default("{}")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  host      Host     @relation(fields: [hostId], references: [id])
+
+  @@index([hostId, isRead, createdAt])
+}
+
+model Wishlist {
+  id        String   @id @default(cuid())
+  userId    String
+  listingId String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+  listing   Listing  @relation(fields: [listingId], references: [id])
+
+  @@unique([userId, listingId])
+  @@index([userId])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  bookingId String   @unique
+  userId    String
+  listingId String
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+  listing   Listing  @relation(fields: [listingId], references: [id])
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+
+  @@index([listingId])
+  @@index([userId])
+}
+
+model GuestNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  metadata  Json     @default("{}")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead, createdAt])
+}
+
+model Conversation {
+  id          String    @id @default(cuid())
+  type        String    // GUEST_HOST, HOST_ADMIN
+  userOneId   String    // guest (GUEST_HOST) or host (HOST_ADMIN)
+  userTwoId   String    // host (GUEST_HOST) or admin (HOST_ADMIN)
+  listingId   String?
+  bookingId   String?
+  subject     String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  userOne     User      @relation("ConversationsAsOne", fields: [userOneId], references: [id])
+  userTwo     User      @relation("ConversationsAsTwo", fields: [userTwoId], references: [id])
+  listing     Listing?  @relation(fields: [listingId], references: [id])
+  booking     Booking?  @relation(fields: [bookingId], references: [id])
+  messages    Message[]
+
+  @@unique([userOneId, userTwoId, listingId])
+  @@index([userOneId])
+  @@index([userTwoId])
+  @@index([type])
+}
+
+model Message {
+  id              String       @id @default(cuid())
+  conversationId  String
+  senderId        String
+  senderRole      UserRole
+  body            String
+  isRead          Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  conversation    Conversation @relation(fields: [conversationId], references: [id])
+  sender          User         @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt])
+}
+
+model GuestPreference {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  dietaryNeeds      String[]
+  wellnessInterests String[]
+  accessibility     String?
+  roomPreference    String?
+  experienceLevel   String?
+  arrivalPreference String?
+  emergencyContact  Json?
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id])
+}
+
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  userId       String
+  requestPath  String
+  requestHash  String
+  status       String   @default("PROCESSING")
+  httpStatus   Int?
+  responseBody Json?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([expiresAt])
+}
+
+model GuestIssue {
+  id          String        @id @default(cuid())
+  bookingId   String
+  listingId   String
+  guestId     String
+  category    IssueCategory
+  description String
+  urgency     IssueUrgency  @default(MEDIUM)
+  photoUrl    String?
+  status      IssueStatus   @default(OPEN)
+  hostNotes   String?
+  resolvedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  booking     Booking       @relation(fields: [bookingId], references: [id])
+  listing     Listing       @relation(fields: [listingId], references: [id])
+  guest       User          @relation(fields: [guestId], references: [id])
+
+  @@index([bookingId])
+  @@index([listingId, status])
+  @@index([guestId])
+  @@index([status, createdAt])
+}
+
+enum ReferralStatus {
+  PENDING
+  SIGNED_UP
+  FIRST_BOOKING
+  CREDITED
+}
+
+model Referral {
+  id              String         @id @default(cuid())
+  referrerId      String
+  referredUserId  String?        @unique
+  referralCode    String         @unique
+  status          ReferralStatus @default(PENDING)
+  referrerCredit  Int            @default(0)
+  referredCredit  Int            @default(0)
+  creditedAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  referrer        User           @relation("ReferrerReferrals", fields: [referrerId], references: [id])
+  referredUser    User?          @relation("ReferredUserReferral", fields: [referredUserId], references: [id])
+
+  @@index([referrerId])
+}
+
+model CreditLedger {
+  id          String   @id @default(cuid())
+  userId      String
+  amount      Int
+  reason      String
+  referenceId String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
 }
