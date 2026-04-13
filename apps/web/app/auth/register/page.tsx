@@ -85,6 +85,13 @@ export default function RegisterPage() {
                 Sign in
               </Link>
             </p>
+
+            <p className="text-center text-sm text-gray-400 mt-3">
+              Staff member?{' '}
+              <Link href="/auth/admin-register" className="text-brand-700 font-medium hover:underline">
+                Apply for admin access
+              </Link>
+            </p>
           </div>
         </div>
       </div>
@@ -295,6 +302,13 @@ export default function RegisterPage() {
             Already have an account?{' '}
             <Link href="/auth/login" className="text-brand-700 font-medium hover:underline">
               Sign in
+            </Link>
+          </p>
+
+          <p className="text-center text-sm text-gray-400 mt-3">
+            Staff member?{' '}
+            <Link href="/auth/admin-register" className="text-brand-700 font-medium hover:underline">
+              Apply for admin access
             </Link>
           </p>
         </div>

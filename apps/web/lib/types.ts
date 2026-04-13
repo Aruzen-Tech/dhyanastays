@@ -452,6 +452,58 @@ export interface RevenueForecast {
   bookingCount: number;
 }
 
+// ─── Staff Applications & Role Management ───────────────────────────────────
+
+export type AdminLevel = 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
+export type ServiceType = 'TRANSPORT' | 'FOOD' | 'WELLNESS' | 'EXPERIENCE' | 'CONCIERGE' | 'HOUSEKEEPING';
+export type ApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export const ADMIN_LEVEL_LABELS: Record<AdminLevel, string> = {
+  L1: 'Super Admin (Platform)',
+  L2: 'Operations Admin',
+  L3: 'Cluster / Regional Admin',
+  L4: 'Property Admin',
+  L5: 'Service Admin',
+};
+
+export interface StaffRole {
+  level: AdminLevel;
+  serviceType?: ServiceType | null;
+  clusterId?: string | null;
+  propertyId?: string | null;
+  createdAt: string;
+  revokedAt?: string | null;
+}
+
+export interface StaffMember {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  kind?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  staffRole?: StaffRole | null;
+}
+
+export interface StaffApplication {
+  id: string;
+  applicantId?: string | null;
+  email: string;
+  fullName: string;
+  requestedLevel: AdminLevel;
+  requestedService?: ServiceType | null;
+  clusterId?: string | null;
+  propertyId?: string | null;
+  justification: string;
+  status: ApplicationStatus;
+  reviewedBy?: string | null;
+  reviewNotes?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ─── Host Analytics ─────────────────────────────────────────────────────────
 
 export interface HostStats {

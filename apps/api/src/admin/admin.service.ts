@@ -1,7 +1,15 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { AdminLevel, ApplicationStatus, UserKind, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/services/audit.service';
+import { ApplyStaffDto } from './dto/apply-staff.dto';
+import { ReviewApplicationDto } from './dto/review-application.dto';
+import { AssignStaffRoleDto } from './dto/assign-staff-role.dto';
 
 @Injectable()
 export class AdminService {
@@ -687,6 +695,267 @@ export class AdminService {
     ]);
 
     return { entries, total, page, limit };
+  }
+
+  // ── Staff Application Management ─────────────────────────────────────────
+
+  /** Submit a staff/admin role application (public — no auth required) */
+  async submitApplication(dto: ApplyStaffDto, applicantId?: string) {
+    const existing = await this.prisma.staffApplication.findFirst({
+      where: { email: dto.email, status: ApplicationStatus.PENDING },
+    });
+    if (existing) {
+      throw new ConflictException('A pending application already exists for this email address');
+    }
+
+    return this.prisma.staffApplication.create({
+      data: {
+        applicantId: applicantId ?? null,
+        email: dto.email,
+        fullName: dto.fullName,
+        requestedLevel: dto.requestedLevel,
+        requestedService: dto.requestedService ?? null,
+        clusterId: dto.clusterId ?? null,
+        propertyId: dto.propertyId ?? null,
+        justification: dto.justification,
+      },
+    });
+  }
+
+  /** Paginated list of staff applications (L1 only) */
+  async getApplications(page: number, limit: number, status?: ApplicationStatus) {
+    const where: Record<string, unknown> = {};
+    if (status) where.status = status;
+
+    const [applications, total] = await Promise.all([
+      this.prisma.staffApplication.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.staffApplication.count({ where }),
+    ]);
+
+    return { applications, total, page, limit };
+  }
+
+  /** Approve or reject a staff application (L1 only) */
+  async reviewApplication(id: string, actorId: string, dto: ReviewApplicationDto) {
+    const app = await this.prisma.staffApplication.findUnique({ where: { id } });
+    if (!app) throw new NotFoundException('Application not found');
+    if (app.status !== ApplicationStatus.PENDING) {
+      throw new BadRequestException('Application is no longer pending');
+    }
+
+    if (dto.decision === 'APPROVED') {
+      return this.prisma.$transaction(async (tx) => {
+        const updated = await tx.staffApplication.update({
+          where: { id },
+          data: {
+            status: ApplicationStatus.APPROVED,
+            reviewedBy: actorId,
+            reviewNotes: dto.reviewNotes ?? null,
+            reviewedAt: new Date(),
+          },
+        });
+
+        // If applicant has an account, promote them immediately
+        if (app.applicantId) {
+          await tx.user.update({
+            where: { id: app.applicantId },
+            data: { role: UserRole.ADMIN, kind: UserKind.STAFF },
+          });
+
+          await tx.staffRole.upsert({
+            where: { userId: app.applicantId },
+            create: {
+              userId: app.applicantId,
+              level: app.requestedLevel,
+              serviceType: app.requestedService ?? undefined,
+              clusterId: app.clusterId ?? undefined,
+              propertyId: app.propertyId ?? undefined,
+              createdBy: actorId,
+            },
+            update: {
+              level: app.requestedLevel,
+              serviceType: app.requestedService ?? undefined,
+              clusterId: app.clusterId ?? undefined,
+              propertyId: app.propertyId ?? undefined,
+              createdBy: actorId,
+              revokedAt: null,
+            },
+          });
+        }
+
+        await this.auditService.log(
+          actorId,
+          'STAFF_APPLICATION_APPROVED',
+          'StaffApplication',
+          id,
+          { applicantId: app.applicantId, level: app.requestedLevel, email: app.email },
+          tx,
+        );
+
+        return updated;
+      });
+    }
+
+    // REJECTED path
+    const updated = await this.prisma.staffApplication.update({
+      where: { id },
+      data: {
+        status: ApplicationStatus.REJECTED,
+        reviewedBy: actorId,
+        reviewNotes: dto.reviewNotes ?? null,
+        reviewedAt: new Date(),
+      },
+    });
+
+    await this.auditService.log(
+      actorId,
+      'STAFF_APPLICATION_REJECTED',
+      'StaffApplication',
+      id,
+      { email: app.email, level: app.requestedLevel, notes: dto.reviewNotes },
+    );
+
+    return updated;
+  }
+
+  /** Paginated list of current staff members (L1 only) */
+  async getStaff(page: number, limit: number, search?: string) {
+    const where: Record<string, unknown> = { role: UserRole.ADMIN };
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { fullName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [staff, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          role: true,
+          kind: true,
+          isActive: true,
+          createdAt: true,
+          staffRole: {
+            select: {
+              level: true,
+              serviceType: true,
+              clusterId: true,
+              propertyId: true,
+              createdAt: true,
+              revokedAt: true,
+            },
+          },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return { staff, total, page, limit };
+  }
+
+  /** Directly assign a staff role to an existing user (L1 only) */
+  async assignStaffRole(userId: string, actorId: string, dto: AssignStaffRoleDto) {
+    if (userId === actorId) {
+      throw new BadRequestException('Cannot modify your own role');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { role: UserRole.ADMIN, kind: UserKind.STAFF },
+      });
+
+      const staffRole = await tx.staffRole.upsert({
+        where: { userId },
+        create: {
+          userId,
+          level: dto.level,
+          serviceType: dto.serviceType ?? undefined,
+          clusterId: dto.clusterId ?? undefined,
+          propertyId: dto.propertyId ?? undefined,
+          createdBy: actorId,
+        },
+        update: {
+          level: dto.level,
+          serviceType: dto.serviceType ?? undefined,
+          clusterId: dto.clusterId ?? undefined,
+          propertyId: dto.propertyId ?? undefined,
+          createdBy: actorId,
+          revokedAt: null,
+        },
+      });
+
+      await this.auditService.log(
+        actorId,
+        'STAFF_ROLE_ASSIGNED',
+        'User',
+        userId,
+        { level: dto.level, email: user.email },
+        tx,
+      );
+
+      return staffRole;
+    });
+  }
+
+  /** Revoke staff role — demote user back to GUEST (L1 only, cannot self-revoke or revoke other L1) */
+  async revokeStaffRole(userId: string, actorId: string) {
+    if (userId === actorId) {
+      throw new BadRequestException('Cannot revoke your own role');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { staffRole: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role !== UserRole.ADMIN) {
+      throw new BadRequestException('User does not have a staff role');
+    }
+    if (user.staffRole?.level === AdminLevel.L1) {
+      throw new BadRequestException(
+        'Cannot revoke another L1 Super Admin. Contact your infrastructure team.',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { role: UserRole.GUEST, kind: UserKind.GUEST },
+      });
+
+      if (user.staffRole) {
+        await tx.staffRole.update({
+          where: { userId },
+          data: { revokedAt: new Date() },
+        });
+      }
+
+      await this.auditService.log(
+        actorId,
+        'STAFF_ROLE_REVOKED',
+        'User',
+        userId,
+        { email: user.email, previousLevel: user.staffRole?.level },
+        tx,
+      );
+
+      return { revoked: true };
+    });
   }
 
   // ── Feature 13: Revenue Forecast ──

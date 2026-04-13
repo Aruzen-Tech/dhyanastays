@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { AdminLevel, UserKind, UserRole } from '@prisma/client';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { ADMIN_LEVEL_KEY } from '../decorators/admin-level.decorator';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { CapabilitiesService, CapabilityKey, Capability } from '../services/capabilities.service';
 
 /** Maps the legacy @Roles(UserRole.X) decorator to the required capability */
@@ -41,6 +42,13 @@ export class RolesGuard implements CanActivate {
   ) {}
 
   canActivate(context: ExecutionContext): boolean {
+    // ── Skip guard for @Public() endpoints ─────────────────────────────────
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) return true;
+
     // ── Read decorators ────────────────────────────────────────────────────
     const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
       ROLES_KEY,

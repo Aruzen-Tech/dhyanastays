@@ -60,6 +60,8 @@ import type {
   LoyaltyInfo,
   PayoutDryRun,
   RefundValidation,
+  StaffApplication,
+  StaffMember,
 } from './types';
 
 // ─── Token helpers (custom JWT mode) ─────────────────────────────────────────
@@ -639,6 +641,59 @@ export const adminApi = {
 
   // Revenue forecast
   getForecast: () => request<RevenueForecast[]>('/admin/analytics/forecast'),
+
+  // ── Staff / admin registration (L1) ───────────────────────────────────────
+
+  /** Submit a staff role application (public — no token required) */
+  applyForStaff: (body: {
+    email: string;
+    fullName: string;
+    requestedLevel: string;
+    requestedService?: string;
+    clusterId?: string;
+    propertyId?: string;
+    justification: string;
+  }) =>
+    request<StaffApplication>('/admin/staff/apply', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  /** L1: list applications */
+  getApplications: (status?: string, page = 1, limit = 20) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (status) params.set('status', status);
+    return request<{ applications: StaffApplication[]; total: number; page: number; limit: number }>(
+      `/admin/staff/applications?${params}`,
+    );
+  },
+
+  /** L1: approve or reject an application */
+  reviewApplication: (id: string, body: { decision: 'APPROVED' | 'REJECTED'; reviewNotes?: string }) =>
+    request<StaffApplication>(`/admin/staff/applications/${id}/review`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  /** L1: list current staff */
+  getStaff: (search?: string, page = 1, limit = 20) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (search) params.set('search', search);
+    return request<{ staff: StaffMember[]; total: number; page: number; limit: number }>(
+      `/admin/staff?${params}`,
+    );
+  },
+
+  /** L1: assign a staff role to an existing user */
+  assignStaffRole: (userId: string, body: { level: string; serviceType?: string; clusterId?: string; propertyId?: string }) =>
+    request<StaffMember>(`/admin/staff/${userId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  /** L1: revoke a user's staff role */
+  revokeStaffRole: (userId: string) =>
+    request<{ revoked: boolean }>(`/admin/staff/${userId}`, { method: 'DELETE' }),
 };
 
 // ─── Host Analytics ──────────────────────────────────────────────────────────
