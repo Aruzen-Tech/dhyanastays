@@ -180,7 +180,7 @@ export class PaymentService {
 
     // Idempotency: skip if already captured
     if (payment.status === 'CAPTURED') {
-      this.logger.log(`Payment ${payment.id} already captured — skipping`);
+      this.logger.log(`Payment ${payment.id} already captured - skipping`);
       return;
     }
 

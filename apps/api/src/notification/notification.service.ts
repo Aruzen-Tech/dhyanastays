@@ -347,7 +347,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('RESEND_API_KEY is required when EMAIL_PROVIDER=resend in production');
       }
-      this.logger.warn('RESEND_API_KEY not set — falling back to stub');
+      this.logger.warn('RESEND_API_KEY not set - falling back to stub');
       this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
       return;
     }
@@ -380,7 +380,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('SENDGRID_API_KEY is required when EMAIL_PROVIDER=sendgrid in production');
       }
-      this.logger.warn('SENDGRID_API_KEY not set — falling back to stub');
+      this.logger.warn('SENDGRID_API_KEY not set - falling back to stub');
       this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
       return;
     }
@@ -415,7 +415,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('SMTP_HOST is required when EMAIL_PROVIDER=smtp in production');
       }
-      this.logger.warn('SMTP_HOST not set — falling back to stub');
+      this.logger.warn('SMTP_HOST not set - falling back to stub');
       this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
       return;
     }
@@ -451,7 +451,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('MSG91_AUTH_KEY is required when SMS_PROVIDER=msg91 in production');
       }
-      this.logger.warn('MSG91_AUTH_KEY not set — falling back to stub');
+      this.logger.warn('MSG91_AUTH_KEY not set - falling back to stub');
       this.logger.log(`[SMS STUB] To: ${payload.to} | Body: ${payload.body}`);
       return;
     }
@@ -490,7 +490,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are required when SMS_PROVIDER=twilio in production');
       }
-      this.logger.warn('Twilio credentials not set — falling back to stub');
+      this.logger.warn('Twilio credentials not set - falling back to stub');
       this.logger.log(`[SMS STUB] To: ${payload.to} | Body: ${payload.body}`);
       return;
     }

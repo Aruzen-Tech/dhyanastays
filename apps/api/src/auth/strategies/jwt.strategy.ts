@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { passportJwtSecret } from 'jwks-rsa';
+import { AdminLevel, UserKind } from '@prisma/client';
 
 // ─── Payload shapes ───────────────────────────────────────────────────────────
 
@@ -10,15 +11,19 @@ export type CustomJwtPayload = {
   sub: string;
   email: string;
   role: string;
+  kind?: UserKind;
+  adminLevel?: AdminLevel;
   type?: string;
 };
 
 /** Auth0 JWT payload — role injected via Auth0 Action as a namespaced claim */
 export type Auth0JwtPayload = {
-  sub: string;                                    // e.g. "auth0|abc123"
+  sub: string;
   email?: string;
-  'https://dhyanastays.in/role'?: string;         // custom claim set by Auth0 Action
-  'https://dhyanastays.in/email'?: string;        // fallback email claim
+  'https://dhyanastays.in/role'?: string;
+  'https://dhyanastays.in/email'?: string;
+  'https://dhyanastays.in/kind'?: UserKind;
+  'https://dhyanastays.in/adminLevel'?: AdminLevel;
   aud?: string | string[];
   iss?: string;
   exp?: number;
@@ -27,11 +32,13 @@ export type Auth0JwtPayload = {
 
 export type JwtPayload = CustomJwtPayload | Auth0JwtPayload;
 
-/** Shape attached to req.user after validation — used by all guards/decorators */
+/** Shape attached to req.user after validation */
 export type RequestUser = {
   sub: string;
   email: string;
   role: string;
+  kind?: UserKind;
+  adminLevel?: AdminLevel;
 };
 
 // ─── Strategy ─────────────────────────────────────────────────────────────────
@@ -77,7 +84,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   validate(payload: JwtPayload): RequestUser {
-    // Support both Auth0 namespaced claims and our own flat claims
     const role =
       (payload as Auth0JwtPayload)['https://dhyanastays.in/role'] ??
       (payload as CustomJwtPayload).role ??
@@ -89,10 +95,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       (payload as CustomJwtPayload).email ??
       '';
 
-    return {
-      sub: payload.sub,
-      email,
-      role,
-    };
+    const kind =
+      (payload as Auth0JwtPayload)['https://dhyanastays.in/kind'] ??
+      (payload as CustomJwtPayload).kind ??
+      undefined;
+
+    const adminLevel =
+      (payload as Auth0JwtPayload)['https://dhyanastays.in/adminLevel'] ??
+      (payload as CustomJwtPayload).adminLevel ??
+      undefined;
+
+    return { sub: payload.sub, email, role, kind, adminLevel };
   }
 }

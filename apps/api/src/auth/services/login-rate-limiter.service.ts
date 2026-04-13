@@ -32,22 +32,23 @@ export class LoginRateLimiterService implements OnModuleDestroy {
       this.redis = new Redis({
         host,
         port,
-        maxRetriesPerRequest: 1,
-        retryStrategy: (times) => (times > 2 ? null : Math.min(times * 200, 1000)),
+        maxRetriesPerRequest: 0,
+        retryStrategy: () => null,   // no reconnect attempts — fail fast
         lazyConnect: true,
         enableOfflineQueue: false,
+        connectTimeout: 2000,
       });
 
-      this.redis.on('error', (err) => {
-        this.logger.warn(`Redis unavailable for rate limiting: ${err.message}`);
-      });
+      // Must have an error listener to prevent unhandled-error crash.
+      // The connect().catch below is the single place we log the failure.
+      this.redis.on('error', () => { /* handled below */ });
 
       void this.redis.connect().catch(() => {
-        this.logger.warn('Redis not reachable — login rate limiting disabled');
+        this.logger.warn('Redis not reachable - login rate limiting disabled');
         this.redis = null;
       });
     } catch {
-      this.logger.warn('Could not create Redis client — login rate limiting disabled');
+      this.logger.warn('Could not create Redis client - login rate limiting disabled');
     }
   }
 

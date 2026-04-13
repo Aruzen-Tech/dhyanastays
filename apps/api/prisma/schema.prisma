@@ -8,10 +8,49 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ─── Legacy role enum (kept for JWT backward-compat and Message.senderRole) ───
 enum UserRole {
   GUEST
   HOST
   ADMIN
+}
+
+// ─── Phase 1: expanded identity model ────────────────────────────────────────
+
+enum UserKind {
+  GUEST
+  OWNER      // property operator (maps from HOST)
+  INVESTOR   // capital provider
+  STAFF      // internal team (maps from ADMIN)
+}
+
+enum AdminLevel {
+  L1 // Super Admin
+  L2 // Operational Admin
+  L3 // Cluster / Regional Admin
+  L4 // Property-Level Admin
+  L5 // Service-Level Admin
+}
+
+enum ServiceType {
+  TRANSPORT
+  FOOD
+  WELLNESS
+  EXPERIENCE
+  CONCIERGE
+  HOUSEKEEPING
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MfaType {
+  TOTP
+  SMS
+  EMAIL
 }
 
 enum HostVerificationStatus {
@@ -96,17 +135,21 @@ model User {
   passwordHash   String?
   fullName       String
   role           UserRole
+  kind           UserKind?   // Phase 1: replaces role over time; null = not yet migrated
   isActive       Boolean     @default(true)
-  refreshToken   String?
   auth0Sub       String?     @unique
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+  phone          String?
+  avatarUrl      String?
+  // ── Relations ──────────────────────────────────────────────────────────────
   hostProfile    Host?
+  staffRole      StaffRole?
+  ownerProfile   OwnerProfile?
+  investorProfile InvestorProfile?
   listings       Listing[]
   holds          Hold[]
   bookings       Booking[]
-  phone          String?
-  avatarUrl      String?
   auditLogs      AuditLog[]  @relation("AuditActor")
   wishlists      Wishlist[]
   reviews        Review[]
@@ -120,6 +163,10 @@ model User {
   referrals          Referral[]  @relation("ReferrerReferrals")
   referredBy         Referral?   @relation("ReferredUserReferral")
   creditLedger       CreditLedger[]
+  // ── Phase 0 security ───────────────────────────────────────────────────────
+  refreshFamilies RefreshTokenFamily[]
+  sessions        Session[]
+  mfaFactors      MfaFactor[]
 }
 
 model Host {
@@ -575,4 +622,110 @@ model CreditLedger {
   user        User     @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
+}
+
+// ─── Phase 0: Refresh token family tracking ───────────────────────────────────
+
+model RefreshTokenFamily {
+  id           String         @id @default(cuid())
+  userId       String
+  createdAt    DateTime       @default(now())
+  revokedAt    DateTime?
+  revokeReason String?
+  user         User           @relation(fields: [userId], references: [id])
+  tokens       RefreshToken[]
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id         String             @id @default(cuid())
+  familyId   String
+  tokenHash  String             // SHA-256 of raw JTI
+  issuedAt   DateTime           @default(now())
+  expiresAt  DateTime
+  rotatedTo  String?            // id of the next token in the chain
+  usedAt     DateTime?          // set on rotation; reuse after this = theft
+  ipAddress  String?
+  userAgent  String?
+  family     RefreshTokenFamily @relation(fields: [familyId], references: [id])
+
+  @@unique([tokenHash])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  familyId  String    // links to a RefreshTokenFamily
+  device    String
+  ipAddress String
+  lastSeen  DateTime  @default(now())
+  revokedAt DateTime?
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model MfaFactor {
+  id        String   @id @default(cuid())
+  userId    String
+  type      MfaType
+  secret    String   // TOTP: base32-encoded secret
+  confirmed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, type])
+  @@index([userId])
+}
+
+// ─── Phase 1: Extended identity models ───────────────────────────────────────
+
+model StaffRole {
+  userId      String       @id
+  level       AdminLevel
+  clusterId   String?
+  propertyId  String?
+  serviceType ServiceType?
+  createdAt   DateTime     @default(now())
+  revokedAt   DateTime?
+  createdBy   String       // promoter's userId
+  user        User         @relation(fields: [userId], references: [id])
+
+  @@index([level])
+}
+
+model OwnerProfile {
+  userId    String    @id
+  legalName String
+  gstin     String?
+  kycStatus KycStatus @default(PENDING)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id])
+}
+
+model InvestorProfile {
+  userId     String    @id
+  legalName  String
+  panMasked  String?
+  kycStatus  KycStatus @default(PENDING)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation(fields: [userId], references: [id])
+}
+
+model RoleChangeAudit {
+  id           String   @id @default(cuid())
+  targetUserId String
+  actorUserId  String
+  before       Json
+  after        Json
+  reason       String
+  createdAt    DateTime @default(now())
+
+  @@index([targetUserId])
+  @@index([actorUserId])
 }

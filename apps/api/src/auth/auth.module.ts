@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { MfaService } from './services/mfa.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -14,6 +15,7 @@ import { ReferralModule } from '../referral/referral.module';
   controllers: [AuthController],
   providers: [
     AuthService,
+    MfaService,
     JwtStrategy,
     LoginRateLimiterService,
     {
@@ -25,5 +27,6 @@ import { ReferralModule } from '../referral/referral.module';
       useClass: RolesGuard,
     },
   ],
+  exports: [AuthService],
 })
 export class AuthModule {}

@@ -6,6 +6,7 @@ import {
 import { UserRole } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
+import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
@@ -14,6 +15,28 @@ import { SyncUserDto } from './dto/sync-user.dto';
 import type { RequestUser } from './strategies/jwt.strategy';
 import { LoginRateLimiterService } from './services/login-rate-limiter.service';
 import { ReferralService } from '../referral/referral.service';
+
+// ─── Token helpers ────────────────────────────────────────────────────────────
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+function parseMs(duration: string): number {
+  const unit = duration.slice(-1);
+  const value = parseInt(duration.slice(0, -1), 10);
+  if (unit === 'm') return value * 60 * 1000;
+  if (unit === 'h') return value * 60 * 60 * 1000;
+  if (unit === 'd') return value * 24 * 60 * 60 * 1000;
+  return 7 * 24 * 60 * 60 * 1000; // default 7d
+}
+
+interface IssueOptions {
+  familyId?: string;       // reuse existing family (rotation) or omit to create new
+  ipAddress?: string;
+  userAgent?: string;
+  device?: string;
+}
 
 @Injectable()
 export class AuthService {
@@ -24,7 +47,7 @@ export class AuthService {
     private readonly referralService: ReferralService,
   ) {}
 
-  // ─── Custom JWT auth (used when AUTH0_DOMAIN is NOT set) ──────────────────
+  // ─── Custom JWT auth ──────────────────────────────────────────────────────
 
   async register(dto: RegisterDto) {
     if (dto.role === UserRole.ADMIN) {
@@ -45,12 +68,11 @@ export class AuthService {
           passwordHash,
           fullName: dto.fullName,
           role: dto.role,
+          kind: dto.role === UserRole.HOST ? 'OWNER' : 'GUEST',
         },
       });
       if (dto.role === UserRole.HOST) {
-        await tx.host.create({
-          data: { userId: created.id },
-        });
+        await tx.host.create({ data: { userId: created.id } });
       }
       await tx.auditLog.create({
         data: {
@@ -64,7 +86,6 @@ export class AuthService {
       return created;
     });
 
-    // Non-blocking: apply referral code if provided
     if (dto.referralCode) {
       void this.referralService.applyReferralCode(user.id, dto.referralCode).catch(() => {});
     }
@@ -72,9 +93,12 @@ export class AuthService {
     return this.issueTokens(user.id, user.email, user.role);
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, options?: IssueOptions) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
+      include: {
+        mfaFactors: { where: { confirmed: true } },
+      },
     });
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid credentials');
@@ -89,23 +113,114 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
     await this.loginRateLimiter.resetOnSuccess(dto.email);
-    return this.issueTokens(user.id, user.email, user.role);
+
+    // ── MFA gate ────────────────────────────────────────────────────────────
+    const totpFactor = user.mfaFactors.find((f) => f.type === 'TOTP');
+    if (totpFactor) {
+      // Issue a short-lived MFA challenge token (2 min), no full session yet
+      const mfaToken = await this.jwtService.signAsync(
+        { sub: user.id, type: 'mfa_challenge', factorId: totpFactor.id },
+        {
+          secret: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret',
+          expiresIn: '2m',
+        },
+      );
+      return { mfaRequired: true, mfaToken };
+    }
+
+    return this.issueTokens(user.id, user.email, user.role, options);
   }
 
-  async refresh(dto: RefreshDto) {
-    const user = await this.prisma.user.findFirst({
-      where: { refreshToken: dto.refreshToken, isActive: true },
-    });
-    if (!user) {
-      throw new UnauthorizedException('Invalid refresh token');
+  async refresh(dto: RefreshDto, options?: IssueOptions) {
+    // 1. Verify the JWT signature and expiry
+    let payload: { sub: string; jti: string; type: string };
+    try {
+      payload = await this.jwtService.verifyAsync(dto.refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret',
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token');
     }
-    return this.issueTokens(user.id, user.email, user.role);
+
+    if (payload.type !== 'refresh') {
+      throw new UnauthorizedException('Invalid token type');
+    }
+
+    const tokenHash = hashToken(payload.jti);
+
+    // 2. Look up the stored token row
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
+      include: {
+        family: {
+          include: {
+            user: true,
+          },
+        },
+      },
+    });
+
+    // ── Theft detection ────────────────────────────────────────────────────
+    if (!stored) {
+      throw new UnauthorizedException('Refresh token not found');
+    }
+
+    if (stored.usedAt) {
+      // Token was already rotated — someone is replaying a used token.
+      // Revoke the entire family (all sessions for this login chain).
+      await this.prisma.refreshTokenFamily.update({
+        where: { id: stored.familyId },
+        data: { revokedAt: new Date(), revokeReason: 'TOKEN_REUSE_DETECTED' },
+      });
+      await this.prisma.auditLog.create({
+        data: {
+          actorUserId: stored.family.userId,
+          action: 'AUTH_TOKEN_THEFT_DETECTED',
+          resourceType: 'user',
+          resourceId: stored.family.userId,
+          metadata: { familyId: stored.familyId, tokenId: stored.id },
+        },
+      });
+      throw new UnauthorizedException(
+        'Token reuse detected — all sessions revoked. Please log in again.',
+      );
+    }
+
+    if (stored.family.revokedAt) {
+      throw new UnauthorizedException('Session has been revoked. Please log in again.');
+    }
+
+    if (stored.expiresAt < new Date()) {
+      throw new UnauthorizedException('Refresh token expired');
+    }
+
+    const user = stored.family.user;
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
+    // 3. Mark old token as used (rotate)
+    await this.prisma.refreshToken.update({
+      where: { tokenHash },
+      data: { usedAt: new Date() },
+    });
+
+    // 4. Issue new token in the same family
+    return this.issueTokens(user.id, user.email, user.role, {
+      ...options,
+      familyId: stored.familyId,
+    });
   }
 
   async logout(userId: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { refreshToken: null },
+    // Revoke ALL active families for this user (full logout)
+    await this.prisma.refreshTokenFamily.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date(), revokeReason: 'LOGOUT' },
+    });
+    await this.prisma.session.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
     });
     await this.prisma.auditLog.create({
       data: {
@@ -119,29 +234,42 @@ export class AuthService {
     return { success: true };
   }
 
-  // ─── Auth0 sync (called after Auth0 login) ────────────────────────────────
+  async logoutSession(userId: string, familyId: string) {
+    // Revoke a single session (device logout)
+    const family = await this.prisma.refreshTokenFamily.findFirst({
+      where: { id: familyId, userId },
+    });
+    if (!family) throw new UnauthorizedException('Session not found');
 
-  /**
-   * Upserts a user record from an Auth0 JWT payload.
-   *
-   * Logic:
-   *  1. Find by auth0Sub → update if found
-   *  2. Find by email → link auth0Sub if found (migration path)
-   *  3. Create new user with role from JWT claim or desiredRole body param
-   *
-   * Returns a safe user profile (no passwordHash).
-   */
+    await this.prisma.refreshTokenFamily.update({
+      where: { id: familyId },
+      data: { revokedAt: new Date(), revokeReason: 'DEVICE_LOGOUT' },
+    });
+    await this.prisma.session.updateMany({
+      where: { familyId, userId },
+      data: { revokedAt: new Date() },
+    });
+    return { success: true };
+  }
+
+  async getSessions(userId: string) {
+    return this.prisma.session.findMany({
+      where: { userId, revokedAt: null },
+      orderBy: { lastSeen: 'desc' },
+      select: { id: true, familyId: true, device: true, ipAddress: true, lastSeen: true },
+    });
+  }
+
+  // ─── Auth0 sync ───────────────────────────────────────────────────────────
+
   async syncUser(jwtUser: RequestUser, dto: SyncUserDto) {
     const { sub: auth0Sub, email, role: jwtRole } = jwtUser;
+    const resolvedRole =
+      this.mapRole(jwtRole) ?? this.mapRole(dto.desiredRole) ?? UserRole.GUEST;
 
-    // Determine role: JWT claim wins, then desiredRole body, then GUEST default
-    const resolvedRole = this.mapRole(jwtRole) ?? this.mapRole(dto.desiredRole) ?? UserRole.GUEST;
-
-    // 1. Find by auth0Sub
     let user = await this.prisma.user.findUnique({ where: { auth0Sub } });
 
     if (user) {
-      // Already linked — update email/name if changed
       user = await this.prisma.user.update({
         where: { id: user.id },
         data: {
@@ -151,17 +279,11 @@ export class AuthService {
         },
       });
     } else {
-      // 2. Find by email (migration: existing custom-auth user logging in via Auth0)
       const byEmail = await this.prisma.user.findUnique({ where: { email } });
-
       if (byEmail) {
         user = await this.prisma.user.update({
           where: { id: byEmail.id },
-          data: {
-            auth0Sub,
-            fullName: dto.fullName || byEmail.fullName,
-            isActive: true,
-          },
+          data: { auth0Sub, fullName: dto.fullName || byEmail.fullName, isActive: true },
         });
         await this.prisma.auditLog.create({
           data: {
@@ -173,7 +295,6 @@ export class AuthService {
           },
         });
       } else {
-        // 3. Create brand-new user
         user = await this.prisma.$transaction(async (tx) => {
           const created = await tx.user.create({
             data: {
@@ -181,6 +302,7 @@ export class AuthService {
               fullName: dto.fullName || email.split('@')[0],
               passwordHash: null,
               role: resolvedRole,
+              kind: resolvedRole === UserRole.HOST ? 'OWNER' : resolvedRole === UserRole.ADMIN ? 'STAFF' : 'GUEST',
               auth0Sub,
               isActive: true,
             },
@@ -205,40 +327,91 @@ export class AuthService {
     return this.safeProfile(user);
   }
 
-  // ─── GET /auth/me ─────────────────────────────────────────────────────────
-
   async getMe(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { hostProfile: true },
+      include: { hostProfile: true, staffRole: true },
     });
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
+    if (!user) throw new UnauthorizedException('User not found');
     return this.safeProfile(user);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private async issueTokens(userId: string, email: string, role: UserRole) {
+  /**
+   * Issues an access + refresh token pair.
+   * Creates a new RefreshTokenFamily unless `options.familyId` is provided (rotation).
+   */
+  async issueTokens(
+    userId: string,
+    email: string,
+    role: UserRole,
+    options?: IssueOptions,
+  ) {
+    const accessSecret = process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret';
+    const refreshSecret = process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret';
+    const accessExpiry = process.env.JWT_ACCESS_EXPIRES_IN ?? '15m';
+    const refreshExpiry = process.env.JWT_REFRESH_EXPIRES_IN ?? '7d';
+
     const accessToken = await this.jwtService.signAsync(
       { sub: userId, email, role },
-      {
-        secret: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret',
-        expiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
-      },
+      { secret: accessSecret, expiresIn: accessExpiry },
     );
-    const refreshToken = await this.jwtService.signAsync(
-      { sub: userId, email, role, type: 'refresh' },
-      {
-        secret: process.env.JWT_REFRESH_SECRET ?? 'dev-refresh-secret',
-        expiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '7d',
-      },
-    );
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { refreshToken },
+
+    // Random JTI becomes the refresh token value
+    const jti = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(jti);
+
+    const expiresAt = new Date(Date.now() + parseMs(refreshExpiry));
+
+    await this.prisma.$transaction(async (tx) => {
+      // Create or reuse family
+      let familyId = options?.familyId;
+      if (!familyId) {
+        const family = await tx.refreshTokenFamily.create({
+          data: { userId },
+        });
+        familyId = family.id;
+      }
+
+      await tx.refreshToken.create({
+        data: {
+          familyId,
+          tokenHash,
+          expiresAt,
+          ipAddress: options?.ipAddress,
+          userAgent: options?.userAgent,
+        },
+      });
+
+      // Upsert session record
+      await tx.session.upsert({
+        where: {
+          // We use familyId as the session key; one session per family
+          id: `sess_${options?.familyId ?? familyId}`,
+        },
+        create: {
+          id: `sess_${options?.familyId ?? familyId}`,
+          userId,
+          familyId: options?.familyId ?? familyId,
+          device: options?.device ?? options?.userAgent ?? 'unknown',
+          ipAddress: options?.ipAddress ?? 'unknown',
+          lastSeen: new Date(),
+        },
+        update: {
+          lastSeen: new Date(),
+          ipAddress: options?.ipAddress ?? 'unknown',
+          revokedAt: null,
+        },
+      });
     });
+
+    // Sign the JTI as the refresh token payload
+    const refreshToken = await this.jwtService.signAsync(
+      { sub: userId, jti, type: 'refresh' },
+      { secret: refreshSecret, expiresIn: refreshExpiry },
+    );
+
     return { accessToken, refreshToken, tokenType: 'Bearer' };
   }
 
@@ -260,6 +433,7 @@ export class AuthService {
     auth0Sub?: string | null;
     createdAt: Date;
     hostProfile?: { id: string; verificationStatus: string } | null;
+    staffRole?: { level: string } | null;
   }) {
     return {
       id: user.id,
@@ -270,11 +444,9 @@ export class AuthService {
       auth0Sub: user.auth0Sub ?? null,
       createdAt: user.createdAt,
       hostProfile: user.hostProfile
-        ? {
-            id: user.hostProfile.id,
-            verificationStatus: user.hostProfile.verificationStatus,
-          }
+        ? { id: user.hostProfile.id, verificationStatus: user.hostProfile.verificationStatus }
         : null,
+      adminLevel: user.staffRole?.level ?? null,
     };
   }
 }

@@ -36,7 +36,7 @@ export class RazorpayService {
         );
       }
       this.logger.warn(
-        'Razorpay credentials not configured — running in STUB mode. ' +
+        'Razorpay credentials not configured - running in STUB mode. ' +
           'Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET in .env',
       );
     }
@@ -96,7 +96,7 @@ export class RazorpayService {
       return true;
     }
     if (!this.webhookSecret) {
-      this.logger.error('RAZORPAY_WEBHOOK_SECRET not set — rejecting webhook');
+      this.logger.error('RAZORPAY_WEBHOOK_SECRET not set - rejecting webhook');
       return false;
     }
     const expected = crypto

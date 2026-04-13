@@ -67,7 +67,7 @@ export class AppModule {
     if (!redisUp) {
       // eslint-disable-next-line no-console
       console.warn(
-        '\n⚠️  Redis (>= 5.0) not available at %s:%d — background jobs disabled.\n' +
+        '\n[!] Redis (>= 5.0) not available at %s:%d - background jobs disabled.\n' +
         '   Hold expiry, payout batches, and scheduled tasks will NOT run.\n' +
         '   The app works fine without Redis for local development.\n' +
         '   To enable jobs: install Redis >= 5.0 or run  docker compose up -d redis\n',
