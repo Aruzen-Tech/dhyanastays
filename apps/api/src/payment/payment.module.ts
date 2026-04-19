@@ -6,7 +6,7 @@ import { BookingModule } from '../booking/booking.module';
 import { PayLaterModule } from '../pay-later/pay-later.module';
 
 @Module({
-  imports: [BookingModule, forwardRef(() => PayLaterModule)],
+  imports: [forwardRef(() => BookingModule), forwardRef(() => PayLaterModule)],
   providers: [PaymentService, RazorpayService],
   controllers: [PaymentController],
   exports: [PaymentService],

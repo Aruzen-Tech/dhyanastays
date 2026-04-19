@@ -26,6 +26,7 @@ export class PaymentService {
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(forwardRef(() => BookingService))
     private readonly bookingService: BookingService,
     private readonly auditService: AuditService,
     private readonly razorpay: RazorpayService,

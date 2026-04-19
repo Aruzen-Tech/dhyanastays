@@ -1079,6 +1079,107 @@ export const notificationPrefsApi = {
     }),
 };
 
+// ── SOS (§5.12) ─────────────────────────────────────────────────────────────
+
+export type SosTier = 'MEDICAL' | 'SECURITY' | 'TRANSPORT' | 'OTHER';
+export type SosStatus =
+  | 'OPEN'
+  | 'ACKNOWLEDGED'
+  | 'IN_PROGRESS'
+  | 'RESOLVED'
+  | 'FALSE_ALARM';
+
+export interface TrustedContact {
+  id: string;
+  name: string;
+  phone: string;
+  relation: string;
+  primary: boolean;
+  createdAt: string;
+}
+
+export interface SosBroadcast {
+  id: string;
+  channel: string;
+  target: string;
+  status: string;
+  lastError: string | null;
+  sentAt: string;
+}
+
+export interface SosIncident {
+  id: string;
+  userId: string;
+  bookingId: string | null;
+  tier: SosTier;
+  lat: number;
+  lng: number;
+  message: string | null;
+  status: SosStatus;
+  openedAt: string;
+  ackedAt: string | null;
+  ackedBy: string | null;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  broadcasts?: SosBroadcast[];
+  user?: { id: string; fullName: string; phone: string | null };
+}
+
+export const sosApi = {
+  trigger: (body: {
+    tier: SosTier;
+    lat: number;
+    lng: number;
+    message?: string;
+    bookingId?: string;
+  }) =>
+    request<SosIncident>('/sos', { method: 'POST', body: JSON.stringify(body) }),
+  listMine: () => request<SosIncident[]>('/sos'),
+  getIncident: (id: string) => request<SosIncident>(`/sos/${id}`),
+
+  listContacts: () => request<TrustedContact[]>('/me/trusted-contacts'),
+  createContact: (body: Omit<TrustedContact, 'id' | 'createdAt'>) =>
+    request<TrustedContact>('/me/trusted-contacts', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateContact: (
+    id: string,
+    body: Omit<TrustedContact, 'id' | 'createdAt'>,
+  ) =>
+    request<TrustedContact>(`/me/trusted-contacts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteContact: (id: string) =>
+    request<{ success: boolean }>(`/me/trusted-contacts/${id}`, {
+      method: 'DELETE',
+    }),
+};
+
+export const adminSosApi = {
+  list: (status?: SosStatus) =>
+    request<SosIncident[]>(
+      `/admin/sos${status ? `?status=${status}` : ''}`,
+    ),
+  get: (id: string) => request<SosIncident>(`/admin/sos/${id}`),
+  ack: (id: string, note?: string) =>
+    request<SosIncident>(`/admin/sos/${id}/ack`, {
+      method: 'POST',
+      body: JSON.stringify({ note }),
+    }),
+  start: (id: string) =>
+    request<SosIncident>(`/admin/sos/${id}/start`, { method: 'POST' }),
+  resolve: (id: string, body: { note?: string; falseAlarm?: boolean }) =>
+    request<SosIncident>(`/admin/sos/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({
+        note: body.note,
+        falseAlarm: body.falseAlarm ? 'true' : undefined,
+      }),
+    }),
+};
+
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', {
     day: 'numeric',

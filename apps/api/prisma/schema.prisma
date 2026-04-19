@@ -184,6 +184,9 @@ model User {
   // ── Phase 2 §5.17 notifications ───────────────────────────────────────────
   notificationPreference NotificationPreference?
   notificationOutbox     NotificationOutbox[]
+  // ── Phase 3 §5.12 SOS ─────────────────────────────────────────────────────
+  trustedContacts  TrustedContact[]
+  sosIncidents     SosIncident[]
 }
 
 model Host {
@@ -350,6 +353,7 @@ model Booking {
   issues           GuestIssue[]
   addOns           BookingAddOn[]
   payLaterPlan     PayLaterPlan?
+  sosIncidents     SosIncident[]
 
   @@index([listingId, status])
   @@index([guestId, status])
@@ -1037,4 +1041,77 @@ model NotificationOutbox {
   @@index([status, nextAttemptAt])
   @@index([userId, createdAt(sort: Desc)])
   @@index([kind, createdAt(sort: Desc)])
+}
+
+// ── Phase 3 §5.12 SOS & support ────────────────────────────────────────────
+
+enum SosTier {
+  MEDICAL
+  SECURITY
+  TRANSPORT
+  OTHER
+}
+
+enum SosStatus {
+  OPEN
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  FALSE_ALARM
+}
+
+model TrustedContact {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  phone     String
+  relation  String
+  primary   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SosIncident {
+  id          String       @id @default(cuid())
+  userId      String
+  bookingId   String?
+  tier        SosTier
+  lat         Float
+  lng         Float
+  message     String?
+  status      SosStatus    @default(OPEN)
+  openedAt    DateTime     @default(now())
+  ackedAt     DateTime?
+  ackedBy     String?
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id])
+  booking     Booking?     @relation(fields: [bookingId], references: [id])
+  broadcasts  SosBroadcast[]
+
+  @@index([userId])
+  @@index([status, openedAt(sort: Desc)])
+  @@index([bookingId])
+}
+
+model SosBroadcast {
+  id         String      @id @default(cuid())
+  incidentId String
+  channel    String
+  target     String
+  status     String      @default("QUEUED")
+  lastError  String?
+  sentAt     DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  incident   SosIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId])
 }

@@ -150,6 +150,9 @@ export default function Navbar() {
       {user?.role === 'GUEST' && (
         <>
           <Link href="/dashboard"         onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/dashboard')}`}>My Bookings</Link>
+          <Link href="/sos"               onClick={() => setMenuOpen(false)} className="text-sm font-semibold text-red-600 hover:text-red-700" title="Emergency SOS">
+            🆘 SOS
+          </Link>
           <Link href="/guest/wishlist"    onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/guest/wishlist')}`}>Wishlist</Link>
           <Link href="/guest/messages"    onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActivePrefix('/guest/messages')}`}>Messages</Link>
           <Link href="/guest/membership"  onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActivePrefix('/guest/membership')}`}>Membership</Link>
@@ -177,6 +180,7 @@ export default function Navbar() {
                     { href: '/guest/referrals',   label: 'Referrals' },
                     { href: '/guest/preferences', label: 'Preferences' },
                     { href: '/guest/notifications', label: 'Notifications' },
+                    { href: '/guest/trusted-contacts', label: 'Trusted Contacts' },
                     { href: '/guest/profile',     label: 'Profile' },
                   ].map(item => (
                     <Link
@@ -211,7 +215,7 @@ export default function Navbar() {
             <button
               onClick={() => setAdminMenuOpen(o => !o)}
               className={`text-sm transition-colors flex items-center gap-1 ${
-                ['/admin/payouts','/admin/users','/admin/refunds','/admin/calendar','/admin/settings','/admin/activity','/admin/rate-limits','/admin/forecast','/admin/hosts/performance','/admin/messages','/admin/issues','/admin/addons','/admin/service-providers','/admin/audit']
+                ['/admin/payouts','/admin/users','/admin/refunds','/admin/calendar','/admin/settings','/admin/activity','/admin/rate-limits','/admin/forecast','/admin/hosts/performance','/admin/messages','/admin/issues','/admin/addons','/admin/service-providers','/admin/audit','/admin/sos']
                   .some(p => pathname.startsWith(p)) ? 'text-brand-700 font-semibold' : 'text-gray-500 hover:text-brand-700'
               }`}
             >
@@ -225,6 +229,7 @@ export default function Navbar() {
                 <div className="fixed inset-0 z-40" onClick={() => setAdminMenuOpen(false)} />
                 <div className="absolute top-full right-0 mt-2 w-52 rounded-2xl py-2 z-50 glass-card animate-scale-in">
                   {[
+                    { href: '/admin/sos',               label: '🆘 SOS Console' },
                     { href: '/admin/messages',         label: 'Messages' },
                     { href: '/admin/issues',            label: 'Guest Issues' },
                     { href: '/admin/addons',            label: 'Add-ons' },

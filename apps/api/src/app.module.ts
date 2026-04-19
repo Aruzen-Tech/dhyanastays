@@ -26,6 +26,7 @@ import { ReferralModule } from './referral/referral.module';
 import { AddOnModule } from './add-on/add-on.module';
 import { MembershipModule } from './membership/membership.module';
 import { PayLaterModule } from './pay-later/pay-later.module';
+import { SosModule } from './sos/sos.module';
 import { ThrottleTrackerInterceptor } from './common/interceptors/throttle-tracker.interceptor';
 import { LoggerModule } from './common/logger/logger.module';
 import { DlqModule } from './common/queues/dlq.module';
@@ -170,6 +171,9 @@ export class AppModule {
 
         // Pay Later instalments (Phase 2 §5.6)
         PayLaterModule,
+
+        // SOS & support (Phase 3 §5.12)
+        SosModule,
 
         // Redis-dependent modules (BullMQ + Jobs) — only if Redis is reachable
         ...redisImports,
