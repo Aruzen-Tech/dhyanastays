@@ -5,7 +5,9 @@ import { Queue } from 'bullmq';
 import {
   QUEUE_BALANCE_DUE,
   QUEUE_HOLD_EXPIRY,
+  QUEUE_NOTIFICATION_OUTBOX,
   QUEUE_PAYOUT_ELIGIBILITY,
+  QUEUE_PAY_LATER_DUNNING,
   QUEUE_WEEKLY_PAYOUT,
 } from './jobs.constants';
 
@@ -19,6 +21,10 @@ export class JobsScheduler {
     @InjectQueue(QUEUE_PAYOUT_ELIGIBILITY)
     private readonly payoutEligibilityQueue: Queue,
     @InjectQueue(QUEUE_WEEKLY_PAYOUT) private readonly weeklyPayoutQueue: Queue,
+    @InjectQueue(QUEUE_PAY_LATER_DUNNING)
+    private readonly payLaterDunningQueue: Queue,
+    @InjectQueue(QUEUE_NOTIFICATION_OUTBOX)
+    private readonly notificationOutboxQueue: Queue,
   ) {}
 
   /**
@@ -62,6 +68,50 @@ export class JobsScheduler {
       'run',
       {},
       { removeOnComplete: 10, removeOnFail: 20, attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    );
+  }
+
+  /**
+   * Pay Later overdue sweep: hourly. Flips SCHEDULED→OVERDUE when an
+   * instalment is past due, and OVERDUE→DEFAULTED once the grace window
+   * elapses (plus auto-cancels the booking).
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async schedulePayLaterOverdueSweep() {
+    this.logger.debug('Enqueuing pay-later overdue sweep');
+    await this.payLaterDunningQueue.add(
+      'overdue',
+      { mode: 'overdue' },
+      { removeOnComplete: 100, removeOnFail: 50, attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    );
+  }
+
+  /**
+   * Pay Later reminders: every 6 hours. Fires the 72h and 24h reminder
+   * windows; the service dedupes via remindersSent counter.
+   */
+  @Cron('0 0 */6 * * *')
+  async schedulePayLaterReminders() {
+    this.logger.debug('Enqueuing pay-later reminders');
+    await this.payLaterDunningQueue.add(
+      'reminders',
+      { mode: 'reminders' },
+      { removeOnComplete: 100, removeOnFail: 50, attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    );
+  }
+
+  /**
+   * Notification outbox sweep: every 30 seconds. The worker claims up to
+   * 50 PENDING rows whose nextAttemptAt is due and dispatches them through
+   * the channel adapters. Failed rows are re-scheduled with exponential
+   * backoff until MAX_ATTEMPTS is reached.
+   */
+  @Cron('*/30 * * * * *')
+  async scheduleNotificationOutbox() {
+    await this.notificationOutboxQueue.add(
+      'dispatch',
+      {},
+      { removeOnComplete: 100, removeOnFail: 50, attempts: 1 },
     );
   }
 }

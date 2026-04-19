@@ -65,6 +65,18 @@ export interface BookingCancelledPayload {
   refundAmount: number;
 }
 
+export interface PayLaterReminderPayload {
+  guestName: string;
+  guestEmail: string;
+  guestPhone?: string;
+  bookingId: string;
+  listingTitle: string;
+  seq: number;
+  amountMinor: number;
+  dueAt: string;
+  hoursUntilDue: number;
+}
+
 export interface HostNewBookingPayload {
   hostName: string;
   hostEmail: string;
@@ -117,13 +129,12 @@ export class NotificationService {
 
   // ── Public notification methods ─────────────────────────────────────────────
 
-  async sendBookingConfirmed(payload: BookingConfirmedPayload): Promise<void> {
+  buildBookingConfirmedEmail(payload: BookingConfirmedPayload): EmailPayload {
     const depositNote =
       payload.plan === 'DEPOSIT_50'
         ? `<p style="color:#b45309">Balance of ₹${this.formatINR(payload.totalAmount - (payload.depositAmount ?? 0))} is due before check-in.</p>`
         : '';
-
-    await this.sendEmail({
+    return {
       to: payload.guestEmail,
       subject: `Booking Confirmed — ${payload.listingTitle}`,
       html: `
@@ -151,14 +162,21 @@ export class NotificationService {
         </div>
       `,
       text: `Booking confirmed for ${payload.listingTitle}. Check-in: ${payload.checkIn}. Check-out: ${payload.checkOut}. Total: ₹${this.formatINR(payload.totalAmount)}.`,
-    });
+    };
+  }
 
-    if (payload.guestPhone) {
-      await this.sendSms({
-        to: payload.guestPhone,
-        body: `Dhyana Stays: Your booking for ${payload.listingTitle} (${payload.checkIn} → ${payload.checkOut}) is confirmed. Total: ₹${this.formatINR(payload.totalAmount)}. View: ${this.webUrl}/dashboard`,
-      });
-    }
+  buildBookingConfirmedSms(payload: BookingConfirmedPayload): SmsPayload | null {
+    if (!payload.guestPhone) return null;
+    return {
+      to: payload.guestPhone,
+      body: `Dhyana Stays: Your booking for ${payload.listingTitle} (${payload.checkIn} → ${payload.checkOut}) is confirmed. Total: ₹${this.formatINR(payload.totalAmount)}. View: ${this.webUrl}/dashboard`,
+    };
+  }
+
+  async sendBookingConfirmed(payload: BookingConfirmedPayload): Promise<void> {
+    await this.sendEmail(this.buildBookingConfirmedEmail(payload));
+    const sms = this.buildBookingConfirmedSms(payload);
+    if (sms) await this.sendSms(sms);
   }
 
   async sendHostListingApproved(payload: HostListingApprovedPayload): Promise<void> {
@@ -221,6 +239,35 @@ export class NotificationService {
       await this.sendSms({
         to: payload.guestPhone,
         body: `Dhyana Stays: Balance of ₹${this.formatINR(payload.balanceAmount)} due by ${payload.dueDate} for ${payload.listingTitle}. Pay: ${this.webUrl}/dashboard`,
+      });
+    }
+  }
+
+  async sendPayLaterReminder(payload: PayLaterReminderPayload): Promise<void> {
+    const amountInr = this.formatINR(payload.amountMinor);
+    const urgency = payload.hoursUntilDue <= 24 ? '⚠️ Due tomorrow' : '📅 Due in 3 days';
+    await this.sendEmail({
+      to: payload.guestEmail,
+      subject: `${urgency} — Instalment ${payload.seq} for ${payload.listingTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#b45309">${urgency}: Pay Later instalment</h2>
+          <p>Hi ${payload.guestName},</p>
+          <p>Instalment <strong>${payload.seq}</strong> of <strong>₹${amountInr}</strong> for your booking of <strong>${payload.listingTitle}</strong> is due on <strong>${payload.dueAt}</strong>.</p>
+          <p>Pay on time to keep your booking active. If an instalment is missed beyond the grace period, your booking may be cancelled.</p>
+          <a href="${this.webUrl}/bookings/${payload.bookingId}" style="display:inline-block;background:#b45309;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:8px">
+            Pay instalment
+          </a>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">Dhyana Stays · support@dhyanastays.com</p>
+        </div>
+      `,
+      text: `Instalment ${payload.seq} of ₹${amountInr} due ${payload.dueAt}. Pay: ${this.webUrl}/bookings/${payload.bookingId}`,
+    });
+
+    if (payload.guestPhone) {
+      await this.sendSms({
+        to: payload.guestPhone,
+        body: `Dhyana Stays: Instalment ${payload.seq} of ₹${amountInr} due ${payload.dueAt}. Pay: ${this.webUrl}/bookings/${payload.bookingId}`,
       });
     }
   }

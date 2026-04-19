@@ -23,6 +23,9 @@ import { HostAnalyticsModule } from './host-analytics/host-analytics.module';
 import { MessagingModule } from './messaging/messaging.module';
 import { GuestAssistanceModule } from './guest-assistance/guest-assistance.module';
 import { ReferralModule } from './referral/referral.module';
+import { AddOnModule } from './add-on/add-on.module';
+import { MembershipModule } from './membership/membership.module';
+import { PayLaterModule } from './pay-later/pay-later.module';
 import { ThrottleTrackerInterceptor } from './common/interceptors/throttle-tracker.interceptor';
 import { LoggerModule } from './common/logger/logger.module';
 import { DlqModule } from './common/queues/dlq.module';
@@ -158,6 +161,15 @@ export class AppModule {
 
         // Referral system & credit ledger
         ReferralModule,
+
+        // Pre-booking add-ons (Phase 2 §5.7)
+        AddOnModule,
+
+        // Rewards tiers + Trip Savings SIP (Phase 2 §5.13)
+        MembershipModule,
+
+        // Pay Later instalments (Phase 2 §5.6)
+        PayLaterModule,
 
         // Redis-dependent modules (BullMQ + Jobs) — only if Redis is reachable
         ...redisImports,

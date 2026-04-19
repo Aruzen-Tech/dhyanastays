@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Param, Patch, Query } from '@nestjs/common';
-import { IssueStatus, UserRole } from '@prisma/client';
+import { AdminLevel, IssueStatus } from '@prisma/client';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
-import { Roles } from '../common/decorators/roles.decorator';
+import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { GuestAssistanceService } from './guest-assistance.service';
 import { UpdateIssueStatusDto } from './dto/update-issue-status.dto';
 
-@Roles(UserRole.ADMIN)
+@AdminLevelGuard(AdminLevel.L2)
 @Controller('admin/issues')
 export class AdminIssuesController {
   constructor(private readonly assistanceService: GuestAssistanceService) {}

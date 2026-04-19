@@ -1,4 +1,15 @@
-import { IsDateString, IsInt, IsString, IsUUID, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsDateString,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { AddOnSelectionDto } from '../../add-on/dto/add-on-selection.dto';
 
 export class CreateHoldDto {
   @IsString()
@@ -20,4 +31,10 @@ export class CreateHoldDto {
    */
   @IsUUID()
   idempotencyKey!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => AddOnSelectionDto)
+  addOns?: AddOnSelectionDto[];
 }

@@ -1,8 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { AdminLevel, ApplicationStatus } from '@prisma/client';
-import { UserRole } from '@prisma/client';
+import { AdminLevel, ApplicationStatus, UserRole } from '@prisma/client';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
-import { Roles } from '../common/decorators/roles.decorator';
 import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { AdminService } from './admin.service';
@@ -14,8 +12,9 @@ import { BulkIdsDto } from './dto/bulk-ids.dto';
 import { ApplyStaffDto } from './dto/apply-staff.dto';
 import { ReviewApplicationDto } from './dto/review-application.dto';
 import { AssignStaffRoleDto } from './dto/assign-staff-role.dto';
+import { ChangeUserKindDto } from './dto/change-user-kind.dto';
 
-@Roles(UserRole.ADMIN)
+@AdminLevelGuard(AdminLevel.L2)
 @Controller('admin')
 export class AdminController {
   constructor(
@@ -44,6 +43,31 @@ export class AdminController {
       role as UserRole | undefined,
       search,
     );
+  }
+
+  /**
+   * POST /api/admin/users/:id/role
+   * L1 Super Admin — change a user's kind (GUEST/OWNER/INVESTOR/STAFF)
+   * with a required reason. Writes a RoleChangeAudit row.
+   */
+  @AdminLevelGuard(AdminLevel.L1)
+  @Post('users/:id/role')
+  changeUserKind(
+    @CurrentUser() actor: RequestUser,
+    @Param('id') id: string,
+    @Body() dto: ChangeUserKindDto,
+  ) {
+    return this.adminService.changeUserKind(id, actor.sub, dto);
+  }
+
+  /**
+   * GET /api/admin/users/:id/role-history
+   * L1 + L2 — returns the RoleChangeAudit timeline for a user.
+   */
+  @AdminLevelGuard(AdminLevel.L1, AdminLevel.L2)
+  @Get('users/:id/role-history')
+  getUserRoleHistory(@Param('id') id: string) {
+    return this.adminService.getUserRoleHistory(id);
   }
 
   /** POST /api/admin/users/:id/deactivate — deactivate a user account */

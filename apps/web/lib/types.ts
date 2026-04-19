@@ -119,6 +119,18 @@ export interface Listing {
 
 // ─── Pricing ─────────────────────────────────────────────────────────────────
 
+export interface PriceSnapshotAddOn {
+  addOnId: string;
+  providerId: string;
+  title: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  commission: number;
+  providerShare: number;
+  cancellationTier: string;
+}
+
 export interface PriceQuote {
   listingId: string;
   checkIn: string;
@@ -131,11 +143,106 @@ export interface PriceQuote {
   cleaningFee: number;
   platformFeeRate: number;
   platformFee: number;
+  addOnsTotal: number;
+  addOns: PriceSnapshotAddOn[];
   total: number;
   depositAmount: number;
   balanceAmount: number;
   currency: string;
   snapshotAt: string;
+  hmac?: string;
+}
+
+// ─── Add-ons ─────────────────────────────────────────────────────────────────
+
+export type CancellationTier =
+  | 'FLEXIBLE'
+  | 'MODERATE'
+  | 'STRICT'
+  | 'NON_REFUNDABLE';
+
+export type AddOnScope = 'GLOBAL' | 'CLUSTER' | 'LISTING';
+export type AddOnStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'RETIRED';
+export type AddOnState =
+  | 'QUOTED'
+  | 'HELD'
+  | 'CONFIRMED'
+  | 'DELIVERED'
+  | 'CANCELLED'
+  | 'REFUNDED';
+
+export type ServiceProviderKind =
+  | 'TRANSPORT'
+  | 'FOOD'
+  | 'WELLNESS'
+  | 'EXPERIENCE'
+  | 'CONCIERGE'
+  | 'HOUSEKEEPING';
+
+export interface ServiceProvider {
+  id: string;
+  name: string;
+  kind: ServiceProviderKind;
+  ownerUserId: string;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  owner?: { id: string; fullName: string; email: string };
+  _count?: { addOns: number };
+}
+
+export interface AddOn {
+  id: string;
+  providerId: string;
+  title: string;
+  description: string;
+  priceMinor: number;
+  commissionRate: number;
+  currency: string;
+  cancellationTier: CancellationTier;
+  minLeadHours: number;
+  maxPerBooking: number;
+  scope: AddOnScope;
+  clusterId?: string | null;
+  listingId?: string | null;
+  status: AddOnStatus;
+  reviewedBy?: string | null;
+  reviewNotes?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  provider?: { id: string; name: string; kind: ServiceProviderKind };
+  listing?: { id: string; title: string } | null;
+}
+
+export interface AddOnSelection {
+  addOnId: string;
+  quantity: number;
+}
+
+export interface BookingAddOn {
+  id: string;
+  bookingId: string;
+  addOnId: string;
+  providerId: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  commission: number;
+  providerShare: number;
+  state: AddOnState;
+  cancelledAt?: string | null;
+  refundedAt?: string | null;
+  refundAmount?: number | null;
+  createdAt: string;
+  addOn?: {
+    title: string;
+    description: string;
+    cancellationTier: CancellationTier;
+    provider: { name: string; kind: ServiceProviderKind };
+  };
 }
 
 // ─── Guest Details ────────────────────────────────────────────────────────────
@@ -175,7 +282,7 @@ export type BookingStatus =
   | 'REFUNDED'
   | 'COMPLETED';
 
-export type PaymentPlan = 'FULL' | 'DEPOSIT_50';
+export type PaymentPlan = 'FULL' | 'DEPOSIT_50' | 'PAY_LATER';
 
 export interface Booking {
   id: string;
@@ -186,6 +293,7 @@ export interface Booking {
   endsAt: string;
   status: BookingStatus;
   plan: PaymentPlan;
+  payLaterMonths?: number | null;
   priceSnapshot: PriceQuote;
   guestDetails?: GuestDetails;
   balanceDueAt: string | null;
@@ -209,7 +317,43 @@ export interface Payment {
   gatewayOrderRef: string | null;
   gatewayPaymentRef: string | null;
   idempotencyKey: string;
+  payLaterSeq?: number | null;
   createdAt: string;
+}
+
+// ─── Pay Later ───────────────────────────────────────────────────────────────
+
+export type PayLaterStatus =
+  | 'SCHEDULED'
+  | 'OVERDUE'
+  | 'DEFAULTED'
+  | 'COMPLETED'
+  | 'CANCELLED';
+
+export interface PayLaterInstalment {
+  id: string;
+  planId: string;
+  seq: number;
+  amountMinor: number;
+  dueAt: string;
+  paidAt: string | null;
+  paymentId: string | null;
+  remindersSent: number;
+  lastReminderAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PayLaterPlan {
+  id: string;
+  bookingId: string;
+  months: number;
+  totalMinor: number;
+  currency: string;
+  status: PayLaterStatus;
+  createdAt: string;
+  updatedAt: string;
+  instalments: PayLaterInstalment[];
 }
 
 // ─── Payout ──────────────────────────────────────────────────────────────────
@@ -484,6 +628,28 @@ export interface StaffMember {
   isActive: boolean;
   createdAt: string;
   staffRole?: StaffRole | null;
+}
+
+export interface UserRoleHistoryEntry {
+  id: string;
+  actor: { id: string; email: string | null; fullName: string | null };
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  reason: string;
+  createdAt: string;
+}
+
+export interface UserRoleHistory {
+  user: {
+    id: string;
+    email: string;
+    fullName: string;
+    role: UserRole;
+    kind: string | null;
+    createdAt: string;
+    staffRole?: { level: AdminLevel; revokedAt: string | null } | null;
+  };
+  history: UserRoleHistoryEntry[];
 }
 
 export interface StaffApplication {
@@ -878,4 +1044,64 @@ export interface PaginatedResponse<T> {
   total: number;
   page: number;
   limit: number;
+}
+
+// ─── Phase 2 §5.13: Rewards & Membership ────────────────────────────────────
+
+export type MemberTier =
+  | 'EXPLORER'
+  | 'WANDERER'
+  | 'SOJOURNER'
+  | 'PATRON'
+  | 'AMBASSADOR';
+
+export type SipStatusValue = 'ACTIVE' | 'PAUSED' | 'CLOSED';
+
+export interface Membership {
+  tier: MemberTier;
+  points: number;
+  tierSince: string;
+  nextTierAt: number;
+  pointsToNextTier: number;
+  discountRate: number;
+}
+
+export interface Perk {
+  id: string;
+  tier: MemberTier;
+  title: string;
+  description: string;
+}
+
+export interface MemberPerks {
+  tier: MemberTier;
+  perks: Perk[];
+}
+
+export interface TripSip {
+  id: string;
+  userId: string;
+  monthlyMinor: number;
+  anchorDay: number;
+  startedAt: string;
+  closedAt: string | null;
+  status: SipStatusValue;
+  _count?: { contributions: number };
+}
+
+export interface SipContribution {
+  id: string;
+  sipId: string;
+  amountMinor: number;
+  depositedAt: string;
+  ledgerEventId: string;
+  paymentRef: string | null;
+}
+
+export interface TripSipDetail extends TripSip {
+  contributions: SipContribution[];
+}
+
+export interface SipBalance {
+  balance: number;
 }

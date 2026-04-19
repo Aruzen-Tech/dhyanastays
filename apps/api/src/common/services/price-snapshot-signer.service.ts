@@ -46,6 +46,7 @@ export class PriceSnapshotSignerService {
       'subtotal',
       'cleaningFee',
       'platformFee',
+      'addOnsTotal',
       'total',
       'depositAmount',
       'balanceAmount',
@@ -53,6 +54,18 @@ export class PriceSnapshotSignerService {
       'snapshotAt',
     ];
     const parts = fields.map((f) => `${f}=${JSON.stringify(snapshot[f] ?? '')}`);
+
+    // Add-ons: stable digest of the selection array (id + quantity + unitPrice)
+    const addOns = Array.isArray(snapshot.addOns) ? snapshot.addOns : [];
+    const addOnDigest = addOns
+      .map((a) => {
+        const o = a as Record<string, unknown>;
+        return `${o.addOnId}:${o.quantity}:${o.unitPrice}:${o.totalPrice}`;
+      })
+      .sort()
+      .join(',');
+    parts.push(`addOns=${addOnDigest}`);
+
     return parts.join('|');
   }
 }

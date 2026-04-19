@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ForbiddenException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -13,6 +15,7 @@ import { PriceSnapshotSignerService } from '../common/services/price-snapshot-si
 import { RazorpayService } from './razorpay.service';
 import { InitPaymentDto, PaymentTypeDto } from './dto/init-payment.dto';
 import { PriceSnapshot } from '../pricing/dto/quote.dto';
+import { PayLaterService } from '../pay-later/pay-later.service';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TxClient = any;
@@ -27,6 +30,8 @@ export class PaymentService {
     private readonly auditService: AuditService,
     private readonly razorpay: RazorpayService,
     private readonly snapshotSigner: PriceSnapshotSignerService,
+    @Inject(forwardRef(() => PayLaterService))
+    private readonly payLaterService: PayLaterService,
   ) {}
 
   /**
@@ -195,13 +200,37 @@ export class PaymentService {
         },
       });
 
-      // Confirm booking payment (transitions booking state)
-      await this.bookingService.confirmPayment(
-        payment.bookingId,
-        payment.id,
-        amountInr,
-        tx,
-      );
+      // Pay Later seq 2+ captures bypass the booking-confirmation path — the
+      // booking is already CONFIRMED_DEPOSIT from seq 1. Record the instalment
+      // and, when the schedule is complete, transition to CONFIRMED_PAID.
+      if (
+        payment.type === 'PAY_LATER' &&
+        payment.payLaterSeq &&
+        payment.payLaterSeq > 1
+      ) {
+        const result = await this.payLaterService.recordInstalmentCapture(
+          tx,
+          payment.bookingId,
+          payment.payLaterSeq,
+          payment.id,
+          amountInr,
+        );
+        if (result.completed) {
+          await tx.booking.update({
+            where: { id: payment.bookingId },
+            data: { status: 'CONFIRMED_PAID' },
+          });
+        }
+      } else {
+        // Confirm booking payment (transitions booking state). For seq 1 on
+        // a PAY_LATER booking this path also creates the PayLaterPlan.
+        await this.bookingService.confirmPayment(
+          payment.bookingId,
+          payment.id,
+          amountInr,
+          tx,
+        );
+      }
 
       await this.auditService.log(
         null,
@@ -212,6 +241,7 @@ export class PaymentService {
           gatewayPaymentId,
           gatewayOrderId,
           amountInr,
+          payLaterSeq: payment.payLaterSeq ?? undefined,
         },
         tx,
       );
@@ -295,4 +325,102 @@ export class PaymentService {
     });
   }
 
+  /**
+   * Guest pays a specific Pay Later instalment (seq 2+). Seq 1 is paid via
+   * the standard `initPayment` flow since it's indistinguishable from a
+   * deposit at that point.
+   */
+  async initPayLaterInstalmentPayment(
+    guestId: string,
+    bookingId: string,
+    seq: number,
+    idempotencyKey: string,
+  ) {
+    // Idempotency: return existing payment if key was already used
+    const existing = await this.prisma.payment.findUnique({
+      where: { idempotencyKey },
+    });
+    if (existing) {
+      if (existing.bookingId !== bookingId || existing.payLaterSeq !== seq) {
+        throw new BadRequestException(
+          'Idempotency key already used for a different instalment',
+        );
+      }
+      return existing;
+    }
+
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { payLaterPlan: { include: { instalments: true } } },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.guestId !== guestId) throw new ForbiddenException('Access denied');
+    if (booking.plan !== 'PAY_LATER' || !booking.payLaterPlan) {
+      throw new BadRequestException('Booking is not on a Pay Later plan');
+    }
+    if (
+      booking.payLaterPlan.status === 'DEFAULTED' ||
+      booking.payLaterPlan.status === 'CANCELLED' ||
+      booking.payLaterPlan.status === 'COMPLETED'
+    ) {
+      throw new BadRequestException(
+        `Plan is ${booking.payLaterPlan.status}; no further instalments accepted`,
+      );
+    }
+
+    const instalment = booking.payLaterPlan.instalments.find(
+      (i) => i.seq === seq,
+    );
+    if (!instalment) {
+      throw new NotFoundException(`Instalment seq ${seq} not found`);
+    }
+    if (instalment.paidAt) {
+      throw new BadRequestException(`Instalment ${seq} is already paid`);
+    }
+    // Enforce in-order payment so earlier arrears are cleared first.
+    const earliestUnpaid = booking.payLaterPlan.instalments
+      .filter((i) => !i.paidAt)
+      .sort((a, b) => a.seq - b.seq)[0];
+    if (earliestUnpaid && earliestUnpaid.seq < seq) {
+      throw new BadRequestException(
+        `Pay instalment ${earliestUnpaid.seq} first`,
+      );
+    }
+
+    const amountInr = Math.round(instalment.amountMinor / 100);
+    const order = await this.razorpay.createOrder(
+      instalment.amountMinor,
+      `${bookingId}_PL_${seq}`,
+    );
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        bookingId,
+        amount: amountInr,
+        type: 'PAY_LATER',
+        status: 'INITIATED',
+        gateway: 'razorpay',
+        gatewayOrderRef: order.id,
+        idempotencyKey,
+        payLaterSeq: seq,
+      },
+    });
+
+    await this.auditService.log(
+      guestId,
+      'PAY_LATER_INSTALMENT_INIT',
+      'payment',
+      payment.id,
+      { bookingId, seq, amountInr, orderId: order.id },
+    );
+
+    return {
+      paymentId: payment.id,
+      razorpayOrderId: order.id,
+      amount: amountInr,
+      currency: 'INR',
+      keyId: this.razorpay['keyId'] as string,
+      seq,
+    };
+  }
 }

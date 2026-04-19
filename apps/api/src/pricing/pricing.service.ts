@@ -5,6 +5,11 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PriceSnapshotSignerService } from '../common/services/price-snapshot-signer.service';
+import { AddOnService } from '../add-on/add-on.service';
+import {
+  MembershipService,
+  TIER_DISCOUNT_RATE,
+} from '../membership/membership.service';
 import { PriceSnapshot, QuoteDto } from './dto/quote.dto';
 
 export const PLATFORM_FEE_RATE = 0.10; // 10% platform commission
@@ -14,6 +19,8 @@ export class PricingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly snapshotSigner: PriceSnapshotSignerService,
+    private readonly addOnService: AddOnService,
+    private readonly membershipService: MembershipService,
   ) {}
 
   async quote(dto: QuoteDto): Promise<PriceSnapshot> {
@@ -81,10 +88,50 @@ export class PricingService {
     }
 
     const cleaningFee = rateRule.cleaningFee;
-    const platformFee = Math.round((subtotal + cleaningFee) * PLATFORM_FEE_RATE);
-    const total = subtotal + cleaningFee + platformFee;
+    const grossPlatformFee = Math.round((subtotal + cleaningFee) * PLATFORM_FEE_RATE);
+
+    // ── Loyalty discount (Phase 2 §5.13) ──────────────────────────────────────
+    // The discount is applied to the platform fee only — host payouts are unaffected.
+    let loyaltyDiscount = 0;
+    let loyaltyTier: string | undefined;
+    if (dto.userId) {
+      const membership = await this.membershipService.getMembership(dto.userId);
+      const rate = TIER_DISCOUNT_RATE[membership.tier];
+      if (rate > 0) {
+        loyaltyDiscount = Math.round(grossPlatformFee * rate);
+      }
+      loyaltyTier = membership.tier;
+    }
+    const platformFee = grossPlatformFee - loyaltyDiscount;
+
+    // ── Add-ons (Phase 2 §5.7) — priced, validated and frozen at quote time ──
+    const addOnLines = await this.addOnService.buildSnapshotLines(
+      dto.listingId,
+      checkIn,
+      dto.addOns ?? [],
+    );
+    const addOnsTotal = addOnLines.reduce((s, l) => s + l.totalPrice, 0);
+
+    const total = subtotal + cleaningFee + platformFee + addOnsTotal;
     const depositAmount = Math.round(total * 0.5);
     const balanceAmount = total - depositAmount;
+
+    // Pay Later first-instalment amounts per term. `splitAmount` gives the
+    // earliest instalment — that's what the guest pays now to activate the
+    // plan. Subsequent amounts are recomputed at plan-creation time from the
+    // same rule, but we freeze the first one in the snapshot so the capture
+    // reconciles against the quoted value.
+    const splitFirst = (months: number): number => {
+      if (total <= 0) return 0;
+      const base = Math.floor(total / months);
+      const remainder = total - base * months;
+      return base + (remainder > 0 ? 1 : 0);
+    };
+    const payLaterFirstInstalment = [
+      { months: 3, amountMinor: splitFirst(3) },
+      { months: 6, amountMinor: splitFirst(6) },
+      { months: 12, amountMinor: splitFirst(12) },
+    ];
 
     const snapshot: PriceSnapshot = {
       listingId: dto.listingId,
@@ -98,9 +145,24 @@ export class PricingService {
       cleaningFee,
       platformFeeRate: PLATFORM_FEE_RATE,
       platformFee,
+      loyaltyDiscount,
+      loyaltyTier,
+      addOnsTotal,
+      addOns: addOnLines.map((l) => ({
+        addOnId: l.addOnId,
+        providerId: l.providerId,
+        title: l.title,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        totalPrice: l.totalPrice,
+        commission: l.commission,
+        providerShare: l.providerShare,
+        cancellationTier: l.cancellationTier,
+      })),
       total,
       depositAmount,
       balanceAmount,
+      payLaterFirstInstalment,
       currency: 'INR',
       snapshotAt: new Date().toISOString(),
     };

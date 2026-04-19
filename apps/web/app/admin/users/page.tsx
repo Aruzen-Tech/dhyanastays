@@ -399,35 +399,35 @@ export default function AdminUsersPage() {
 
                       {/* Actions */}
                       <td className="px-5 py-4">
-                        {u.role === 'ADMIN' ? (
-                          <span className="text-xs text-gray-400 font-medium">Admin</span>
-                        ) : u.isActive ? (
-                          <div>
-                            <button
-                              onClick={() => handleDeactivate(u.id)}
-                              disabled={isProcessing}
-                              className="btn-danger text-xs py-1 px-3"
-                            >
-                              {isProcessing ? <span className="spinner" /> : 'Deactivate'}
-                            </button>
-                            {rowErrors[u.id] && (
-                              <p className="text-xs text-red-600 mt-1 max-w-[140px]">{rowErrors[u.id]}</p>
-                            )}
-                          </div>
-                        ) : (
-                          <div>
-                            <button
-                              onClick={() => handleActivate(u.id)}
-                              disabled={isProcessing}
-                              className="text-xs py-1 px-3 rounded-lg font-medium bg-green-50 text-green-700 hover:bg-green-100 transition-colors disabled:opacity-40"
-                            >
-                              {isProcessing ? <span className="spinner" /> : 'Activate'}
-                            </button>
-                            {rowErrors[u.id] && (
-                              <p className="text-xs text-red-600 mt-1 max-w-[140px]">{rowErrors[u.id]}</p>
-                            )}
-                          </div>
-                        )}
+                        <div className="flex flex-col gap-1 items-start">
+                          <button
+                            onClick={() => router.push(`/admin/users/${u.id}/role`)}
+                            className="text-xs py-1 px-3 rounded-lg font-medium bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors"
+                          >
+                            Manage role
+                          </button>
+                          {u.role !== 'ADMIN' &&
+                            (u.isActive ? (
+                              <button
+                                onClick={() => handleDeactivate(u.id)}
+                                disabled={isProcessing}
+                                className="btn-danger text-xs py-1 px-3"
+                              >
+                                {isProcessing ? <span className="spinner" /> : 'Deactivate'}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleActivate(u.id)}
+                                disabled={isProcessing}
+                                className="text-xs py-1 px-3 rounded-lg font-medium bg-green-50 text-green-700 hover:bg-green-100 transition-colors disabled:opacity-40"
+                              >
+                                {isProcessing ? <span className="spinner" /> : 'Activate'}
+                              </button>
+                            ))}
+                          {rowErrors[u.id] && (
+                            <p className="text-xs text-red-600 max-w-[140px]">{rowErrors[u.id]}</p>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

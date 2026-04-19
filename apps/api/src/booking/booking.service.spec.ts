@@ -26,12 +26,32 @@ function makeNotificationMock() {
     sendHostListingRejected: jest.fn().mockResolvedValue(undefined),
     sendEmail: jest.fn().mockResolvedValue(undefined),
     sendSms: jest.fn().mockResolvedValue(undefined),
+    buildBookingConfirmedEmail: jest.fn().mockReturnValue({ to: '', subject: '', html: '' }),
+    buildBookingConfirmedSms: jest.fn().mockReturnValue(null),
+  };
+}
+
+function makeOutboxMock() {
+  return {
+    enqueue: jest.fn().mockResolvedValue(undefined),
+    claimPending: jest.fn().mockResolvedValue([]),
+    markSent: jest.fn().mockResolvedValue(undefined),
+    recordFailure: jest.fn().mockResolvedValue(undefined),
+    getPreference: jest.fn().mockResolvedValue({}),
+    upsertPreference: jest.fn().mockResolvedValue(undefined),
   };
 }
 
 function makePricingMock() {
   return {
     computeRefundAmount: jest.fn(),
+  };
+}
+
+function makePayLaterMock() {
+  return {
+    createPlanFromFirstCapture: jest.fn().mockResolvedValue(undefined),
+    cancelPlan: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -96,7 +116,11 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       const result = await service.createBooking('guest-1', {
@@ -139,7 +163,11 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       await service.createBooking('guest-1', {
@@ -180,7 +208,11 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       await expect(
@@ -212,7 +244,11 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       await expect(
@@ -244,7 +280,11 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       const result = await service.createBooking('guest-1', {
@@ -275,7 +315,11 @@ describe('BookingService', () => {
         auditMock as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       const count = await service.transitionToBalanceDue();
@@ -325,7 +369,11 @@ describe('BookingService', () => {
         auditMock as any,
         ledgerMock as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {
@@ -372,7 +420,11 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {});
@@ -406,7 +458,11 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       await expect(
@@ -432,7 +488,11 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
       );
 
       await expect(

@@ -1,7 +1,8 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { AdminLevel, UserRole } from '@prisma/client';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { PayoutService } from './payout.service';
 import { IsString } from 'class-validator';
 
@@ -17,7 +18,7 @@ export class PayoutController {
   /**
    * Admin: get all eligible payout lines.
    */
-  @Roles(UserRole.ADMIN)
+  @AdminLevelGuard(AdminLevel.L2)
   @Get('admin/payouts/eligible')
   getEligible() {
     return this.payoutService.getEligibleLines();
@@ -26,7 +27,7 @@ export class PayoutController {
   /**
    * Admin: dry-run — preview batch without executing (per-host breakdown).
    */
-  @Roles(UserRole.ADMIN)
+  @AdminLevelGuard(AdminLevel.L2)
   @Get('admin/payouts/dry-run')
   dryRun() {
     return this.payoutService.dryRunBatch();
@@ -35,7 +36,7 @@ export class PayoutController {
   /**
    * Admin: run the weekly payout batch.
    */
-  @Roles(UserRole.ADMIN)
+  @AdminLevelGuard(AdminLevel.L2)
   @Post('admin/payouts/run-weekly')
   runWeekly(@CurrentUser() user: RequestUser) {
     return this.payoutService.runWeeklyBatch(user.sub);
@@ -44,7 +45,7 @@ export class PayoutController {
   /**
    * Admin: mark a batch as PAID after bank transfer.
    */
-  @Roles(UserRole.ADMIN)
+  @AdminLevelGuard(AdminLevel.L2)
   @Post('admin/payouts/batches/:id/mark-paid')
   markPaid(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.payoutService.markBatchPaid(id, user.sub);
@@ -53,7 +54,7 @@ export class PayoutController {
   /**
    * Admin: list all payout batches.
    */
-  @Roles(UserRole.ADMIN)
+  @AdminLevelGuard(AdminLevel.L2)
   @Get('admin/payouts/batches')
   getBatches() {
     return this.payoutService.getBatches();

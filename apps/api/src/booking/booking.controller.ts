@@ -1,7 +1,8 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { AdminLevel, UserRole } from '@prisma/client';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { BookingService } from './booking.service';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { CreateBookingDto } from './dto/create-booking.dto';
@@ -76,7 +77,7 @@ export class BookingController {
   /**
    * Admin marks booking as completed after checkout.
    */
-  @Roles(UserRole.ADMIN)
+  @AdminLevelGuard(AdminLevel.L2)
   @Post(':id/complete')
   complete(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.bookingService.completeBooking(id, user.sub);
@@ -85,7 +86,7 @@ export class BookingController {
   /**
    * Admin: get all bookings (paginated).
    */
-  @Roles(UserRole.ADMIN)
+  @AdminLevelGuard(AdminLevel.L2)
   @Get('admin/all')
   getAllBookings(
     @Query('page') page?: string,

@@ -63,6 +63,7 @@ export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [hostMenuOpen, setHostMenuOpen] = useState(false);
+  const [guestMenuOpen, setGuestMenuOpen] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -151,10 +152,50 @@ export default function Navbar() {
           <Link href="/dashboard"         onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/dashboard')}`}>My Bookings</Link>
           <Link href="/guest/wishlist"    onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/guest/wishlist')}`}>Wishlist</Link>
           <Link href="/guest/messages"    onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActivePrefix('/guest/messages')}`}>Messages</Link>
-          <Link href="/guest/loyalty"     onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/guest/loyalty')}`}>Loyalty</Link>
-          <Link href="/guest/referrals"   onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/guest/referrals')}`}>Referrals</Link>
-          <Link href="/guest/preferences" onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/guest/preferences')}`}>Preferences</Link>
-          <Link href="/guest/profile"     onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/guest/profile')}`}>Profile</Link>
+          <Link href="/guest/membership"  onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActivePrefix('/guest/membership')}`}>Membership</Link>
+
+          <div className="relative">
+            <button
+              onClick={() => setGuestMenuOpen(o => !o)}
+              className={`text-sm transition-colors flex items-center gap-1 ${
+                ['/guest/sip','/guest/loyalty','/guest/referrals','/guest/preferences','/guest/notifications','/guest/profile']
+                  .some(p => pathname.startsWith(p)) ? 'text-brand-700 font-semibold' : 'text-gray-500 hover:text-brand-700'
+              }`}
+            >
+              More
+              <svg className={`w-3 h-3 transition-transform ${guestMenuOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {guestMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setGuestMenuOpen(false)} />
+                <div className="absolute top-full right-0 mt-2 w-48 rounded-2xl py-2 z-50 glass-card animate-scale-in">
+                  {[
+                    { href: '/guest/sip',         label: 'Trip Savings SIP' },
+                    { href: '/guest/loyalty',     label: 'Loyalty' },
+                    { href: '/guest/referrals',   label: 'Referrals' },
+                    { href: '/guest/preferences', label: 'Preferences' },
+                    { href: '/guest/notifications', label: 'Notifications' },
+                    { href: '/guest/profile',     label: 'Profile' },
+                  ].map(item => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={() => { setGuestMenuOpen(false); setMenuOpen(false); }}
+                      className={`block px-4 py-2 text-sm transition-colors rounded-lg mx-1 ${
+                        pathname === item.href
+                          ? 'text-brand-700 bg-brand-50 font-medium'
+                          : 'text-gray-600 hover:text-brand-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </>
       )}
 
@@ -170,7 +211,7 @@ export default function Navbar() {
             <button
               onClick={() => setAdminMenuOpen(o => !o)}
               className={`text-sm transition-colors flex items-center gap-1 ${
-                ['/admin/payouts','/admin/users','/admin/refunds','/admin/calendar','/admin/settings','/admin/activity','/admin/rate-limits','/admin/forecast','/admin/hosts/performance','/admin/messages','/admin/issues','/admin/audit']
+                ['/admin/payouts','/admin/users','/admin/refunds','/admin/calendar','/admin/settings','/admin/activity','/admin/rate-limits','/admin/forecast','/admin/hosts/performance','/admin/messages','/admin/issues','/admin/addons','/admin/service-providers','/admin/audit']
                   .some(p => pathname.startsWith(p)) ? 'text-brand-700 font-semibold' : 'text-gray-500 hover:text-brand-700'
               }`}
             >
@@ -186,6 +227,8 @@ export default function Navbar() {
                   {[
                     { href: '/admin/messages',         label: 'Messages' },
                     { href: '/admin/issues',            label: 'Guest Issues' },
+                    { href: '/admin/addons',            label: 'Add-ons' },
+                    { href: '/admin/service-providers', label: 'Service Providers' },
                     { href: '/admin/payouts',           label: 'Payouts' },
                     { href: '/admin/users',             label: 'Users' },
                     { href: '/admin/refunds',           label: 'Refunds' },

@@ -27,7 +27,8 @@ import {
   pricingApi,
   reviewsApi,
 } from '../../../lib/api';
-import type { Booking, GuestDetails, Hold, Listing, ListingReviews, PriceQuote } from '../../../lib/types';
+import type { AddOnSelection, Booking, GuestDetails, Hold, Listing, ListingReviews, PriceQuote } from '../../../lib/types';
+import AddOnPicker from '../../../components/AddOnPicker';
 
 // ─── Razorpay type declaration ────────────────────────────────────────────────
 
@@ -120,6 +121,7 @@ export default function ListingDetailPage() {
   const [hold, setHold] = useState<Hold | null>(null);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [paymentPlan, setPaymentPlan] = useState<'FULL' | 'DEPOSIT_50'>('FULL');
+  const [addOnSelections, setAddOnSelections] = useState<AddOnSelection[]>([]);
   const [guestDetails, setGuestDetails] = useState<GuestDetails>({
     fullName: '',
     phone: '',
@@ -151,7 +153,13 @@ export default function ListingDetailPage() {
     setActionError('');
     setActionLoading(true);
     try {
-      const q = await pricingApi.quote({ listingId: id, checkIn, checkOut, guests });
+      const q = await pricingApi.quote({
+        listingId: id,
+        checkIn,
+        checkOut,
+        guests,
+        addOns: addOnSelections.length > 0 ? addOnSelections : undefined,
+      });
       setQuote(q);
       setStep('quote');
     } catch (e: unknown) {
@@ -172,6 +180,7 @@ export default function ListingDetailPage() {
         checkOut,
         guests,
         idempotencyKey: generateUUID(),
+        addOns: addOnSelections.length > 0 ? addOnSelections : undefined,
       });
       setHold(h);
       setStep('guestdetails');
@@ -540,6 +549,12 @@ export default function ListingDetailPage() {
                     <p className="text-xs text-gray-400 mt-1">Max {listing.rateRules[0].maxGuests} guests</p>
                   )}
                 </div>
+                <AddOnPicker
+                  listingId={id}
+                  value={addOnSelections}
+                  onChange={setAddOnSelections}
+                  disabled={actionLoading}
+                />
                 {actionError && <div className="alert-error text-xs">{actionError}</div>}
                 <button onClick={handleGetQuote} disabled={!checkIn || !checkOut || actionLoading}
                   className="btn-primary w-full">

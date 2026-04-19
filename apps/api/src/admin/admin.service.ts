@@ -10,6 +10,7 @@ import { AuditService } from '../common/services/audit.service';
 import { ApplyStaffDto } from './dto/apply-staff.dto';
 import { ReviewApplicationDto } from './dto/review-application.dto';
 import { AssignStaffRoleDto } from './dto/assign-staff-role.dto';
+import { ChangeUserKindDto } from './dto/change-user-kind.dto';
 
 @Injectable()
 export class AdminService {
@@ -956,6 +957,195 @@ export class AdminService {
 
       return { revoked: true };
     });
+  }
+
+  // ── Phase 1 T5: Unified role change (GUEST/OWNER/INVESTOR/STAFF) + history ──
+
+  /**
+   * POST /admin/users/:id/role — L1 only.
+   * Changes a user's UserKind (and legacy UserRole for backward-compat)
+   * in a single transaction, writes a RoleChangeAudit row, and manages
+   * the dependent StaffRole / OwnerProfile / InvestorProfile rows.
+   */
+  async changeUserKind(userId: string, actorId: string, dto: ChangeUserKindDto) {
+    if (userId === actorId) {
+      throw new BadRequestException('Cannot change your own role');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        staffRole: true,
+        ownerProfile: true,
+        investorProfile: true,
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    // Guard: cannot demote another L1 super admin
+    if (user.staffRole?.level === AdminLevel.L1 && dto.kind !== UserKind.STAFF) {
+      throw new BadRequestException(
+        'Cannot demote another L1 Super Admin. Contact your infrastructure team.',
+      );
+    }
+
+    // STAFF requires level
+    if (dto.kind === UserKind.STAFF && !dto.level) {
+      throw new BadRequestException('level is required when kind = STAFF');
+    }
+
+    const before = {
+      role: user.role,
+      kind: user.kind,
+      staffLevel: user.staffRole?.level ?? null,
+      hasOwnerProfile: !!user.ownerProfile,
+      hasInvestorProfile: !!user.investorProfile,
+    };
+
+    const legacyRole =
+      dto.kind === UserKind.STAFF
+        ? UserRole.ADMIN
+        : dto.kind === UserKind.OWNER
+          ? UserRole.HOST
+          : UserRole.GUEST;
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update User.kind + legacy role
+      await tx.user.update({
+        where: { id: userId },
+        data: { kind: dto.kind, role: legacyRole },
+      });
+
+      // 2. Manage StaffRole
+      if (dto.kind === UserKind.STAFF) {
+        await tx.staffRole.upsert({
+          where: { userId },
+          create: {
+            userId,
+            level: dto.level!,
+            serviceType: dto.serviceType ?? null,
+            clusterId: dto.clusterId ?? null,
+            propertyId: dto.propertyId ?? null,
+            createdBy: actorId,
+          },
+          update: {
+            level: dto.level!,
+            serviceType: dto.serviceType ?? null,
+            clusterId: dto.clusterId ?? null,
+            propertyId: dto.propertyId ?? null,
+            createdBy: actorId,
+            revokedAt: null,
+          },
+        });
+      } else if (user.staffRole && !user.staffRole.revokedAt) {
+        await tx.staffRole.update({
+          where: { userId },
+          data: { revokedAt: new Date() },
+        });
+      }
+
+      // 3. Manage OwnerProfile (auto-create on promote, leave on demote for history)
+      if (dto.kind === UserKind.OWNER && !user.ownerProfile) {
+        await tx.ownerProfile.create({
+          data: { userId, legalName: user.fullName },
+        });
+      }
+
+      // 4. Manage InvestorProfile
+      if (dto.kind === UserKind.INVESTOR && !user.investorProfile) {
+        await tx.investorProfile.create({
+          data: { userId, legalName: user.fullName },
+        });
+      }
+
+      const after = {
+        role: legacyRole,
+        kind: dto.kind,
+        staffLevel: dto.kind === UserKind.STAFF ? (dto.level ?? null) : null,
+        hasOwnerProfile: dto.kind === UserKind.OWNER || before.hasOwnerProfile,
+        hasInvestorProfile:
+          dto.kind === UserKind.INVESTOR || before.hasInvestorProfile,
+      };
+
+      // 5. Append to RoleChangeAudit (append-only, per blueprint §6.1)
+      await tx.roleChangeAudit.create({
+        data: {
+          targetUserId: userId,
+          actorUserId: actorId,
+          before,
+          after,
+          reason: dto.reason,
+        },
+      });
+
+      // 6. Append to generic AuditLog for admin activity feed
+      await this.auditService.log(
+        actorId,
+        'USER_KIND_CHANGED',
+        'User',
+        userId,
+        { email: user.email, before, after, reason: dto.reason },
+        tx,
+      );
+
+      return {
+        userId,
+        kind: dto.kind,
+        role: legacyRole,
+        staffLevel: after.staffLevel,
+      };
+    });
+  }
+
+  /**
+   * GET /admin/users/:id/role-history — L1, L2.
+   * Returns the full RoleChangeAudit timeline for a user, newest first.
+   */
+  async getUserRoleHistory(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        kind: true,
+        createdAt: true,
+        staffRole: { select: { level: true, revokedAt: true } },
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const history = await this.prisma.roleChangeAudit.findMany({
+      where: { targetUserId: userId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    const actorIds = Array.from(new Set(history.map((h) => h.actorUserId)));
+    const actors = actorIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, email: true, fullName: true },
+        })
+      : [];
+    const actorMap = new Map(actors.map((a) => [a.id, a]));
+
+    return {
+      user,
+      history: history.map((h) => ({
+        id: h.id,
+        actor: actorMap.get(h.actorUserId) ?? {
+          id: h.actorUserId,
+          email: null,
+          fullName: null,
+        },
+        before: h.before,
+        after: h.after,
+        reason: h.reason,
+        createdAt: h.createdAt,
+      })),
+    };
   }
 
   // ── Feature 13: Revenue Forecast ──

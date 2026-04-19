@@ -2,15 +2,19 @@ import { Type } from 'class-transformer';
 import {
   IsEmail,
   IsEnum,
+  IsIn,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
 export enum PaymentPlanDto {
   FULL = 'FULL',
   DEPOSIT_50 = 'DEPOSIT_50',
+  PAY_LATER = 'PAY_LATER',
 }
 
 export class GuestDetailsDto {
@@ -46,6 +50,12 @@ export class CreateBookingDto {
 
   @IsEnum(PaymentPlanDto)
   plan!: PaymentPlanDto;
+
+  /** Required when plan = PAY_LATER. Allowed: 3, 6, 12. */
+  @ValidateIf((o: CreateBookingDto) => o.plan === PaymentPlanDto.PAY_LATER)
+  @IsInt()
+  @IsIn([3, 6, 12])
+  payLaterMonths?: number;
 
   /**
    * Client-generated idempotency key (UUID v4).

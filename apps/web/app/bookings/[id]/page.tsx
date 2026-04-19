@@ -312,11 +312,23 @@ export default function BookingDetailPage() {
               </div>
             </>
           )}
+          {booking.plan === 'PAY_LATER' && (
+            <div className="flex justify-between text-amber-700">
+              <span>Pay Later · {booking.payLaterMonths} months</span>
+              <Link href={`/bookings/${booking.id}/pay-later`} className="text-brand-700 hover:underline">
+                View schedule →
+              </Link>
+            </div>
+          )}
         </div>
         <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 text-sm text-gray-500">
           <span>Payment plan:</span>
           <span className="font-semibold text-gray-900">
-            {booking.plan === 'FULL' ? '💳 Full payment' : '🔀 50% deposit'}
+            {booking.plan === 'FULL'
+              ? '💳 Full payment'
+              : booking.plan === 'DEPOSIT_50'
+              ? '🔀 50% deposit'
+              : `📅 Pay Later (${booking.payLaterMonths}m)`}
           </span>
         </div>
       </div>

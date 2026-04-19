@@ -36,7 +36,12 @@ describe('PricingService', () => {
 
   beforeEach(() => {
     signer = makeSigner();
-    service = new PricingService(makePrisma() as never, signer as never);
+    service = new PricingService(
+      makePrisma() as never,
+      signer as never,
+      { buildSnapshotLines: jest.fn().mockResolvedValue([]) } as never,
+      { getMembership: jest.fn().mockResolvedValue({ tier: 'EXPLORER' }) } as never,
+    );
   });
 
   it('calculates a 3-night quote correctly', async () => {
@@ -70,7 +75,12 @@ describe('PricingService', () => {
         },
       ],
     };
-    service = new PricingService(makePrisma(listing) as never, signer as never);
+    service = new PricingService(
+      makePrisma(listing) as never,
+      signer as never,
+      { buildSnapshotLines: jest.fn().mockResolvedValue([]) } as never,
+      { getMembership: jest.fn().mockResolvedValue({ tier: 'EXPLORER' }) } as never,
+    );
 
     const snapshot = await service.quote({
       listingId: 'lst_1',
@@ -111,7 +121,12 @@ describe('PricingService', () => {
   it('rejects listing not found', async () => {
     const prisma = makePrisma();
     prisma.listing.findFirst.mockResolvedValue(null);
-    service = new PricingService(prisma as never, signer as never);
+    service = new PricingService(
+      prisma as never,
+      signer as never,
+      { buildSnapshotLines: jest.fn().mockResolvedValue([]) } as never,
+      { getMembership: jest.fn().mockResolvedValue({ tier: 'EXPLORER' }) } as never,
+    );
 
     await expect(
       service.quote({

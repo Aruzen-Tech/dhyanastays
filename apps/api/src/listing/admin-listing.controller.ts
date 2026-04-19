@@ -1,11 +1,11 @@
 import { Body, Controller, Get, Param, Post } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { AdminLevel } from '@prisma/client';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
-import { Roles } from '../common/decorators/roles.decorator';
+import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { AdminReviewDto } from './dto/admin-review.dto';
 import { ListingService } from './listing.service';
 
-@Roles(UserRole.ADMIN)
+@AdminLevelGuard(AdminLevel.L3)
 @Controller()
 export class AdminListingController {
   constructor(private readonly listingService: ListingService) {}

@@ -62,6 +62,15 @@ import type {
   RefundValidation,
   StaffApplication,
   StaffMember,
+  UserRoleHistory,
+  Membership,
+  MemberPerks,
+  TripSip,
+  TripSipDetail,
+  SipContribution,
+  SipBalance,
+  SipStatusValue,
+  PayLaterPlan,
 } from './types';
 
 // ─── Token helpers (custom JWT mode) ─────────────────────────────────────────
@@ -397,7 +406,13 @@ export const storageApi = {
 // ─── Pricing ──────────────────────────────────────────────────────────────────
 
 export const pricingApi = {
-  quote: (body: { listingId: string; checkIn: string; checkOut: string; guests?: number }) =>
+  quote: (body: {
+    listingId: string;
+    checkIn: string;
+    checkOut: string;
+    guests?: number;
+    addOns?: Array<{ addOnId: string; quantity: number }>;
+  }) =>
     request<PriceQuote>('/pricing/quote', {
       method: 'POST',
       body: JSON.stringify({ guests: 1, ...body }),
@@ -413,6 +428,7 @@ export const holdsApi = {
     checkOut: string;
     guests?: number;
     idempotencyKey: string;
+    addOns?: Array<{ addOnId: string; quantity: number }>;
   }) =>
     request<Hold>('/holds', {
       method: 'POST',
@@ -425,9 +441,10 @@ export const holdsApi = {
 export const bookingsApi = {
   create: (body: {
     holdId: string;
-    plan: 'FULL' | 'DEPOSIT_50';
+    plan: 'FULL' | 'DEPOSIT_50' | 'PAY_LATER';
     idempotencyKey: string;
     guestDetails: GuestDetails;
+    payLaterMonths?: 3 | 6 | 12;
   }) =>
     request<Booking>('/bookings', {
       method: 'POST',
@@ -511,6 +528,26 @@ export const paymentsApi = {
       `/payments/bookings/${bookingId}/pay-balance`,
       { method: 'POST', body: JSON.stringify({ idempotencyKey }) },
     ),
+};
+
+// ─── Pay Later ────────────────────────────────────────────────────────────────
+
+export const payLaterApi = {
+  getPlan: (bookingId: string) =>
+    request<PayLaterPlan>(`/bookings/${bookingId}/pay-later`),
+
+  payInstalment: (bookingId: string, seq: number, idempotencyKey: string) =>
+    request<{
+      paymentId: string;
+      razorpayOrderId: string;
+      amount: number;
+      currency: string;
+      keyId: string;
+      seq: number;
+    }>(`/bookings/${bookingId}/pay-later/${seq}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({ idempotencyKey }),
+    }),
 };
 
 // ─── Payouts ──────────────────────────────────────────────────────────────────
@@ -694,6 +731,28 @@ export const adminApi = {
   /** L1: revoke a user's staff role */
   revokeStaffRole: (userId: string) =>
     request<{ revoked: boolean }>(`/admin/staff/${userId}`, { method: 'DELETE' }),
+
+  // ── Phase 1 T5: unified role management ─────────────────────────────────
+  /** L1: change a user's kind (GUEST/OWNER/INVESTOR/STAFF) with audit reason */
+  changeUserKind: (
+    userId: string,
+    body: {
+      kind: 'GUEST' | 'OWNER' | 'INVESTOR' | 'STAFF';
+      reason: string;
+      level?: 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
+      serviceType?: string;
+      clusterId?: string;
+      propertyId?: string;
+    },
+  ) =>
+    request<{ userId: string; kind: string; role: string; staffLevel: string | null }>(
+      `/admin/users/${userId}/role`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  /** L1/L2: view role change history for a user */
+  getUserRoleHistory: (userId: string) =>
+    request<UserRoleHistory>(`/admin/users/${userId}/role-history`),
 };
 
 // ─── Host Analytics ──────────────────────────────────────────────────────────
@@ -876,6 +935,97 @@ export const guestMessagingApi = createMessagingApi('guest');
 export const hostMessagingApi = createMessagingApi('host');
 export const adminMessagingApi = createMessagingApi('admin');
 
+// ─── Add-ons ──────────────────────────────────────────────────────────────────
+
+import type {
+  AddOn,
+  AddOnStatus,
+  BookingAddOn,
+  ServiceProvider,
+  ServiceProviderKind,
+  CancellationTier,
+  AddOnScope,
+} from './types';
+
+export const addOnsApi = {
+  // Public (listing detail page)
+  listForListing: (listingId: string) =>
+    request<AddOn[]>(`/listings/${listingId}/addons`),
+
+  // Guest (booking detail)
+  listForBooking: (bookingId: string) =>
+    request<BookingAddOn[]>(`/bookings/${bookingId}/addons`),
+
+  // Admin — service providers
+  listProviders: (activeOnly = false) =>
+    request<ServiceProvider[]>(
+      `/admin/service-providers${activeOnly ? '?activeOnly=true' : ''}`,
+    ),
+
+  createProvider: (body: {
+    name: string;
+    kind: ServiceProviderKind;
+    ownerUserId: string;
+    contactEmail?: string;
+    contactPhone?: string;
+  }) =>
+    request<ServiceProvider>('/admin/service-providers', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  activateProvider: (id: string) =>
+    request<ServiceProvider>(`/admin/service-providers/${id}/activate`, {
+      method: 'PATCH',
+    }),
+
+  deactivateProvider: (id: string) =>
+    request<ServiceProvider>(`/admin/service-providers/${id}/deactivate`, {
+      method: 'PATCH',
+    }),
+
+  // Admin — add-ons
+  listAdmin: (params?: { status?: AddOnStatus; providerId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.status) qs.set('status', params.status);
+    if (params?.providerId) qs.set('providerId', params.providerId);
+    const q = qs.toString();
+    return request<AddOn[]>(`/admin/addons${q ? `?${q}` : ''}`);
+  },
+
+  create: (body: {
+    providerId: string;
+    title: string;
+    description: string;
+    priceMinor: number;
+    commissionRate?: number;
+    cancellationTier?: CancellationTier;
+    minLeadHours?: number;
+    maxPerBooking?: number;
+    scope?: AddOnScope;
+    listingId?: string;
+  }) =>
+    request<AddOn>('/admin/addons', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  approve: (id: string, reviewNotes?: string) =>
+    request<AddOn>(`/admin/addons/${id}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ reviewNotes }),
+    }),
+
+  reject: (id: string, reviewNotes?: string) =>
+    request<AddOn>(`/admin/addons/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reviewNotes }),
+    }),
+
+  retire: (id: string) =>
+    request<AddOn>(`/admin/addons/${id}/retire`, { method: 'POST' }),
+};
+
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
 export function formatINR(paise: number): string {
@@ -886,6 +1036,48 @@ export function formatINR(paise: number): string {
     maximumFractionDigits: 0,
   }).format(paise / 100);
 }
+
+// ─── Membership / SIP (Phase 2 §5.13) ────────────────────────────────────────
+
+export const membershipApi = {
+  getMembership: () => request<Membership>('/me/membership'),
+  getPerks: () => request<MemberPerks>('/me/perks'),
+
+  listSips: () => request<TripSip[]>('/me/sip'),
+
+  startSip: (body: { monthlyMinor: number; anchorDay: number }) =>
+    request<TripSip>('/me/sip', { method: 'POST', body: JSON.stringify(body) }),
+
+  getSip: (id: string) => request<TripSipDetail>(`/me/sip/${id}`),
+
+  getSipBalance: (id: string) => request<SipBalance>(`/me/sip/${id}/balance`),
+
+  setStatus: (id: string, status: SipStatusValue) =>
+    request<TripSip>(`/me/sip/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+
+  contribute: (id: string, body: { amountMinor: number; paymentRef?: string }) =>
+    request<SipContribution>(`/me/sip/${id}/contributions`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+};
+
+export interface NotificationPreferences {
+  channels?: Record<string, Record<string, boolean>>;
+  quietHours?: { start: string; end: string; tz?: string };
+}
+
+export const notificationPrefsApi = {
+  get: () => request<NotificationPreferences>('/me/notification-preferences'),
+  upsert: (body: NotificationPreferences) =>
+    request<NotificationPreferences>('/me/notification-preferences', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+};
 
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', {

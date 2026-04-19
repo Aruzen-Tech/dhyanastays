@@ -9,7 +9,12 @@ import { PricingService } from '../pricing/pricing.service';
 import { AuditService } from '../common/services/audit.service';
 import { LedgerService } from '../common/services/ledger.service';
 import { NotificationService } from '../notification/notification.service';
+import { OutboxService } from '../notification/outbox.service';
 import { ReferralService } from '../referral/referral.service';
+import { AddOnService, AddOnSnapshotLine } from '../add-on/add-on.service';
+import { MembershipService } from '../membership/membership.service';
+import { PayLaterService } from '../pay-later/pay-later.service';
+import { PayLaterMonths } from '../pay-later/dto/create-plan.dto';
 import { CreateBookingDto, PaymentPlanDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { PriceSnapshot } from '../pricing/dto/quote.dto';
@@ -28,7 +33,11 @@ export class BookingService {
     private readonly auditService: AuditService,
     private readonly ledgerService: LedgerService,
     private readonly notificationService: NotificationService,
+    private readonly outboxService: OutboxService,
     private readonly referralService: ReferralService,
+    private readonly addOnService: AddOnService,
+    private readonly membershipService: MembershipService,
+    private readonly payLaterService: PayLaterService,
   ) {}
 
   /**
@@ -65,7 +74,8 @@ export class BookingService {
 
       const snapshot = hold.priceSnapshot as PriceSnapshot;
 
-      // Balance due date: 48h before check-in
+      // Balance due date: 48h before check-in (DEPOSIT_50 only).
+      // PAY_LATER bookings use PayLaterInstalment.dueAt for dunning instead.
       const balanceDueAt =
         dto.plan === PaymentPlanDto.DEPOSIT_50
           ? new Date(
@@ -74,7 +84,22 @@ export class BookingService {
             )
           : null;
 
-      return tx.booking.create({
+      // Validate Pay Later: schedule must finish before check-in (+24h buffer).
+      if (dto.plan === PaymentPlanDto.PAY_LATER) {
+        if (!dto.payLaterMonths) {
+          throw new BadRequestException('payLaterMonths is required for PAY_LATER plan');
+        }
+        const schedule = PayLaterService.buildSchedule(
+          snapshot.total,
+          dto.payLaterMonths as PayLaterMonths,
+        );
+        PayLaterService.assertScheduleFitsCheckIn(
+          schedule,
+          new Date(hold.startsAt),
+        );
+      }
+
+      const created = await tx.booking.create({
         data: {
           listingId: hold.listingId,
           guestId,
@@ -86,8 +111,26 @@ export class BookingService {
           priceSnapshot: snapshot as object,
           guestDetails: dto.guestDetails as object,
           balanceDueAt,
+          payLaterMonths:
+            dto.plan === PaymentPlanDto.PAY_LATER
+              ? (dto.payLaterMonths as number)
+              : null,
         },
       });
+
+      // Materialize BookingAddOn rows from the frozen price snapshot.
+      // The HMAC on the snapshot guarantees the add-on lines haven't been tampered with.
+      const snapshotAddOns = (snapshot.addOns ?? []) as AddOnSnapshotLine[];
+      if (snapshotAddOns.length > 0) {
+        await this.addOnService.createBookingAddOns(
+          tx,
+          created.id,
+          snapshotAddOns,
+          snapshot.hmac ?? '',
+        );
+      }
+
+      return created;
     });
 
     await this.auditService.log(
@@ -220,11 +263,35 @@ export class BookingService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
-    const snapshot = booking.priceSnapshot as PriceSnapshot;
+    const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
     let nextStatus: string;
 
     if (booking.plan === 'FULL') {
       nextStatus = 'CONFIRMED_PAID';
+    } else if (booking.plan === 'PAY_LATER') {
+      // First instalment captured → plan activates, booking goes to
+      // CONFIRMED_DEPOSIT. Subsequent instalment captures are routed
+      // through PayLaterService.recordInstalmentCapture from the webhook.
+      nextStatus = 'CONFIRMED_DEPOSIT';
+
+      if (!booking.payLaterMonths) {
+        throw new BadRequestException(
+          'PAY_LATER booking missing payLaterMonths',
+        );
+      }
+
+      await this.payLaterService.createPlanFromFirstCapture(
+        client,
+        {
+          id: booking.id,
+          startsAt: booking.startsAt,
+          priceSnapshot: booking.priceSnapshot,
+        },
+        booking.payLaterMonths as PayLaterMonths,
+        snapshot.total,
+        paymentId,
+        amountCaptured,
+      );
     } else {
       // DEPOSIT_50
       if (amountCaptured >= snapshot.total) {
@@ -290,21 +357,26 @@ export class BookingService {
   private async sendBookingConfirmedNotification(bookingId: string, booking: { plan: string; startsAt: Date; endsAt: Date; priceSnapshot: unknown; listingId: string; guestId: string }) {
     try {
       const [guest, listing] = await Promise.all([
-        this.prisma.user.findUnique({ where: { id: booking.guestId }, select: { fullName: true, email: true } }),
+        this.prisma.user.findUnique({
+          where: { id: booking.guestId },
+          select: { fullName: true, email: true, phone: true },
+        }),
         this.prisma.listing.findUnique({
           where: { id: booking.listingId },
           select: { title: true, host: { select: { id: true, user: { select: { fullName: true, email: true } } } } },
         }),
       ]);
       if (!guest || !listing) return;
-      const snapshot = booking.priceSnapshot as PriceSnapshot;
+      const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
       const checkIn = new Date(booking.startsAt).toLocaleDateString('en-IN');
       const checkOut = new Date(booking.endsAt).toLocaleDateString('en-IN');
 
-      // Guest email
-      await this.notificationService.sendBookingConfirmed({
+      // Guest notification — routed through the outbox so delivery is
+      // decoupled from the booking write and retried on transient failure.
+      const guestPayload = {
         guestName: guest.fullName,
         guestEmail: guest.email,
+        guestPhone: guest.phone ?? undefined,
         bookingId,
         listingTitle: listing.title,
         checkIn,
@@ -312,7 +384,23 @@ export class BookingService {
         totalAmount: snapshot.total,
         plan: booking.plan as 'FULL' | 'DEPOSIT_50',
         depositAmount: snapshot.depositAmount,
+      };
+      const emailSlot = this.notificationService.buildBookingConfirmedEmail(guestPayload);
+      await this.outboxService.enqueue({
+        userId: booking.guestId,
+        kind: 'booking.confirmed',
+        channels: ['EMAIL'],
+        payload: emailSlot,
       });
+      const smsSlot = this.notificationService.buildBookingConfirmedSms(guestPayload);
+      if (smsSlot) {
+        await this.outboxService.enqueue({
+          userId: booking.guestId,
+          kind: 'booking.confirmed',
+          channels: ['SMS'],
+          payload: smsSlot,
+        });
+      }
 
       // Host email
       if (listing.host?.user) {
@@ -512,6 +600,33 @@ export class BookingService {
     }
   }
 
+  /**
+   * Auto-cancel a booking whose Pay Later plan has defaulted. Triggered by the
+   * dunning cron after `processOverdue` flips the plan to DEFAULTED. Runs the
+   * normal refund engine so already-paid instalments get their policy-based
+   * refund.
+   */
+  async cancelDefaultedPayLater(bookingId: string): Promise<void> {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      select: { status: true },
+    });
+    if (!booking) return;
+    const cancellableStatuses = [
+      'PAYMENT_PENDING',
+      'CONFIRMED_DEPOSIT',
+      'CONFIRMED_PAID',
+      'BALANCE_DUE',
+    ];
+    if (!cancellableStatuses.includes(booking.status)) return;
+    await this.cancelBookingInternal(
+      bookingId,
+      null,
+      'AUTO_CANCEL_PAY_LATER_DEFAULT',
+      'Pay Later plan defaulted — grace period expired',
+    );
+  }
+
   private async cancelBookingInternal(
     bookingId: string,
     actorId: string | null,
@@ -529,13 +644,39 @@ export class BookingService {
       .filter((p: { status: string; amount: number }) => p.status === 'CAPTURED')
       .reduce((sum: number, p: { amount: number }) => sum + p.amount, 0);
 
-    const refundAmount = this.pricingService.computeRefundAmount(
-      totalPaid,
-      new Date(booking.startsAt),
+    const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
+    const addOnsTotal = snapshot.addOnsTotal ?? 0;
+    const accommodationTotal = (snapshot.total ?? totalPaid) - addOnsTotal;
+    const checkIn = new Date(booking.startsAt);
+
+    // Accommodation refund applies booking-level policy to its portion of the snapshot
+    const accommodationRefund = this.pricingService.computeRefundAmount(
+      accommodationTotal,
+      checkIn,
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await (this.prisma as any).$transaction(async (tx: TxClient) => {
+      // Mark the Pay Later plan cancelled (if any) so future instalment
+      // captures can't silently revive the booking. Already-paid instalments
+      // stay recorded; their refunds flow through the normal refund engine.
+      if (booking.plan === 'PAY_LATER') {
+        await this.payLaterService.cancelPlan(tx, bookingId);
+      }
+
+      // Add-ons: apply per-tier rules inside the same transaction
+      const addOnRefund = await this.addOnService.cancelBookingAddOns(
+        tx,
+        bookingId,
+        checkIn,
+      );
+
+      // Cap total refund at what the guest actually paid
+      const refundAmount = Math.min(
+        accommodationRefund + addOnRefund,
+        totalPaid,
+      );
+
       const updated = await tx.booking.update({
         where: { id: bookingId },
         data: { status: refundAmount > 0 ? 'REFUNDED' : 'CANCELLED' },
@@ -554,7 +695,7 @@ export class BookingService {
           type: 'REFUND_ISSUED',
           amount: refundAmount,
           bookingId,
-          metadata: { reason, action },
+          metadata: { reason, action, accommodationRefund, addOnRefund },
           tx,
         });
       }
@@ -564,7 +705,7 @@ export class BookingService {
         action,
         'booking',
         bookingId,
-        { reason, refundAmount, totalPaid },
+        { reason, refundAmount, accommodationRefund, addOnRefund, totalPaid },
         tx,
       );
 
@@ -662,6 +803,18 @@ export class BookingService {
     await this.auditService.log(actorId, 'BOOKING_COMPLETE', 'booking', bookingId, {
       previousStatus: booking.status,
     });
+
+    // Award loyalty points for completed accommodation spend (Phase 2 §5.13).
+    // Points = floor(accommodationTotal_paise / 10000). Add-ons don't earn points.
+    const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
+    const accommodationPaise =
+      (snapshot.subtotal ?? 0) + (snapshot.cleaningFee ?? 0);
+    const points = this.membershipService.pointsForPaise(accommodationPaise);
+    if (points > 0) {
+      await this.membershipService
+        .awardPoints(booking.guestId, points)
+        .catch(() => {});
+    }
 
     // Non-blocking: trigger referral credit check
     void this.referralService.onReferredUserFirstBooking(booking.guestId).catch(() => {});

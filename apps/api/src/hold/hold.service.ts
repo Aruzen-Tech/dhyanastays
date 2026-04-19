@@ -37,12 +37,14 @@ export class HoldService {
       throw new BadRequestException('checkOut must be after checkIn');
     }
 
-    // Get price snapshot
+    // Get price snapshot (includes add-ons + loyalty discount for the guest)
     const snapshot = await this.pricingService.quote({
       listingId: dto.listingId,
       checkIn: dto.checkIn,
       checkOut: dto.checkOut,
       guests: dto.guests,
+      addOns: dto.addOns,
+      userId: guestId,
     });
 
     const expiresAt = new Date(Date.now() + HOLD_TTL_MINUTES * 60 * 1000);
