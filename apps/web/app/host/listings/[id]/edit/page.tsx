@@ -5,6 +5,11 @@ import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../../../../context/AuthContext';
 import { listingsApi, storageApi, formatDate, formatINR } from '../../../../../lib/api';
 import type { AvailabilityBlock, Listing, ListingMedia, SeasonalRate, Tag } from '../../../../../lib/types';
+import {
+  DIETARY_OPTIONS,
+  EXPERIENCE_TAGS,
+  PROPERTY_TYPES,
+} from '../../../../../lib/types';
 
 export default function EditListingPage() {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +32,14 @@ export default function EditListingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+
+  // Discovery facets (§5.18)
+  const [facetExperience, setFacetExperience] = useState<string[]>([]);
+  const [facetPropertyType, setFacetPropertyType] = useState('');
+  const [facetDietary, setFacetDietary] = useState<string[]>([]);
+  const [savingFacets, setSavingFacets] = useState(false);
+  const [facetsSuccess, setFacetsSuccess] = useState('');
+  const [facetsError, setFacetsError] = useState('');
 
   // Media state
   const [media, setMedia] = useState<ListingMedia[]>([]);
@@ -78,6 +91,9 @@ export default function EditListingPage() {
           minNights: rr ? String(rr.minNights) : '',
           cleaningFee: rr ? String(rr.cleaningFee / 100) : '',
         });
+        setFacetExperience(found.experienceTags ?? []);
+        setFacetPropertyType(found.propertyType ?? '');
+        setFacetDietary(found.dietaryOptions ?? []);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoadingListing(false));
@@ -123,6 +139,33 @@ export default function EditListingPage() {
       setError(e instanceof Error ? e.message : 'Failed to update listing');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const toggleFacet = (
+    value: string,
+    list: string[],
+    setter: (v: string[]) => void,
+  ) => {
+    setter(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
+  };
+
+  const handleSaveFacets = async () => {
+    setFacetsError('');
+    setFacetsSuccess('');
+    setSavingFacets(true);
+    try {
+      await listingsApi.update(id, {
+        experienceTags: facetExperience,
+        propertyType: facetPropertyType || null,
+        dietaryOptions: facetDietary,
+      });
+      setFacetsSuccess('Discovery facets saved');
+      setTimeout(() => setFacetsSuccess(''), 2500);
+    } catch (e: unknown) {
+      setFacetsError(e instanceof Error ? e.message : 'Failed to save facets');
+    } finally {
+      setSavingFacets(false);
     }
   };
 
@@ -369,6 +412,101 @@ export default function EditListingPage() {
           </button>
         </div>
       </form>
+
+      {/* ── Discovery facets (§5.18) ── */}
+      <div className="card p-6 mt-8 space-y-5">
+        <div>
+          <h2 className="font-semibold text-gray-900">Discovery facets</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Help guests find your retreat through filters on the discovery feed.
+          </p>
+        </div>
+
+        <div>
+          <label className="label text-xs">Experience</label>
+          <div className="flex flex-wrap gap-2">
+            {EXPERIENCE_TAGS.map((tag) => (
+              <button
+                type="button"
+                key={tag}
+                onClick={() => toggleFacet(tag, facetExperience, setFacetExperience)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  facetExperience.includes(tag)
+                    ? 'bg-brand-700 text-white border-brand-700'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                }`}
+              >
+                {tag.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="label text-xs">Property type</label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setFacetPropertyType('')}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                !facetPropertyType
+                  ? 'bg-brand-700 text-white border-brand-700'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+              }`}
+            >
+              Unspecified
+            </button>
+            {PROPERTY_TYPES.map((pt) => (
+              <button
+                type="button"
+                key={pt}
+                onClick={() => setFacetPropertyType(pt)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  facetPropertyType === pt
+                    ? 'bg-brand-700 text-white border-brand-700'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                }`}
+              >
+                {pt.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="label text-xs">Dietary options</label>
+          <div className="flex flex-wrap gap-2">
+            {DIETARY_OPTIONS.map((option) => (
+              <button
+                type="button"
+                key={option}
+                onClick={() => toggleFacet(option, facetDietary, setFacetDietary)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  facetDietary.includes(option)
+                    ? 'bg-brand-700 text-white border-brand-700'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                }`}
+              >
+                {option.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {facetsError && <p className="text-sm text-red-600">{facetsError}</p>}
+        {facetsSuccess && <p className="text-sm text-green-600">{facetsSuccess}</p>}
+
+        <div>
+          <button
+            type="button"
+            onClick={handleSaveFacets}
+            disabled={savingFacets}
+            className="btn-primary text-sm py-2 px-5"
+          >
+            {savingFacets ? <><span className="spinner" /> Saving…</> : 'Save facets'}
+          </button>
+        </div>
+      </div>
 
       {/* ── Preparation guide link ── */}
       <div className="card p-6 mt-8 flex items-center justify-between">

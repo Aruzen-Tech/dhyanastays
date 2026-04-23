@@ -353,8 +353,21 @@ export class AuthService {
     const accessExpiry = process.env.JWT_ACCESS_EXPIRES_IN ?? '15m';
     const refreshExpiry = process.env.JWT_REFRESH_EXPIRES_IN ?? '7d';
 
+    // Look up kind + adminLevel so guards (e.g. @Kinds(INVESTOR),
+    // @AdminLevelGuard) work without an extra DB round-trip per request.
+    const identity = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { kind: true, staffRole: { select: { level: true } } },
+    });
+
     const accessToken = await this.jwtService.signAsync(
-      { sub: userId, email, role },
+      {
+        sub: userId,
+        email,
+        role,
+        ...(identity?.kind && { kind: identity.kind }),
+        ...(identity?.staffRole?.level && { adminLevel: identity.staffRole.level }),
+      },
       { secret: accessSecret, expiresIn: accessExpiry },
     );
 

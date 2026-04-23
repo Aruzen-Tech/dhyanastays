@@ -1,6 +1,11 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { ListingService } from './listing.service';
+import {
+  DIETARY_OPTIONS,
+  EXPERIENCE_TAGS,
+  PROPERTY_TYPES,
+} from './dto/update-listing.dto';
 
 @Controller('listings')
 export class PublicListingController {
@@ -8,8 +13,29 @@ export class PublicListingController {
 
   @Public()
   @Get()
-  getFeed() {
-    return this.listingService.getPublicListings();
+  getFeed(
+    @Query('q') q?: string,
+    @Query('city') city?: string,
+    @Query('experienceTags') experienceTags?: string,
+    @Query('propertyType') propertyType?: string,
+    @Query('dietaryOptions') dietaryOptions?: string,
+    @Query('sort') sort?: 'newest' | 'price-asc' | 'price-desc',
+  ) {
+    const hasFacets =
+      q || city || experienceTags || propertyType || dietaryOptions || sort;
+    if (!hasFacets) {
+      return this.listingService.getPublicListings();
+    }
+    const parseCsv = (v?: string) =>
+      v ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+    return this.listingService.getDiscoveryListings({
+      q,
+      city,
+      experienceTags: parseCsv(experienceTags),
+      propertyType,
+      dietaryOptions: parseCsv(dietaryOptions),
+      sort,
+    });
   }
 
   @Public()
@@ -44,5 +70,15 @@ export class PublicListingController {
   @Get('meta/tags')
   getAllTags() {
     return this.listingService.getAllTags();
+  }
+
+  @Public()
+  @Get('meta/facets')
+  getFacetVocabulary() {
+    return {
+      experienceTags: EXPERIENCE_TAGS,
+      propertyTypes: PROPERTY_TYPES,
+      dietaryOptions: DIETARY_OPTIONS,
+    };
   }
 }

@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { AdminLevel, UserKind, UserRole } from '@prisma/client';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 import { ADMIN_LEVEL_KEY } from '../decorators/admin-level.decorator';
+import { KINDS_KEY } from '../decorators/kinds.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { CapabilitiesService, CapabilityKey, Capability } from '../services/capabilities.service';
 
@@ -58,10 +59,17 @@ export class RolesGuard implements CanActivate {
       ADMIN_LEVEL_KEY,
       [context.getHandler(), context.getClass()],
     );
+    const requiredKinds = this.reflector.getAllAndOverride<UserKind[]>(
+      KINDS_KEY,
+      [context.getHandler(), context.getClass()],
+    );
 
-    // No role/level requirements → allow
-    if ((!requiredRoles || requiredRoles.length === 0) &&
-        (!requiredLevels || requiredLevels.length === 0)) {
+    // No role/level/kind requirements → allow
+    if (
+      (!requiredRoles || requiredRoles.length === 0) &&
+      (!requiredLevels || requiredLevels.length === 0) &&
+      (!requiredKinds || requiredKinds.length === 0)
+    ) {
       return true;
     }
 
@@ -89,6 +97,14 @@ export class RolesGuard implements CanActivate {
       const required = requiredRoles.map(roleToCapability);
       if (!this.capabilities.hasAny(ctx, required)) {
         throw new ForbiddenException('Insufficient role for this action');
+      }
+    }
+
+    // ── Check @Kinds(UserKind.INVESTOR, …) — admins always pass ────────────
+    if (requiredKinds && requiredKinds.length > 0) {
+      const isAdmin = this.capabilities.has(ctx, Capability.PLATFORM_ADMIN);
+      if (!isAdmin && (!userKind || !requiredKinds.includes(userKind))) {
+        throw new ForbiddenException('This endpoint is limited to specific user kinds');
       }
     }
 

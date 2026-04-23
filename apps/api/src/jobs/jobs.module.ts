@@ -8,6 +8,8 @@ import { WeeklyPayoutProcessor } from './weekly-payout.processor';
 import { PayLaterDunningProcessor } from './pay-later-dunning.processor';
 import { NotificationOutboxProcessor } from './notification-outbox.processor';
 import { SosBroadcastProcessor } from './sos-broadcast.processor';
+import { ConciergeSlaProcessor } from './concierge-sla.processor';
+import { InvestorDistributionProcessor } from './investor-distribution.processor';
 import { JobsScheduler } from './jobs.scheduler';
 import { HoldModule } from '../hold/hold.module';
 import { BookingModule } from '../booking/booking.module';
@@ -15,6 +17,8 @@ import { PayoutModule } from '../payout/payout.module';
 import { PayLaterModule } from '../pay-later/pay-later.module';
 import { NotificationModule } from '../notification/notification.module';
 import { SosModule } from '../sos/sos.module';
+import { MessagingModule } from '../messaging/messaging.module';
+import { InvestorModule } from '../investor/investor.module';
 import {
   QUEUE_HOLD_EXPIRY,
   QUEUE_BALANCE_DUE,
@@ -23,6 +27,8 @@ import {
   QUEUE_PAY_LATER_DUNNING,
   QUEUE_NOTIFICATION_OUTBOX,
   QUEUE_SOS_BROADCAST,
+  QUEUE_CONCIERGE_SLA,
+  QUEUE_INVESTOR_DISTRIBUTION,
 } from './jobs.constants';
 
 export {
@@ -33,6 +39,8 @@ export {
   QUEUE_PAY_LATER_DUNNING,
   QUEUE_NOTIFICATION_OUTBOX,
   QUEUE_SOS_BROADCAST,
+  QUEUE_CONCIERGE_SLA,
+  QUEUE_INVESTOR_DISTRIBUTION,
 };
 
 @Module({
@@ -46,6 +54,8 @@ export {
       { name: QUEUE_PAY_LATER_DUNNING },
       { name: QUEUE_NOTIFICATION_OUTBOX },
       { name: QUEUE_SOS_BROADCAST },
+      { name: QUEUE_CONCIERGE_SLA },
+      { name: QUEUE_INVESTOR_DISTRIBUTION },
     ),
     HoldModule,
     BookingModule,
@@ -53,6 +63,8 @@ export {
     PayLaterModule,
     NotificationModule,
     SosModule,
+    MessagingModule,
+    InvestorModule,
   ],
   providers: [
     HoldExpiryProcessor,
@@ -62,6 +74,8 @@ export {
     PayLaterDunningProcessor,
     NotificationOutboxProcessor,
     SosBroadcastProcessor,
+    ConciergeSlaProcessor,
+    InvestorDistributionProcessor,
     JobsScheduler,
   ],
 })

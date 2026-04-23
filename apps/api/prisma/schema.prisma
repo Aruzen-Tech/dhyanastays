@@ -187,6 +187,21 @@ model User {
   // ── Phase 3 §5.12 SOS ─────────────────────────────────────────────────────
   trustedContacts  TrustedContact[]
   sosIncidents     SosIncident[]
+  // ── Phase 3 §5.14 Investor dashboard ──────────────────────────────────────
+  investments       Investment[]        @relation("InvestorInvestments")
+  distributions     Distribution[]      @relation("InvestorDistributions")
+  investorDocuments InvestorDocument[]  @relation("InvestorDocuments")
+  investorDocsUploaded InvestorDocument[] @relation("InvestorDocUploader")
+  // ── Phase 3 §5.15 Experiences ────────────────────────────────────────────
+  experiencesCreated  Experience[]        @relation("ExperienceCreator")
+  experienceBookings  ExperienceBooking[] @relation("ExperienceGuestBookings")
+  // ── Phase 3 §5.8 Group Planning ──────────────────────────────────────────
+  ownedTripGroups     TripGroup[]         @relation("TripGroupOwner")
+  tripGroupMembers    TripGroupMember[]
+  expensePayments     ExpenseSplitShare[] @relation("ExpenseShareUser")
+  createdExpenses     ExpenseSplit[]      @relation("ExpenseCreator")
+  // ── Phase 3 §5.9 AI Itinerary ────────────────────────────────────────────
+  itineraries         Itinerary[]         @relation("ItineraryOwner")
 }
 
 model Host {
@@ -201,6 +216,8 @@ model Host {
   listings            Listing[]
   payoutLines         PayoutLine[]
   notifications       HostNotification[]
+  quickReplies        HostQuickReply[]
+  experiences         Experience[]
 }
 
 model Listing {
@@ -219,6 +236,9 @@ model Listing {
   preparationGuide    Json?
   propertyDirections  Json?
   propertyManual      Json?
+  experienceTags      String[]             @default([])
+  propertyType        String?
+  dietaryOptions      String[]             @default([])
   needsReapproval     Boolean              @default(false)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
@@ -237,6 +257,9 @@ model Listing {
   conversations       Conversation[]
   issues               GuestIssue[]
   addOns              AddOn[]              @relation("ListingAddOns")
+  investments         Investment[]
+  capitalCalls        CapitalCall[]
+  experiences         Experience[]         @relation("ListingExperiences")
 
   @@index([hostId])
   @@index([status, createdAt])
@@ -559,26 +582,46 @@ model GuestNotification {
   @@index([userId, isRead, createdAt])
 }
 
+enum ConversationKind {
+  STANDARD
+  CONCIERGE
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+}
+
 model Conversation {
-  id          String    @id @default(cuid())
-  type        String    // GUEST_HOST, HOST_ADMIN
-  userOneId   String    // guest (GUEST_HOST) or host (HOST_ADMIN)
-  userTwoId   String    // host (GUEST_HOST) or admin (HOST_ADMIN)
-  listingId   String?
-  bookingId   String?
-  subject     String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  userOne     User      @relation("ConversationsAsOne", fields: [userOneId], references: [id])
-  userTwo     User      @relation("ConversationsAsTwo", fields: [userTwoId], references: [id])
-  listing     Listing?  @relation(fields: [listingId], references: [id])
-  booking     Booking?  @relation(fields: [bookingId], references: [id])
-  messages    Message[]
+  id                 String             @id @default(cuid())
+  type               String             // GUEST_HOST, HOST_ADMIN
+  kind               ConversationKind   @default(STANDARD)
+  status             ConversationStatus @default(OPEN)
+  userOneId          String             // guest (GUEST_HOST) or host (HOST_ADMIN)
+  userTwoId          String             // host (GUEST_HOST) or admin (HOST_ADMIN)
+  listingId          String?
+  bookingId          String?
+  subject            String?
+  lastGuestMessageAt DateTime?
+  lastHostMessageAt  DateTime?
+  slaDueAt           DateTime?
+  slaBreachedAt      DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  userOne            User               @relation("ConversationsAsOne", fields: [userOneId], references: [id])
+  userTwo            User               @relation("ConversationsAsTwo", fields: [userTwoId], references: [id])
+  listing            Listing?           @relation(fields: [listingId], references: [id])
+  booking            Booking?           @relation(fields: [bookingId], references: [id])
+  messages           Message[]
 
   @@unique([userOneId, userTwoId, listingId])
   @@index([userOneId])
   @@index([userTwoId])
   @@index([type])
+  @@index([kind, status])
+  @@index([status, slaDueAt])
+  @@index([bookingId, kind])
 }
 
 model Message {
@@ -588,11 +631,25 @@ model Message {
   senderRole      UserRole
   body            String
   isRead          Boolean      @default(false)
+  isSystem        Boolean      @default(false)
   createdAt       DateTime     @default(now())
   conversation    Conversation @relation(fields: [conversationId], references: [id])
   sender          User         @relation(fields: [senderId], references: [id])
 
   @@index([conversationId, createdAt])
+}
+
+model HostQuickReply {
+  id        String   @id @default(cuid())
+  hostId    String
+  label     String
+  body      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  host      Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@index([hostId, sortOrder])
 }
 
 model GuestPreference {
@@ -1114,4 +1171,297 @@ model SosBroadcast {
   incident   SosIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
   @@index([incidentId])
+}
+
+// ─── Phase 3 §5.14 Investor dashboard ─────────────────────────────────────────
+
+enum DistributionStatus {
+  CALCULATED
+  PAID
+  FAILED
+}
+
+enum CapitalCallStatus {
+  OPEN
+  FUNDED
+  CLOSED
+  CANCELLED
+}
+
+enum InvestorDocumentKind {
+  AGREEMENT
+  KYC
+  TAX_FORM
+  STATEMENT
+  OTHER
+}
+
+model Investment {
+  id             String    @id @default(cuid())
+  investorUserId String
+  listingId      String
+  sharePct       Decimal   @db.Decimal(5, 4) // 0.0000 – 1.0000
+  effectiveAt    DateTime
+  endedAt        DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  investor       User      @relation("InvestorInvestments", fields: [investorUserId], references: [id])
+  listing        Listing   @relation(fields: [listingId], references: [id])
+
+  @@index([investorUserId])
+  @@index([listingId])
+  @@index([investorUserId, endedAt])
+}
+
+model Distribution {
+  id              String              @id @default(cuid())
+  investorUserId  String
+  period          String              // YYYY-MM
+  amountMinor     Int
+  currency        String              @default("INR")
+  status          DistributionStatus  @default(CALCULATED)
+  breakdown       Json?               // [{ listingId, listingTitle, sharePct, grossMinor, sharedMinor }]
+  ledgerEventId   String?
+  computedAt      DateTime            @default(now())
+  paidAt          DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  investor        User                @relation("InvestorDistributions", fields: [investorUserId], references: [id])
+
+  @@unique([investorUserId, period])
+  @@index([period])
+  @@index([status, computedAt])
+}
+
+model CapitalCall {
+  id          String            @id @default(cuid())
+  listingId   String
+  amountMinor Int
+  reason      String
+  dueAt       DateTime
+  status      CapitalCallStatus @default(OPEN)
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  listing     Listing           @relation(fields: [listingId], references: [id])
+
+  @@index([listingId, status])
+  @@index([status, dueAt])
+}
+
+model InvestorDocument {
+  id             String                @id @default(cuid())
+  investorUserId String
+  kind           InvestorDocumentKind
+  title          String
+  url            String
+  uploadedById   String
+  uploadedAt     DateTime              @default(now())
+
+  investor       User                  @relation("InvestorDocuments", fields: [investorUserId], references: [id])
+  uploadedBy     User                  @relation("InvestorDocUploader", fields: [uploadedById], references: [id])
+
+  @@index([investorUserId, kind])
+  @@index([investorUserId, uploadedAt(sort: Desc)])
+}
+
+// ── Phase 3 §5.15 Experiences & events ──────────────────────────────────────
+
+enum ExperienceStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CLOSED
+}
+
+enum ExperienceBookingStatus {
+  HELD
+  CONFIRMED
+  CANCELLED
+  REFUNDED
+  COMPLETED
+}
+
+model Experience {
+  id               String                 @id @default(cuid())
+  hostId           String
+  createdById      String
+  listingId        String?
+  title            String
+  description      String
+  category         String
+  city             String
+  state            String
+  country          String                 @default("India")
+  latitude         Float?
+  longitude        Float?
+  startsAt         DateTime
+  endsAt           DateTime
+  capacity         Int
+  priceMinor       Int
+  currency         String                 @default("INR")
+  status           ExperienceStatus       @default(PENDING_APPROVAL)
+  imageUrl         String?
+  reviewedBy       String?
+  reviewNotes      String?
+  reviewedAt       DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  host             Host                   @relation(fields: [hostId], references: [id])
+  createdBy        User                   @relation("ExperienceCreator", fields: [createdById], references: [id])
+  listing          Listing?               @relation("ListingExperiences", fields: [listingId], references: [id])
+  bookings         ExperienceBooking[]
+
+  @@index([status, startsAt])
+  @@index([hostId, startsAt])
+  @@index([city, state, startsAt])
+}
+
+model ExperienceBooking {
+  id               String                  @id @default(cuid())
+  experienceId     String
+  guestId          String
+  seats            Int
+  totalMinor       Int
+  currency         String                  @default("INR")
+  status           ExperienceBookingStatus @default(HELD)
+  paymentRef       String?
+  idempotencyKey   String                  @unique
+  cancelledAt      DateTime?
+  refundedAt       DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  experience       Experience              @relation(fields: [experienceId], references: [id])
+  guest            User                    @relation("ExperienceGuestBookings", fields: [guestId], references: [id])
+
+  @@index([experienceId, status])
+  @@index([guestId, createdAt(sort: Desc)])
+}
+
+// ── Phase 3 §5.8 Group planning & expense splitting ─────────────────────────
+
+enum TripGroupRole {
+  OWNER
+  MEMBER
+}
+
+enum TripGroupInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum ExpenseSplitMethod {
+  EQUAL
+  CUSTOM
+}
+
+model TripGroup {
+  id          String            @id @default(cuid())
+  ownerId     String
+  name        String
+  destination String?
+  startsAt    DateTime?
+  endsAt      DateTime?
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  owner       User              @relation("TripGroupOwner", fields: [ownerId], references: [id])
+  members     TripGroupMember[]
+  expenses    ExpenseSplit[]
+
+  @@index([ownerId])
+}
+
+model TripGroupMember {
+  id         String                @id @default(cuid())
+  groupId    String
+  userId     String?
+  email      String
+  fullName   String
+  role       TripGroupRole         @default(MEMBER)
+  status     TripGroupInviteStatus @default(PENDING)
+  invitedAt  DateTime              @default(now())
+  acceptedAt DateTime?
+
+  group      TripGroup             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User?                 @relation(fields: [userId], references: [id])
+  shares     ExpenseSplitShare[]
+
+  @@unique([groupId, email])
+  @@index([userId])
+}
+
+model ExpenseSplit {
+  id           String              @id @default(cuid())
+  groupId      String
+  createdById  String
+  title        String
+  totalMinor   Int
+  currency     String              @default("INR")
+  method       ExpenseSplitMethod  @default(EQUAL)
+  notes        String?
+  incurredAt   DateTime            @default(now())
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  group        TripGroup           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy    User                @relation("ExpenseCreator", fields: [createdById], references: [id])
+  shares       ExpenseSplitShare[]
+
+  @@index([groupId, incurredAt(sort: Desc)])
+}
+
+model ExpenseSplitShare {
+  id            String          @id @default(cuid())
+  expenseId     String
+  memberId      String
+  userId        String?
+  amountMinor   Int
+  settledAt     DateTime?
+
+  expense       ExpenseSplit    @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  member        TripGroupMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  user          User?           @relation("ExpenseShareUser", fields: [userId], references: [id])
+
+  @@unique([expenseId, memberId])
+  @@index([userId])
+}
+
+// ── Phase 3 §5.9 AI Itinerary planner ───────────────────────────────────────
+
+enum ItineraryStatus {
+  DRAFT
+  GENERATED
+  FINALIZED
+}
+
+model Itinerary {
+  id              String           @id @default(cuid())
+  userId          String
+  listingId       String?
+  destination     String
+  startsAt        DateTime
+  endsAt          DateTime
+  travelers       Int              @default(2)
+  interests       String[]         @default([])
+  budgetMinor     Int?
+  status          ItineraryStatus  @default(DRAFT)
+  summary         String?
+  days            Json?            // [{ day: 1, date, title, sessions: [{ time, title, description, category }] }]
+  model           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  user            User             @relation("ItineraryOwner", fields: [userId], references: [id])
+
+  @@index([userId, createdAt(sort: Desc)])
 }

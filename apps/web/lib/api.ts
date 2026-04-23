@@ -13,9 +13,11 @@ import type {
   BookingPreparation,
   CalendarBooking,
   CheckInOutStatus,
+  ConciergeAdminThread,
   Conversation,
   ConversationListItem,
   ConversationMessage,
+  HostQuickReply,
   GuestDashboardStats,
   GuestDetails,
   GuestIssue,
@@ -57,6 +59,8 @@ import type {
   WishlistItem,
   ReferralInfo,
   CreditLedger,
+  DiscoveryFacets,
+  FacetVocabulary,
   LoyaltyInfo,
   PayoutDryRun,
   RefundValidation,
@@ -243,9 +247,25 @@ export const adminHostsApi = {
 // ─── Listings ─────────────────────────────────────────────────────────────────
 
 export const listingsApi = {
-  getPublic: () => request<Listing[]>('/listings'),
+  getPublic: (facets?: DiscoveryFacets) => {
+    if (!facets) return request<Listing[]>('/listings');
+    const params = new URLSearchParams();
+    if (facets.q) params.set('q', facets.q);
+    if (facets.city) params.set('city', facets.city);
+    if (facets.experienceTags?.length)
+      params.set('experienceTags', facets.experienceTags.join(','));
+    if (facets.propertyType) params.set('propertyType', facets.propertyType);
+    if (facets.dietaryOptions?.length)
+      params.set('dietaryOptions', facets.dietaryOptions.join(','));
+    if (facets.sort) params.set('sort', facets.sort);
+    const qs = params.toString();
+    return request<Listing[]>(`/listings${qs ? `?${qs}` : ''}`);
+  },
 
   getTags: () => request<Tag[]>('/listings/meta/tags'),
+
+  getFacetVocabulary: () =>
+    request<FacetVocabulary>('/listings/meta/facets'),
 
   search: (q: string) =>
     request<Listing[]>(`/listings/search?q=${encodeURIComponent(q)}`),
@@ -280,6 +300,9 @@ export const listingsApi = {
     maxGuests: number;
     minNights: number;
     cleaningFee: number;
+    experienceTags: string[];
+    propertyType: string | null;
+    dietaryOptions: string[];
   }>) =>
     request<Listing>(`/host/listings/${id}`, {
       method: 'PATCH',
@@ -935,6 +958,224 @@ export const guestMessagingApi = createMessagingApi('guest');
 export const hostMessagingApi = createMessagingApi('host');
 export const adminMessagingApi = createMessagingApi('admin');
 
+// ─── Concierge Chat (§5.10) ──────────────────────────────────────────────────
+
+export const conciergeGuestApi = {
+  getThread: (bookingId: string) =>
+    request<Conversation>(`/bookings/${bookingId}/chat`),
+  sendMessage: (bookingId: string, body: string) =>
+    request<ConversationMessage>(`/bookings/${bookingId}/chat/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    }),
+  markRead: (bookingId: string) =>
+    request<{ success: boolean }>(`/bookings/${bookingId}/chat/read`, {
+      method: 'POST',
+    }),
+};
+
+export const conciergeHostApi = {
+  getThread: (bookingId: string) =>
+    request<Conversation>(`/host/bookings/${bookingId}/chat`),
+  sendMessage: (bookingId: string, body: string) =>
+    request<ConversationMessage>(`/host/bookings/${bookingId}/chat/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    }),
+  markRead: (bookingId: string) =>
+    request<{ success: boolean }>(`/host/bookings/${bookingId}/chat/read`, {
+      method: 'POST',
+    }),
+};
+
+export const conciergeAdminApi = {
+  list: (opts?: { status?: 'OPEN' | 'CLOSED'; breachedOnly?: boolean }) => {
+    const params = new URLSearchParams();
+    if (opts?.status) params.set('status', opts.status);
+    if (opts?.breachedOnly) params.set('breached', 'true');
+    const qs = params.toString();
+    return request<ConciergeAdminThread[]>(`/admin/concierge${qs ? `?${qs}` : ''}`);
+  },
+  get: (id: string) =>
+    request<Conversation>(`/admin/concierge/${id}`),
+  join: (id: string) =>
+    request<{ joined: boolean; alreadyJoined: boolean }>(`/admin/concierge/${id}/join`, {
+      method: 'POST',
+    }),
+  sendMessage: (id: string, body: string) =>
+    request<ConversationMessage>(`/admin/concierge/${id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    }),
+};
+
+// ─── Investor dashboard (§5.14) ─────────────────────────────────────────────
+
+import type {
+  AdminCapitalCall,
+  AdminDistribution,
+  AdminInvestment,
+  AdminInvestorDocument,
+  CapitalCallForInvestor,
+  CapitalCallStatus,
+  Distribution,
+  DistributionStatus,
+  InvestorDocument,
+  InvestorDocumentKind,
+  InvestorPortfolio,
+} from './types';
+
+export const investorApi = {
+  getPortfolio: () => request<InvestorPortfolio>('/investor/portfolio'),
+  listDistributions: (opts?: { from?: string; to?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.from) params.set('from', opts.from);
+    if (opts?.to) params.set('to', opts.to);
+    const qs = params.toString();
+    return request<Distribution[]>(`/investor/distributions${qs ? `?${qs}` : ''}`);
+  },
+  listCapitalCalls: () =>
+    request<CapitalCallForInvestor[]>('/investor/capital-calls'),
+  listDocuments: () => request<InvestorDocument[]>('/investor/documents'),
+};
+
+export const adminInvestorApi = {
+  // investments
+  listInvestments: (opts?: { investorUserId?: string; listingId?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.investorUserId) params.set('investorUserId', opts.investorUserId);
+    if (opts?.listingId) params.set('listingId', opts.listingId);
+    const qs = params.toString();
+    return request<AdminInvestment[]>(
+      `/admin/investor/investments${qs ? `?${qs}` : ''}`,
+    );
+  },
+  createInvestment: (body: {
+    investorUserId: string;
+    listingId: string;
+    sharePct: number;
+    effectiveAt: string;
+    endedAt?: string;
+    notes?: string;
+  }) =>
+    request<AdminInvestment>('/admin/investor/investments', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateInvestment: (
+    id: string,
+    body: Partial<{
+      sharePct: number;
+      effectiveAt: string;
+      endedAt: string | null;
+      notes: string;
+    }>,
+  ) =>
+    request<AdminInvestment>(`/admin/investor/investments/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  removeInvestment: (id: string) =>
+    request<void>(`/admin/investor/investments/${id}`, { method: 'DELETE' }),
+
+  // capital calls
+  listCapitalCalls: (opts?: { listingId?: string; status?: CapitalCallStatus }) => {
+    const params = new URLSearchParams();
+    if (opts?.listingId) params.set('listingId', opts.listingId);
+    if (opts?.status) params.set('status', opts.status);
+    const qs = params.toString();
+    return request<AdminCapitalCall[]>(
+      `/admin/investor/capital-calls${qs ? `?${qs}` : ''}`,
+    );
+  },
+  createCapitalCall: (body: {
+    listingId: string;
+    amountMinor: number;
+    reason: string;
+    dueAt: string;
+    notes?: string;
+  }) =>
+    request<AdminCapitalCall>('/admin/investor/capital-calls', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateCapitalCall: (
+    id: string,
+    body: Partial<{
+      amountMinor: number;
+      reason: string;
+      dueAt: string;
+      status: CapitalCallStatus;
+      notes: string;
+    }>,
+  ) =>
+    request<AdminCapitalCall>(`/admin/investor/capital-calls/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  // documents
+  listDocuments: (investorUserId?: string) => {
+    const params = new URLSearchParams();
+    if (investorUserId) params.set('investorUserId', investorUserId);
+    const qs = params.toString();
+    return request<AdminInvestorDocument[]>(
+      `/admin/investor/documents${qs ? `?${qs}` : ''}`,
+    );
+  },
+  uploadDocument: (body: {
+    investorUserId: string;
+    kind: InvestorDocumentKind;
+    title: string;
+    url: string;
+  }) =>
+    request<AdminInvestorDocument>('/admin/investor/documents', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  removeDocument: (id: string) =>
+    request<void>(`/admin/investor/documents/${id}`, { method: 'DELETE' }),
+
+  // distributions
+  listDistributions: (period?: string) => {
+    const qs = period ? `?period=${encodeURIComponent(period)}` : '';
+    return request<AdminDistribution[]>(`/admin/investor/distributions${qs}`);
+  },
+  recompute: (body: { period?: string; investorUserId?: string }) =>
+    request<{ period: string; computed: number }>(
+      '/admin/investor/distributions/recompute',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  updateDistribution: (
+    id: string,
+    body: { status: DistributionStatus; ledgerEventId?: string },
+  ) =>
+    request<AdminDistribution>(`/admin/investor/distributions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+};
+
+// ─── Host Quick Replies ─────────────────────────────────────────────────────
+
+export const hostQuickRepliesApi = {
+  list: () => request<HostQuickReply[]>('/host/quick-replies'),
+  create: (body: { label: string; body: string; sortOrder?: number }) =>
+    request<HostQuickReply>('/host/quick-replies', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  update: (id: string, body: { label: string; body: string; sortOrder?: number }) =>
+    request<HostQuickReply>(`/host/quick-replies/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  remove: (id: string) =>
+    request<{ success: boolean }>(`/host/quick-replies/${id}`, {
+      method: 'DELETE',
+    }),
+};
+
 // ─── Add-ons ──────────────────────────────────────────────────────────────────
 
 import type {
@@ -1178,6 +1419,214 @@ export const adminSosApi = {
         falseAlarm: body.falseAlarm ? 'true' : undefined,
       }),
     }),
+};
+
+// ─── Experiences (§5.15) ────────────────────────────────────────────────────
+
+import type {
+  Experience,
+  ExperienceBooking,
+  ExperienceStatus,
+  Itinerary,
+  TripGroup,
+  TripGroupDetail,
+  TripGroupBalances,
+  ExpenseSplit,
+  TripGroupMember,
+  ExpenseSplitMethod,
+} from './types';
+
+export const experiencesApi = {
+  // Public
+  listPublic: (opts?: { city?: string; category?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.city) params.set('city', opts.city);
+    if (opts?.category) params.set('category', opts.category);
+    const qs = params.toString();
+    return request<Experience[]>(`/experiences${qs ? `?${qs}` : ''}`);
+  },
+  getCategories: () =>
+    request<{ categories: readonly string[] }>('/experiences/meta/categories'),
+  getById: (id: string) => request<Experience>(`/experiences/${id}`),
+
+  // Host
+  listHost: () => request<Experience[]>('/host/experiences'),
+  create: (body: {
+    title: string;
+    description: string;
+    category: string;
+    city: string;
+    state?: string;
+    country?: string;
+    latitude?: number;
+    longitude?: number;
+    startsAt: string;
+    endsAt: string;
+    capacity: number;
+    priceMinor: number;
+    listingId?: string;
+    imageUrl?: string;
+  }) =>
+    request<Experience>('/host/experiences', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  update: (
+    id: string,
+    body: Partial<{
+      title: string;
+      description: string;
+      category: string;
+      city: string;
+      state: string;
+      country: string;
+      latitude: number;
+      longitude: number;
+      startsAt: string;
+      endsAt: string;
+      capacity: number;
+      priceMinor: number;
+      imageUrl: string;
+    }>,
+  ) =>
+    request<Experience>(`/host/experiences/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  close: (id: string) =>
+    request<Experience>(`/host/experiences/${id}`, { method: 'DELETE' }),
+  getHostBookings: (id: string) =>
+    request<ExperienceBooking[]>(`/host/experiences/${id}/bookings`),
+
+  // Guest
+  listGuestBookings: () =>
+    request<ExperienceBooking[]>('/guest/experiences/bookings'),
+  book: (id: string, body: { seats: number; idempotencyKey: string }) =>
+    request<ExperienceBooking>(`/guest/experiences/${id}/book`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  cancelBooking: (id: string) =>
+    request<ExperienceBooking>(`/guest/experiences/bookings/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // Admin
+  listAdmin: (status?: ExperienceStatus) => {
+    const qs = status ? `?status=${status}` : '';
+    return request<Experience[]>(`/admin/experiences${qs}`);
+  },
+  moderate: (
+    id: string,
+    body: { action: 'APPROVED' | 'REJECTED'; notes?: string },
+  ) =>
+    request<Experience>(`/admin/experiences/${id}/moderate`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+};
+
+// ─── Trip Groups (§5.8) ─────────────────────────────────────────────────────
+
+export const tripGroupsApi = {
+  list: () => request<TripGroup[]>('/trip-groups'),
+
+  create: (body: {
+    name: string;
+    destination?: string;
+    startsAt?: string;
+    endsAt?: string;
+    notes?: string;
+  }) =>
+    request<TripGroup>('/trip-groups', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getDetail: (id: string) => request<TripGroupDetail>(`/trip-groups/${id}`),
+
+  remove: (id: string) =>
+    request<{ deleted: boolean }>(`/trip-groups/${id}`, { method: 'DELETE' }),
+
+  invite: (id: string, body: { email: string; fullName: string }) =>
+    request<TripGroupMember>(`/trip-groups/${id}/members`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  accept: (id: string) =>
+    request<TripGroupMember>(`/trip-groups/${id}/accept`, { method: 'POST' }),
+
+  removeMember: (id: string, memberId: string) =>
+    request<{ removed: boolean }>(
+      `/trip-groups/${id}/members/${memberId}`,
+      { method: 'DELETE' },
+    ),
+
+  createExpense: (
+    id: string,
+    body: {
+      title: string;
+      totalMinor: number;
+      method: ExpenseSplitMethod;
+      memberIds?: string[];
+      shares?: Array<{ memberId: string; amountMinor: number }>;
+      notes?: string;
+      incurredAt?: string;
+    },
+  ) =>
+    request<ExpenseSplit>(`/trip-groups/${id}/expenses`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  deleteExpense: (id: string, expenseId: string) =>
+    request<{ deleted: boolean }>(
+      `/trip-groups/${id}/expenses/${expenseId}`,
+      { method: 'DELETE' },
+    ),
+
+  markShareSettled: (
+    id: string,
+    expenseId: string,
+    shareId: string,
+    settled: boolean,
+  ) =>
+    request<ExpenseSplit>(
+      `/trip-groups/${id}/expenses/${expenseId}/shares/${shareId}`,
+      { method: 'PATCH', body: JSON.stringify({ settled }) },
+    ),
+
+  getBalances: (id: string) =>
+    request<TripGroupBalances>(`/trip-groups/${id}/balances`),
+};
+
+// ─── AI Itinerary (§5.9) ────────────────────────────────────────────────────
+
+export const itinerariesApi = {
+  list: () => request<Itinerary[]>('/itineraries'),
+
+  generate: (body: {
+    destination: string;
+    startsAt: string;
+    endsAt: string;
+    travelers: number;
+    interests?: string[];
+    budgetMinor?: number;
+    listingId?: string;
+  }) =>
+    request<Itinerary>('/itineraries/generate', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  getById: (id: string) => request<Itinerary>(`/itineraries/${id}`),
+
+  finalize: (id: string) =>
+    request<Itinerary>(`/itineraries/${id}/finalize`, { method: 'PATCH' }),
+
+  remove: (id: string) =>
+    request<{ deleted: boolean }>(`/itineraries/${id}`, { method: 'DELETE' }),
 };
 
 export function formatDate(iso: string): string {

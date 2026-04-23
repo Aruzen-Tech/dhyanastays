@@ -13,7 +13,10 @@ export type NotificationKind =
   | 'message.received'
   | 'issue.updated'
   | 'sos.ack'
-  | 'sip.debit';
+  | 'sip.debit'
+  | 'investor.document.uploaded'
+  | 'investor.capital_call.opened'
+  | 'investor.distribution.paid';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TxClient = any;

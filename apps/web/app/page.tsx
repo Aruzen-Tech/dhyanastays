@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import ListingCard from '../components/ListingCard';
 import { listingsApi } from '../lib/api';
-import type { Listing, Tag } from '../lib/types';
+import type { DiscoverySort, Listing, Tag } from '../lib/types';
+import {
+  DIETARY_OPTIONS,
+  EXPERIENCE_TAGS,
+  PROPERTY_TYPES,
+} from '../lib/types';
 
 const ListingMap = dynamic(() => import('../components/ListingMap'), {
   ssr: false,
@@ -44,6 +49,12 @@ export default function HomePage() {
   const [filterState, setFilterState] = useState('');
   const [filterTags, setFilterTags] = useState<string[]>([]);
 
+  // Discovery facets (§5.18) — server-side
+  const [filterExperienceTags, setFilterExperienceTags] = useState<string[]>([]);
+  const [filterPropertyType, setFilterPropertyType] = useState('');
+  const [filterDietary, setFilterDietary] = useState<string[]>([]);
+  const [filterSort, setFilterSort] = useState<DiscoverySort | ''>('');
+
   const debouncedSearch = useDebounce(search, 350);
 
   const hasMapListings = useMemo(
@@ -57,8 +68,21 @@ export default function HomePage() {
     if (filterGuests) n++;
     if (filterState) n++;
     n += filterTags.length;
+    n += filterExperienceTags.length;
+    if (filterPropertyType) n++;
+    n += filterDietary.length;
+    if (filterSort) n++;
     return n;
-  }, [filterMaxPrice, filterGuests, filterState, filterTags]);
+  }, [
+    filterMaxPrice,
+    filterGuests,
+    filterState,
+    filterTags,
+    filterExperienceTags,
+    filterPropertyType,
+    filterDietary,
+    filterSort,
+  ]);
 
   const uniqueStates = useMemo(
     () => [...new Set(allListings.map((l) => l.state).filter(Boolean))].sort(),
@@ -87,6 +111,15 @@ export default function HomePage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const hasDiscoveryFacets = useMemo(
+    () =>
+      filterExperienceTags.length > 0 ||
+      !!filterPropertyType ||
+      filterDietary.length > 0 ||
+      !!filterSort,
+    [filterExperienceTags, filterPropertyType, filterDietary, filterSort],
+  );
+
   // Apply client-side filters on top of search results
   const applyFilters = useCallback((base: Listing[]) => {
     let out = base;
@@ -111,16 +144,28 @@ export default function HomePage() {
     return out;
   }, [filterState, filterGuests, filterMaxPrice, filterTags]);
 
-  // Search via API (Meilisearch with DB fallback)
+  // Search via API (Meilisearch with DB fallback) or facet-driven discovery
   const runSearch = useCallback(async (q: string) => {
-    if (!q.trim()) {
+    const useDiscovery = hasDiscoveryFacets || !!q.trim();
+    if (!useDiscovery) {
       setResults(applyFilters(allListings));
       return;
     }
     setSearching(true);
     try {
-      const data = await listingsApi.search(q);
-      setResults(applyFilters(data));
+      if (hasDiscoveryFacets) {
+        const data = await listingsApi.getPublic({
+          q: q.trim() || undefined,
+          experienceTags: filterExperienceTags.length ? filterExperienceTags : undefined,
+          propertyType: filterPropertyType || undefined,
+          dietaryOptions: filterDietary.length ? filterDietary : undefined,
+          sort: filterSort || undefined,
+        });
+        setResults(applyFilters(data));
+      } else {
+        const data = await listingsApi.search(q);
+        setResults(applyFilters(data));
+      }
     } catch {
       const lower = q.toLowerCase();
       setResults(
@@ -135,7 +180,15 @@ export default function HomePage() {
     } finally {
       setSearching(false);
     }
-  }, [allListings, applyFilters]);
+  }, [
+    allListings,
+    applyFilters,
+    hasDiscoveryFacets,
+    filterExperienceTags,
+    filterPropertyType,
+    filterDietary,
+    filterSort,
+  ]);
 
   useEffect(() => {
     void runSearch(debouncedSearch);
@@ -143,17 +196,21 @@ export default function HomePage() {
 
   // Re-apply filters when filter values change without new search
   useEffect(() => {
-    if (!debouncedSearch.trim()) {
+    if (!debouncedSearch.trim() && !hasDiscoveryFacets) {
       setResults(applyFilters(allListings));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterState, filterGuests, filterMaxPrice, filterTags, allListings]);
+  }, [filterState, filterGuests, filterMaxPrice, filterTags, allListings, hasDiscoveryFacets]);
 
   const clearFilters = () => {
     setFilterMaxPrice('');
     setFilterGuests('');
     setFilterState('');
     setFilterTags([]);
+    setFilterExperienceTags([]);
+    setFilterPropertyType('');
+    setFilterDietary([]);
+    setFilterSort('');
   };
 
   const toggleTag = (tagId: string) => {
@@ -161,6 +218,21 @@ export default function HomePage() {
       prev.includes(tagId) ? prev.filter((t) => t !== tagId) : [...prev, tagId],
     );
   };
+
+  const toggleExperience = (tag: string) => {
+    setFilterExperienceTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
+    );
+  };
+
+  const toggleDietary = (option: string) => {
+    setFilterDietary((prev) =>
+      prev.includes(option) ? prev.filter((t) => t !== option) : [...prev, option],
+    );
+  };
+
+  const formatFacet = (s: string) =>
+    s.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
   return (
     <>
@@ -284,7 +356,7 @@ export default function HomePage() {
         {/* Filter panel */}
         {showFilters && (
           <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6 space-y-5">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               {/* State filter */}
               <div>
                 <label className="label text-xs">State</label>
@@ -326,6 +398,91 @@ export default function HomePage() {
                   onChange={(e) => setFilterMaxPrice(e.target.value)}
                   className="input text-sm"
                 />
+              </div>
+
+              {/* Sort */}
+              <div>
+                <label className="label text-xs">Sort by</label>
+                <select
+                  value={filterSort}
+                  onChange={(e) => setFilterSort(e.target.value as DiscoverySort | '')}
+                  className="input text-sm"
+                >
+                  <option value="">Relevance</option>
+                  <option value="newest">Newest first</option>
+                  <option value="price-asc">Price: low to high</option>
+                  <option value="price-desc">Price: high to low</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Experience tag facets */}
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Experience</p>
+              <div className="flex flex-wrap gap-2">
+                {EXPERIENCE_TAGS.map((tag) => (
+                  <button
+                    key={tag}
+                    onClick={() => toggleExperience(tag)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      filterExperienceTags.includes(tag)
+                        ? 'bg-brand-700 text-white border-brand-700'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                    }`}
+                  >
+                    {formatFacet(tag)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Property type facet */}
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Property type</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => setFilterPropertyType('')}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                    !filterPropertyType
+                      ? 'bg-brand-700 text-white border-brand-700'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                  }`}
+                >
+                  Any
+                </button>
+                {PROPERTY_TYPES.map((pt) => (
+                  <button
+                    key={pt}
+                    onClick={() => setFilterPropertyType(pt)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      filterPropertyType === pt
+                        ? 'bg-brand-700 text-white border-brand-700'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                    }`}
+                  >
+                    {formatFacet(pt)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Dietary facets */}
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Dietary options</p>
+              <div className="flex flex-wrap gap-2">
+                {DIETARY_OPTIONS.map((option) => (
+                  <button
+                    key={option}
+                    onClick={() => toggleDietary(option)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      filterDietary.includes(option)
+                        ? 'bg-brand-700 text-white border-brand-700'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                    }`}
+                  >
+                    {formatFacet(option)}
+                  </button>
+                ))}
               </div>
             </div>
 

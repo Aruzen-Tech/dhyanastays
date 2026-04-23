@@ -21,7 +21,7 @@ import React, {
 } from 'react';
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react';
 import { authApi, tokenStore, setTokenGetter } from '../lib/api';
-import type { AuthTokens, JwtPayload, UserRole } from '../lib/types';
+import type { AuthTokens, JwtPayload, UserKind, UserRole } from '../lib/types';
 
 // ─── Shared types ─────────────────────────────────────────────────────────────
 
@@ -29,6 +29,7 @@ export interface AuthUser {
   sub: string;
   email: string;
   role: UserRole;
+  kind?: UserKind;
   fullName?: string;
 }
 
@@ -74,7 +75,12 @@ function userFromToken(token: string | null): AuthUser | null {
   const payload = decodeJwt(token);
   if (!payload) return null;
   if (payload.exp * 1000 < Date.now()) return null;
-  return { sub: payload.sub, email: payload.email, role: payload.role };
+  return {
+    sub: payload.sub,
+    email: payload.email,
+    role: payload.role,
+    ...(payload.kind && { kind: payload.kind }),
+  };
 }
 
 // ─── Mode B: Custom JWT provider ─────────────────────────────────────────────

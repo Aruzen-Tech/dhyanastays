@@ -27,6 +27,10 @@ import { AddOnModule } from './add-on/add-on.module';
 import { MembershipModule } from './membership/membership.module';
 import { PayLaterModule } from './pay-later/pay-later.module';
 import { SosModule } from './sos/sos.module';
+import { InvestorModule } from './investor/investor.module';
+import { ExperienceModule } from './experience/experience.module';
+import { TripGroupModule } from './trip-group/trip-group.module';
+import { ItineraryModule } from './itinerary/itinerary.module';
 import { ThrottleTrackerInterceptor } from './common/interceptors/throttle-tracker.interceptor';
 import { LoggerModule } from './common/logger/logger.module';
 import { DlqModule } from './common/queues/dlq.module';
@@ -174,6 +178,18 @@ export class AppModule {
 
         // SOS & support (Phase 3 §5.12)
         SosModule,
+
+        // Investor dashboard (Phase 3 §5.14)
+        InvestorModule,
+
+        // Experience & Event module (Phase 3 §5.15)
+        ExperienceModule,
+
+        // Group Planning & Expense Splitting (Phase 3 §5.8)
+        TripGroupModule,
+
+        // AI Itinerary Planner (Phase 3 §5.9)
+        ItineraryModule,
 
         // Redis-dependent modules (BullMQ + Jobs) — only if Redis is reachable
         ...redisImports,

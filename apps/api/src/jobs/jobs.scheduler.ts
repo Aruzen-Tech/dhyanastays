@@ -4,7 +4,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { Queue } from 'bullmq';
 import {
   QUEUE_BALANCE_DUE,
+  QUEUE_CONCIERGE_SLA,
   QUEUE_HOLD_EXPIRY,
+  QUEUE_INVESTOR_DISTRIBUTION,
   QUEUE_NOTIFICATION_OUTBOX,
   QUEUE_PAYOUT_ELIGIBILITY,
   QUEUE_PAY_LATER_DUNNING,
@@ -25,6 +27,10 @@ export class JobsScheduler {
     private readonly payLaterDunningQueue: Queue,
     @InjectQueue(QUEUE_NOTIFICATION_OUTBOX)
     private readonly notificationOutboxQueue: Queue,
+    @InjectQueue(QUEUE_CONCIERGE_SLA)
+    private readonly conciergeSlaQueue: Queue,
+    @InjectQueue(QUEUE_INVESTOR_DISTRIBUTION)
+    private readonly investorDistributionQueue: Queue,
   ) {}
 
   /**
@@ -112,6 +118,35 @@ export class JobsScheduler {
       'dispatch',
       {},
       { removeOnComplete: 100, removeOnFail: 50, attempts: 1 },
+    );
+  }
+
+  /**
+   * Concierge SLA sweep: every hour. Flags OPEN concierge threads whose
+   * host-reply deadline has lapsed (creates an admin alert exactly once
+   * per thread), and closes threads whose booking checked out 7+ days ago.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async scheduleConciergeSlaSweep() {
+    await this.conciergeSlaQueue.add(
+      'sweep',
+      {},
+      { removeOnComplete: 100, removeOnFail: 50, attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    );
+  }
+
+  /**
+   * Monthly investor distribution close — runs 1st of each month at 02:00 UTC.
+   * Computes Distribution rows for every investor for the previous calendar
+   * month. Idempotent via the (investorUserId, period) unique index.
+   */
+  @Cron('0 0 2 1 * *')
+  async scheduleInvestorMonthlyClose() {
+    this.logger.log('Enqueuing investor monthly distribution close');
+    await this.investorDistributionQueue.add(
+      'monthly-close',
+      {},
+      { removeOnComplete: 24, removeOnFail: 24, attempts: 3, backoff: { type: 'exponential', delay: 60000 } },
     );
   }
 }

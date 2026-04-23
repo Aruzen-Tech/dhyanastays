@@ -12,6 +12,7 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role: UserRole;
+  kind?: 'GUEST' | 'OWNER' | 'INVESTOR' | 'STAFF';
   exp: number;
   iat: number;
 }
@@ -95,6 +96,60 @@ export interface ListingTag {
   tag: Tag;
 }
 
+export const EXPERIENCE_TAGS = [
+  'yoga',
+  'meditation',
+  'ayurveda',
+  'sound-healing',
+  'detox',
+  'spa',
+  'silent-retreat',
+  'nature',
+  'hiking',
+  'cooking',
+] as const;
+
+export const PROPERTY_TYPES = [
+  'villa',
+  'cottage',
+  'ashram',
+  'homestay',
+  'resort',
+  'farmstay',
+  'boutique-hotel',
+] as const;
+
+export const DIETARY_OPTIONS = [
+  'vegetarian',
+  'vegan',
+  'gluten-free',
+  'ayurvedic',
+  'jain',
+  'sattvic',
+  'non-veg-available',
+] as const;
+
+export type ExperienceTag = (typeof EXPERIENCE_TAGS)[number];
+export type PropertyType = (typeof PROPERTY_TYPES)[number];
+export type DietaryOption = (typeof DIETARY_OPTIONS)[number];
+
+export type DiscoverySort = 'newest' | 'price-asc' | 'price-desc';
+
+export interface DiscoveryFacets {
+  q?: string;
+  city?: string;
+  experienceTags?: string[];
+  propertyType?: string;
+  dietaryOptions?: string[];
+  sort?: DiscoverySort;
+}
+
+export interface FacetVocabulary {
+  experienceTags: readonly string[];
+  propertyTypes: readonly string[];
+  dietaryOptions: readonly string[];
+}
+
 export interface Listing {
   id: string;
   hostId: string;
@@ -109,6 +164,9 @@ export interface Listing {
   timezone: string;
   status: ListingStatus;
   needsReapproval: boolean;
+  experienceTags?: string[];
+  propertyType?: string | null;
+  dietaryOptions?: string[];
   createdAt: string;
   updatedAt: string;
   rateRules?: RateRule[];
@@ -829,6 +887,9 @@ export interface MessageUser {
   avatarUrl: string | null;
 }
 
+export type ConversationKind = 'STANDARD' | 'CONCIERGE';
+export type ConversationStatus = 'OPEN' | 'CLOSED';
+
 export interface ConversationMessage {
   id: string;
   conversationId: string;
@@ -836,6 +897,7 @@ export interface ConversationMessage {
   senderRole: UserRole;
   body: string;
   isRead: boolean;
+  isSystem: boolean;
   createdAt: string;
   sender: MessageUser;
 }
@@ -843,23 +905,57 @@ export interface ConversationMessage {
 export interface Conversation {
   id: string;
   type: 'GUEST_HOST' | 'HOST_ADMIN';
+  kind: ConversationKind;
+  status: ConversationStatus;
   subject: string | null;
   userOne: MessageUser;
   userTwo: MessageUser;
   listing: { id: string; title: string } | null;
   booking: { id: string; status: BookingStatus; startsAt: string; endsAt: string } | null;
   messages: ConversationMessage[];
+  slaDueAt: string | null;
+  slaBreachedAt: string | null;
+  closedAt: string | null;
   updatedAt: string;
 }
 
 export interface ConversationListItem {
   id: string;
   type: 'GUEST_HOST' | 'HOST_ADMIN';
+  kind: ConversationKind;
+  status: ConversationStatus;
   subject: string | null;
   otherUser: MessageUser;
   listing: { id: string; title: string } | null;
-  lastMessage: { body: string; createdAt: string; senderId: string; isRead: boolean } | null;
+  booking: { id: string; status: BookingStatus; startsAt: string; endsAt: string } | null;
+  lastMessage: { body: string; createdAt: string; senderId: string; isRead: boolean; isSystem: boolean } | null;
   unreadCount: number;
+  slaDueAt: string | null;
+  slaBreachedAt: string | null;
+  updatedAt: string;
+}
+
+export interface ConciergeAdminThread {
+  id: string;
+  kind: ConversationKind;
+  status: ConversationStatus;
+  userOne: { id: string; fullName: string; email: string };
+  userTwo: { id: string; fullName: string; email: string };
+  listing: { id: string; title: string } | null;
+  booking: { id: string; status: BookingStatus; startsAt: string; endsAt: string } | null;
+  slaDueAt: string | null;
+  slaBreachedAt: string | null;
+  lastMessage: { body: string; createdAt: string; senderRole: UserRole; isSystem: boolean } | null;
+  updatedAt: string;
+}
+
+export interface HostQuickReply {
+  id: string;
+  hostId: string;
+  label: string;
+  body: string;
+  sortOrder: number;
+  createdAt: string;
   updatedAt: string;
 }
 
@@ -1104,4 +1200,328 @@ export interface TripSipDetail extends TripSip {
 
 export interface SipBalance {
   balance: number;
+}
+
+// ─── Investor dashboard (§5.14) ──────────────────────────────────────────────
+
+export type UserKind = 'GUEST' | 'OWNER' | 'INVESTOR' | 'STAFF';
+
+export type DistributionStatus = 'CALCULATED' | 'PAID' | 'FAILED';
+export type CapitalCallStatus = 'OPEN' | 'FUNDED' | 'CLOSED' | 'CANCELLED';
+export type InvestorDocumentKind =
+  | 'AGREEMENT'
+  | 'KYC'
+  | 'TAX_FORM'
+  | 'STATEMENT'
+  | 'OTHER';
+
+export interface InvestmentSummary {
+  investmentId: string;
+  listingId: string;
+  listing: {
+    id: string;
+    title: string;
+    city: string;
+    state: string;
+    status: string;
+  };
+  sharePct: number;
+  effectiveAt: string;
+  endedAt: string | null;
+  bookingsCounted: number;
+  grossRevenueMinor: number;
+  ownerSideNetMinor: number;
+  investorShareMinor: number;
+}
+
+export interface InvestorPortfolio {
+  investor: {
+    id: string;
+    fullName: string;
+    email: string;
+    investorProfile: {
+      legalName: string;
+      panMasked: string | null;
+      kycStatus: 'PENDING' | 'APPROVED' | 'REJECTED';
+    } | null;
+  };
+  totals: {
+    grossRevenueMinor: number;
+    ownerSideNetMinor: number;
+    investorShareMinor: number;
+    activeListings: number;
+    totalDistributedMinor: number;
+  };
+  investments: InvestmentSummary[];
+}
+
+export interface DistributionBreakdownEntry {
+  listingId: string;
+  listingTitle: string;
+  sharePct: number;
+  grossMinor: number;
+  sharedMinor: number;
+}
+
+export interface Distribution {
+  id: string;
+  investorUserId: string;
+  period: string;
+  amountMinor: number;
+  currency: string;
+  status: DistributionStatus;
+  breakdown: DistributionBreakdownEntry[] | null;
+  ledgerEventId: string | null;
+  computedAt: string;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CapitalCallForInvestor {
+  id: string;
+  listingId: string;
+  amountMinor: number;
+  reason: string;
+  dueAt: string;
+  status: CapitalCallStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  listing: { id: string; title: string; city: string; state: string };
+  investorSharePct: number;
+  investorShareMinor: number;
+}
+
+export interface InvestorDocument {
+  id: string;
+  investorUserId: string;
+  kind: InvestorDocumentKind;
+  title: string;
+  url: string;
+  uploadedById: string;
+  uploadedAt: string;
+  uploadedBy?: { id: string; fullName: string };
+}
+
+// Admin list shapes --------------------------------------------------------
+
+export interface AdminInvestment {
+  id: string;
+  investorUserId: string;
+  listingId: string;
+  sharePct: string; // Decimal serialised as string
+  effectiveAt: string;
+  endedAt: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  investor: { id: string; fullName: string; email: string };
+  listing: { id: string; title: string; city: string; state: string };
+}
+
+export interface AdminCapitalCall {
+  id: string;
+  listingId: string;
+  amountMinor: number;
+  reason: string;
+  dueAt: string;
+  status: CapitalCallStatus;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  listing: { id: string; title: string; city: string; state: string };
+}
+
+export interface AdminInvestorDocument extends InvestorDocument {
+  investor: { id: string; fullName: string; email: string };
+}
+
+export interface AdminDistribution extends Distribution {
+  investor: { id: string; fullName: string; email: string };
+}
+
+// ─── Experiences (§5.15) ────────────────────────────────────────────────────
+
+export type ExperienceStatus =
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CLOSED';
+
+export type ExperienceBookingStatus =
+  | 'HELD'
+  | 'CONFIRMED'
+  | 'CANCELLED'
+  | 'REFUNDED'
+  | 'COMPLETED';
+
+export const EXPERIENCE_CATEGORIES = [
+  'yoga-class',
+  'meditation',
+  'ayurveda',
+  'sound-healing',
+  'cooking-class',
+  'guided-hike',
+  'retreat-day',
+  'wellness-workshop',
+  'spa-session',
+  'cultural-tour',
+] as const;
+
+export interface Experience {
+  id: string;
+  hostId: string;
+  createdById: string;
+  listingId: string | null;
+  title: string;
+  description: string;
+  category: string;
+  city: string;
+  state: string;
+  country: string;
+  latitude: number | null;
+  longitude: number | null;
+  startsAt: string;
+  endsAt: string;
+  capacity: number;
+  priceMinor: number;
+  currency: string;
+  status: ExperienceStatus;
+  imageUrl: string | null;
+  reviewedBy: string | null;
+  reviewNotes: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  host?: { user: { fullName: string; email?: string } };
+  listing?: { id: string; title: string; city: string; state: string } | null;
+  _count?: { bookings: number };
+  seatsAvailable?: number;
+}
+
+export interface ExperienceBooking {
+  id: string;
+  experienceId: string;
+  guestId: string;
+  seats: number;
+  totalMinor: number;
+  currency: string;
+  status: ExperienceBookingStatus;
+  paymentRef: string | null;
+  cancelledAt: string | null;
+  refundedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  experience?: Pick<Experience, 'id' | 'title' | 'category' | 'city' | 'state' | 'startsAt' | 'endsAt' | 'imageUrl'>;
+  guest?: { id: string; fullName: string; email: string };
+}
+
+// ─── Trip Groups & Expense Splitting (§5.8) ─────────────────────────────────
+
+export type TripGroupRole = 'OWNER' | 'MEMBER';
+export type TripGroupInviteStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED';
+export type ExpenseSplitMethod = 'EQUAL' | 'CUSTOM';
+
+export interface TripGroupMember {
+  id: string;
+  groupId: string;
+  userId: string | null;
+  email: string;
+  fullName: string;
+  role: TripGroupRole;
+  status: TripGroupInviteStatus;
+  invitedAt: string;
+  acceptedAt: string | null;
+}
+
+export interface ExpenseSplitShare {
+  id: string;
+  expenseId: string;
+  memberId: string;
+  userId: string | null;
+  amountMinor: number;
+  settledAt: string | null;
+}
+
+export interface ExpenseSplit {
+  id: string;
+  groupId: string;
+  createdById: string;
+  title: string;
+  totalMinor: number;
+  currency: string;
+  method: ExpenseSplitMethod;
+  notes: string | null;
+  incurredAt: string;
+  createdAt: string;
+  updatedAt: string;
+  shares: ExpenseSplitShare[];
+  createdBy?: { id: string; fullName: string };
+}
+
+export interface TripGroup {
+  id: string;
+  ownerId: string;
+  name: string;
+  destination: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { members: number; expenses: number };
+}
+
+export interface TripGroupDetail extends TripGroup {
+  members: TripGroupMember[];
+  expenses: ExpenseSplit[];
+  owner: { id: string; fullName: string; email: string };
+  viewerIsOwner: boolean;
+}
+
+export interface TripGroupBalances {
+  [memberId: string]: {
+    memberId: string;
+    owedMinor: number;
+    paidMinor: number;
+    netMinor: number;
+  };
+}
+
+// ─── AI Itinerary (§5.9) ────────────────────────────────────────────────────
+
+export type ItineraryStatus = 'DRAFT' | 'GENERATED' | 'FINALIZED';
+
+export interface ItinerarySession {
+  time: string;
+  title: string;
+  description: string;
+  category: string;
+}
+
+export interface ItineraryDay {
+  day: number;
+  date: string;
+  title: string;
+  sessions: ItinerarySession[];
+}
+
+export interface Itinerary {
+  id: string;
+  userId: string;
+  listingId: string | null;
+  destination: string;
+  startsAt: string;
+  endsAt: string;
+  travelers: number;
+  interests: string[];
+  budgetMinor: number | null;
+  status: ItineraryStatus;
+  summary: string | null;
+  days: ItineraryDay[] | null;
+  model: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

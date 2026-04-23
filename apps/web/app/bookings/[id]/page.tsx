@@ -358,6 +358,17 @@ export default function BookingDetailPage() {
       {showPreparation && user?.role === 'GUEST' && (
         <div className="space-y-3 mb-4">
           <Link
+            href={`/bookings/${booking.id}/chat`}
+            className="card p-4 flex items-center gap-3 hover:bg-brand-50 transition-colors border border-brand-100"
+          >
+            <span className="text-2xl">💬</span>
+            <div>
+              <p className="font-semibold text-gray-900 text-sm">Concierge Chat</p>
+              <p className="text-xs text-gray-500">Direct line to your host — replies within 4h</p>
+            </div>
+            <span className="ml-auto text-gray-400">→</span>
+          </Link>
+          <Link
             href={`/bookings/${booking.id}/preparation`}
             className="card p-4 flex items-center gap-3 hover:bg-brand-50 transition-colors"
           >
