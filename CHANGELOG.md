@@ -4,10 +4,15 @@ All notable changes to **Dhyana Stays** are recorded here. Newest first.
 Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 `0000_name`; commits as short SHAs.
 
-> **Convention:** every change/update to the platform is recorded in this file.
-> When you ship work, add an entry under the current dated section with the right
-> category (Added / Changed / Fixed / Security / Infrastructure / Migration) and
-> cite the migration and/or commit.
+**Two-tier changelog:**
+- **This file** — concise, scannable summary (one line per item).
+- **[`docs/CHANGELOG-detailed.md`](docs/CHANGELOG-detailed.md)** — granular record
+  (files, method/endpoint signatures, migration DDL, rationale, test results).
+
+> **Convention:** every change is recorded in *both* files — a one-line entry here
+> under the current dated section (right category: Added / Changed / Fixed /
+> Security / Infrastructure / Migration), and a full breakdown in the detailed file.
+> Cite the migration and/or commit.
 
 ---
 
