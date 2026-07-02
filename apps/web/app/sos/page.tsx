@@ -1,10 +1,12 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
 import { sosApi, type SosIncident, type SosTier } from '../../lib/api';
+
+const ACTIVE_STATUSES = new Set(['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS']);
 
 const TIERS: { value: SosTier; label: string; desc: string; color: string }[] = [
   { value: 'MEDICAL', label: 'Medical', desc: 'Illness, injury, allergy, breathing trouble', color: 'bg-red-600' },
@@ -24,12 +26,21 @@ export default function SosPage() {
   const [geo, setGeo] = useState<{ lat: number; lng: number } | null>(null);
   const [geoError, setGeoError] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [incident, setIncident] = useState<SosIncident | null>(null);
   const [error, setError] = useState('');
+  const [activeIncidents, setActiveIncidents] = useState<SosIncident[]>([]);
 
   useEffect(() => {
     if (!isLoading && !user) router.push('/auth/login');
   }, [user, isLoading, router]);
+
+  // Load existing active incidents so the guest doesn't double-trigger.
+  useEffect(() => {
+    if (!user) return;
+    sosApi
+      .listMine()
+      .then((all) => setActiveIncidents(all.filter((i) => ACTIVE_STATUSES.has(i.status))))
+      .catch(() => {});
+  }, [user]);
 
   useEffect(() => {
     if (!navigator.geolocation) {
@@ -55,36 +66,13 @@ export default function SosPage() {
         message: message || undefined,
         bookingId,
       });
-      setIncident(created);
+      // Land on the live incident console — chat + status timeline + call support.
+      router.push(`/sos/${created.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to send SOS');
-    } finally {
       setSubmitting(false);
     }
   };
-
-  if (incident) {
-    return (
-      <div className="container-page py-12 max-w-xl mx-auto">
-        <div className="card p-8 text-center border-2 border-red-200 bg-red-50">
-          <div className="text-5xl mb-3">🆘</div>
-          <h1 className="text-2xl font-semibold text-red-700 mb-2">
-            Help is on the way
-          </h1>
-          <p className="text-sm text-gray-700">
-            We have notified our on-duty ops team and your trusted contacts. Stay
-            where you are if safe; someone will reach out shortly.
-          </p>
-          <div className="mt-6 text-xs text-gray-500">
-            Incident <span className="font-mono">{incident.id.slice(0, 10)}…</span>
-          </div>
-          <Link href="/dashboard" className="btn-primary mt-6 inline-block">
-            Back to dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="container-page py-10 max-w-xl mx-auto">
@@ -99,6 +87,40 @@ export default function SosPage() {
       </div>
 
       {error && <div className="alert-error mb-4">{error}</div>}
+
+      {/* Active-incident callout — most common reason a guest revisits /sos */}
+      {activeIncidents.length > 0 && (
+        <div className="card p-4 mb-4 border-2 border-red-200 bg-red-50">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="spinner text-red-600" aria-label="Live" />
+                <h2 className="font-semibold text-red-800 text-sm">
+                  You have {activeIncidents.length} active alert
+                  {activeIncidents.length === 1 ? '' : 's'}
+                </h2>
+              </div>
+              <p className="text-xs text-red-700">
+                Open the console to chat with support, check status, or call directly.
+              </p>
+            </div>
+            <Link
+              href={`/sos/${activeIncidents[0].id}`}
+              className="btn-primary bg-red-600 hover:bg-red-700 text-xs whitespace-nowrap"
+            >
+              Open console →
+            </Link>
+          </div>
+          {activeIncidents.length > 1 && (
+            <Link
+              href="/guest/sos"
+              className="text-xs text-red-700 underline mt-2 inline-block"
+            >
+              See all {activeIncidents.length} active alerts
+            </Link>
+          )}
+        </div>
+      )}
 
       <section className="card p-4 mb-4 bg-gray-50 text-sm">
         {geo ? (
@@ -147,6 +169,11 @@ export default function SosPage() {
         False alarms should be resolved from the incident page so ops can stand
         down. Rate limit: 5 requests per minute.
       </p>
+      <div className="text-center mt-3">
+        <Link href="/guest/sos" className="text-xs text-gray-500 hover:text-brand-700">
+          View SOS history →
+        </Link>
+      </div>
     </div>
   );
 }

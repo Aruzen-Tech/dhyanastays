@@ -8,9 +8,18 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CreateListingDto = void 0;
+const class_transformer_1 = require("class-transformer");
 const class_validator_1 = require("class-validator");
+const sanitize_html_1 = __importDefault(require("sanitize-html"));
+const ALLOWED_HTML = {
+    allowedTags: ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li'],
+    allowedAttributes: {},
+};
 class CreateListingDto {
 }
 exports.CreateListingDto = CreateListingDto;
@@ -21,6 +30,7 @@ __decorate([
 ], CreateListingDto.prototype, "title", void 0);
 __decorate([
     (0, class_validator_1.IsString)(),
+    (0, class_transformer_1.Transform)(({ value }) => typeof value === 'string' ? (0, sanitize_html_1.default)(value, ALLOWED_HTML) : value),
     __metadata("design:type", String)
 ], CreateListingDto.prototype, "description", void 0);
 __decorate([
@@ -42,4 +52,18 @@ __decorate([
     (0, class_validator_1.Max)(50),
     __metadata("design:type", Number)
 ], CreateListingDto.prototype, "maxGuests", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(-90),
+    (0, class_validator_1.Max)(90),
+    __metadata("design:type", Number)
+], CreateListingDto.prototype, "latitude", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsNumber)(),
+    (0, class_validator_1.Min)(-180),
+    (0, class_validator_1.Max)(180),
+    __metadata("design:type", Number)
+], CreateListingDto.prototype, "longitude", void 0);
 //# sourceMappingURL=create-listing.dto.js.map

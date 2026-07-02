@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { sosApi, type TrustedContact } from '../../../lib/api';
 
-const EMPTY_FORM = { name: '', phone: '', relation: '', primary: false };
+const EMPTY_FORM = { name: '', phone: '', email: '', relation: '', primary: false };
 
 export default function TrustedContactsPage() {
   const { user, isLoading } = useAuth();
@@ -40,7 +40,13 @@ export default function TrustedContactsPage() {
 
   const startEdit = (c: TrustedContact) => {
     setEditing(c);
-    setForm({ name: c.name, phone: c.phone, relation: c.relation, primary: c.primary });
+    setForm({
+      name: c.name,
+      phone: c.phone ?? '',
+      email: c.email ?? '',
+      relation: c.relation,
+      primary: c.primary,
+    });
   };
 
   const reset = () => {
@@ -50,13 +56,26 @@ export default function TrustedContactsPage() {
 
   const handleSave = async () => {
     setError('');
+    const phone = form.phone.trim();
+    const email = form.email.trim();
+    if (!phone && !email) {
+      setError('Add a phone or email — at least one is required so we can reach this contact in an emergency.');
+      return;
+    }
     setSaving(true);
     try {
+      const body = {
+        name: form.name.trim(),
+        phone: phone || null,
+        email: email || null,
+        relation: form.relation.trim(),
+        primary: form.primary,
+      };
       if (editing) {
-        await sosApi.updateContact(editing.id, form);
+        await sosApi.updateContact(editing.id, body);
         setToast('Contact updated');
       } else {
-        await sosApi.createContact(form);
+        await sosApi.createContact(body);
         setToast('Contact added');
       }
       reset();
@@ -101,8 +120,9 @@ export default function TrustedContactsPage() {
         </button>
         <h1 className="page-title">Trusted Contacts</h1>
         <p className="text-gray-500 text-sm mt-1">
-          People we will alert via SMS if you trigger an SOS. Add at least one —
-          a family member or friend you trust in an emergency.
+          People we will alert via SMS and/or email if you trigger an SOS. Add at least
+          one — a family member or friend you trust in an emergency. Phone or email is
+          fine; provide both for redundancy.
         </p>
       </div>
 
@@ -121,10 +141,22 @@ export default function TrustedContactsPage() {
           />
           <input
             className="input"
-            placeholder="Phone (e.g. +91 98765 43210)"
+            type="tel"
+            placeholder="Phone in E.164 — e.g. +919876543210"
             value={form.phone}
             onChange={(e) => setForm({ ...form, phone: e.target.value })}
           />
+          <input
+            className="input"
+            type="email"
+            placeholder="Email (optional if phone is set)"
+            value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })}
+          />
+          <p className="text-xs text-gray-500 -mt-1">
+            At least one of phone or email is required. Adding both lets us reach the
+            contact even if one channel is unavailable.
+          </p>
           <input
             className="input"
             placeholder="Relation (spouse, parent, friend…)"
@@ -170,7 +202,9 @@ export default function TrustedContactsPage() {
                     )}
                   </div>
                   <div className="text-xs text-gray-500">
-                    {c.phone} · {c.relation}
+                    {[c.phone, c.email].filter(Boolean).join(' · ')}
+                    {(c.phone || c.email) && ' · '}
+                    {c.relation}
                   </div>
                 </div>
                 <div className="flex gap-2">

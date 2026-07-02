@@ -10,9 +10,10 @@ import { HostQuickReplyController } from './host-quick-reply.controller';
 import { HostQuickReplyService } from './host-quick-reply.service';
 import { NotificationModule } from '../notification/notification.module';
 import { AdminModule } from '../admin/admin.module';
+import { HostSettingsModule } from '../host-settings/host-settings.module';
 
 @Module({
-  imports: [NotificationModule, AdminModule],
+  imports: [NotificationModule, AdminModule, HostSettingsModule],
   controllers: [
     GuestMessagingController,
     HostMessagingController,

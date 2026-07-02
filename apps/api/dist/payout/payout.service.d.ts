@@ -19,6 +19,18 @@ export declare class PayoutService {
         status: string;
         totalAmount: number;
     }>;
+    dryRunBatch(): Promise<{
+        lineCount: number;
+        totalAmount: number;
+        hostCount: number;
+        breakdown: Array<{
+            hostId: string;
+            hostName: string;
+            hostEmail: string;
+            lineCount: number;
+            amount: number;
+        }>;
+    }>;
     getEligibleLines(): Promise<({
         host: {
             user: {
@@ -41,11 +53,11 @@ export declare class PayoutService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        listingId: string;
         status: import("@prisma/client").$Enums.PayoutStatus;
+        amount: number;
+        listingId: string;
         hostId: string;
         bookingId: string;
-        amount: number;
         eligibleAt: Date;
         batchId: string | null;
     })[]>;
@@ -65,11 +77,11 @@ export declare class PayoutService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            listingId: string;
             status: import("@prisma/client").$Enums.PayoutStatus;
+            amount: number;
+            listingId: string;
             hostId: string;
             bookingId: string;
-            amount: number;
             eligibleAt: Date;
             batchId: string | null;
         })[];
@@ -82,8 +94,8 @@ export declare class PayoutService {
         id: string;
         createdAt: Date;
         status: import("@prisma/client").$Enums.PayoutStatus;
-        totalAmount: number;
         runDate: Date;
+        totalAmount: number;
     })[]>;
     handleRefundAfterPayout(bookingId: string, refundAmount: number, actorId: string | null): Promise<void>;
 }

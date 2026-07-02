@@ -9,13 +9,17 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.NotificationModule = void 0;
 const common_1 = require("@nestjs/common");
 const notification_service_1 = require("./notification.service");
+const outbox_service_1 = require("./outbox.service");
+const outbox_dispatcher_service_1 = require("./outbox-dispatcher.service");
+const notification_preference_controller_1 = require("./notification-preference.controller");
 let NotificationModule = class NotificationModule {
 };
 exports.NotificationModule = NotificationModule;
 exports.NotificationModule = NotificationModule = __decorate([
     (0, common_1.Module)({
-        providers: [notification_service_1.NotificationService],
-        exports: [notification_service_1.NotificationService],
+        providers: [notification_service_1.NotificationService, outbox_service_1.OutboxService, outbox_dispatcher_service_1.OutboxDispatcher],
+        controllers: [notification_preference_controller_1.NotificationPreferenceController],
+        exports: [notification_service_1.NotificationService, outbox_service_1.OutboxService, outbox_dispatcher_service_1.OutboxDispatcher],
     })
 ], NotificationModule);
 //# sourceMappingURL=notification.module.js.map

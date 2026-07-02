@@ -14,6 +14,7 @@ const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const pricing_service_1 = require("../pricing/pricing.service");
 const audit_service_1 = require("../common/services/audit.service");
+const serializable_retry_1 = require("../common/services/serializable-retry");
 const HOLD_TTL_MINUTES = 15;
 let HoldService = class HoldService {
     constructor(prisma, pricingService, auditService) {
@@ -41,9 +42,11 @@ let HoldService = class HoldService {
             checkIn: dto.checkIn,
             checkOut: dto.checkOut,
             guests: dto.guests,
+            addOns: dto.addOns,
+            userId: guestId,
         });
         const expiresAt = new Date(Date.now() + HOLD_TTL_MINUTES * 60 * 1000);
-        const hold = await this.prisma.$transaction(async (tx) => {
+        const hold = await (0, serializable_retry_1.withSerializableRetry)(this.prisma, async (tx) => {
             await tx.$executeRaw `
         SELECT id FROM "Listing" WHERE id = ${dto.listingId} FOR UPDATE
       `;
@@ -115,18 +118,25 @@ let HoldService = class HoldService {
         return hold;
     }
     async expireStaleHolds() {
+        const BATCH = 200;
         const stale = await this.prisma.hold.findMany({
             where: {
                 expiresAt: { lt: new Date() },
                 booking: null,
             },
-            select: { id: true },
+            select: { id: true, listingId: true },
+            take: BATCH,
         });
         if (stale.length === 0)
             return 0;
         for (const h of stale) {
-            await this.auditService.log(null, 'HOLD_EXPIRED', 'hold', h.id, {});
+            await this.auditService.log(null, 'HOLD_EXPIRED', 'hold', h.id, {
+                listingId: h.listingId,
+            });
         }
+        await this.prisma.hold.deleteMany({
+            where: { id: { in: stale.map((h) => h.id) } },
+        });
         return stale.length;
     }
 };

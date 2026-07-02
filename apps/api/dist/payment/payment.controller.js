@@ -18,6 +18,7 @@ const client_1 = require("@prisma/client");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 const roles_decorator_1 = require("../common/decorators/roles.decorator");
 const public_decorator_1 = require("../common/decorators/public.decorator");
+const idempotency_interceptor_1 = require("../common/interceptors/idempotency.interceptor");
 const init_payment_dto_1 = require("./dto/init-payment.dto");
 const payment_service_1 = require("./payment.service");
 const class_validator_1 = require("class-validator");
@@ -34,20 +35,18 @@ let PaymentController = class PaymentController {
     init(user, dto) {
         return this.paymentService.initPayment(user.sub, dto);
     }
-    webhook(req, signature) {
+    webhook(req, signature, eventId) {
         const rawBody = req.rawBody?.toString('utf-8') ?? '';
-        return this.paymentService.handleWebhook(rawBody, signature);
+        return this.paymentService.handleWebhook(rawBody, signature, eventId);
     }
     payBalance(user, bookingId, dto) {
         return this.paymentService.payBalance(user.sub, bookingId, dto.idempotencyKey);
-    }
-    stubConfirm(paymentId) {
-        return this.paymentService.stubConfirm(paymentId);
     }
 };
 exports.PaymentController = PaymentController;
 __decorate([
     (0, roles_decorator_1.Roles)(client_1.UserRole.GUEST),
+    (0, common_1.UseInterceptors)(idempotency_interceptor_1.IdempotencyInterceptor),
     (0, common_1.Post)('init'),
     __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __param(1, (0, common_1.Body)()),
@@ -60,8 +59,9 @@ __decorate([
     (0, common_1.Post)('webhook'),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Headers)('x-razorpay-signature')),
+    __param(2, (0, common_1.Headers)('x-razorpay-event-id')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:paramtypes", [Object, String, Object]),
     __metadata("design:returntype", void 0)
 ], PaymentController.prototype, "webhook", null);
 __decorate([
@@ -74,14 +74,6 @@ __decorate([
     __metadata("design:paramtypes", [Object, String, PayBalanceDto]),
     __metadata("design:returntype", void 0)
 ], PaymentController.prototype, "payBalance", null);
-__decorate([
-    (0, roles_decorator_1.Roles)(client_1.UserRole.GUEST),
-    (0, common_1.Post)('stub-confirm/:paymentId'),
-    __param(0, (0, common_1.Param)('paymentId')),
-    __metadata("design:type", Function),
-    __metadata("design:paramtypes", [String]),
-    __metadata("design:returntype", void 0)
-], PaymentController.prototype, "stubConfirm", null);
 exports.PaymentController = PaymentController = __decorate([
     (0, common_1.Controller)('payments'),
     __metadata("design:paramtypes", [payment_service_1.PaymentService])

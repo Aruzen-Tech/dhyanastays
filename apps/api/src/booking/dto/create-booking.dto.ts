@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsDateString,
   IsEmail,
   IsEnum,
   IsIn,
@@ -67,4 +68,11 @@ export class CreateBookingDto {
   @ValidateNested()
   @Type(() => GuestDetailsDto)
   guestDetails!: GuestDetailsDto;
+
+  /**
+   * ISO timestamp recording when the guest accepted the cancellation policy + terms
+   * of service. Required — the API rejects booking creation without it.
+   */
+  @IsDateString()
+  acceptedTermsAt!: string;
 }

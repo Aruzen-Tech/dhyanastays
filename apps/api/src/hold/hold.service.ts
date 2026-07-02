@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { AuditService } from '../common/services/audit.service';
+import { withSerializableRetry } from '../common/services/serializable-retry';
 import { CreateHoldDto } from './dto/create-hold.dto';
 
 const HOLD_TTL_MINUTES = 15;
@@ -49,11 +50,14 @@ export class HoldService {
 
     const expiresAt = new Date(Date.now() + HOLD_TTL_MINUTES * 60 * 1000);
 
-    // Atomic hold creation with overlap check inside a serializable transaction
+    // Atomic hold creation with overlap check, under SERIALIZABLE isolation.
+    // Retries once on serialization failure (40001). All state inside the
+    // callback must be re-read from `tx` — never close over outer-scope rows.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const hold = await (this.prisma as any).$transaction(async (tx: any) => {
+    const hold = await withSerializableRetry(this.prisma as any, async (tx) => {
       // Lock the listing row to serialize concurrent hold attempts
-      await tx.$executeRaw`
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (tx as any).$executeRaw`
         SELECT id FROM "Listing" WHERE id = ${dto.listingId} FOR UPDATE
       `;
 
@@ -143,21 +147,32 @@ export class HoldService {
   }
 
   async expireStaleHolds(): Promise<number> {
-    // Find holds that have expired and have no associated booking
+    // Find holds that have expired and have no associated booking.
+    // Process in small batches to keep the cron quick if backlog has grown.
+    const BATCH = 200;
     const stale = await this.prisma.hold.findMany({
       where: {
         expiresAt: { lt: new Date() },
         booking: null,
       },
-      select: { id: true },
+      select: { id: true, listingId: true },
+      take: BATCH,
     });
 
     if (stale.length === 0) return 0;
 
-    // Audit each expiry
+    // Audit BEFORE delete so the reference is preserved for compliance.
     for (const h of stale) {
-      await this.auditService.log(null, 'HOLD_EXPIRED', 'hold', h.id, {});
+      await this.auditService.log(null, 'HOLD_EXPIRED', 'hold', h.id, {
+        listingId: h.listingId,
+      });
     }
+
+    // Free the rows so the holds table doesn't grow unboundedly.
+    // booking: null ensures we never delete a hold attached to a booking.
+    await this.prisma.hold.deleteMany({
+      where: { id: { in: stale.map((h) => h.id) } },
+    });
 
     return stale.length;
   }

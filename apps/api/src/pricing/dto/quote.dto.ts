@@ -69,6 +69,10 @@ export interface PriceSnapshot {
   /** Sum of all addOns[].totalPrice */
   addOnsTotal: number;
   addOns: PriceSnapshotAddOn[];
+  /** GST rate applied to taxable services (platform fee + add-on commission), 0–1. */
+  gstRate: number;
+  /** GST amount in paise. Charged on platform's services revenue, not host's accommodation. */
+  gstAmount: number;
   total: number;
   depositAmount: number;
   balanceAmount: number;
@@ -80,6 +84,8 @@ export interface PriceSnapshot {
   payLaterFirstInstalment?: { months: number; amountMinor: number }[];
   currency: string;
   snapshotAt: string;
+  /** ISO timestamp when this snapshot expires. Hold + payment endpoints reject expired snapshots. */
+  expiresAt: string;
   /** HMAC-SHA256 signature over financial fields — set by PricingService */
   hmac?: string;
 }

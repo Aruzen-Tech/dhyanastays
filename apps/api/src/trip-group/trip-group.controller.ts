@@ -14,8 +14,10 @@ import { TripGroupService } from './trip-group.service';
 import { CreateTripGroupDto } from './dto/create-trip-group.dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
 import { CreateExpenseDto } from './dto/create-expense.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
 @UseGuards(JwtAuthGuard)
+@FeatureGate('trip_groups')
 @Controller('trip-groups')
 export class TripGroupController {
   constructor(private readonly service: TripGroupService) {}

@@ -296,6 +296,12 @@ export default function BookingDetailPage() {
             <span className="text-gray-600">Platform fee ({Math.round((snapshot.platformFeeRate ?? 0.1) * 100)}%)</span>
             <span>{formatINR(snapshot.platformFee)}</span>
           </div>
+          {(snapshot.gstAmount ?? 0) > 0 && (
+            <div className="flex justify-between">
+              <span className="text-gray-600">GST ({Math.round((snapshot.gstRate ?? 0.18) * 100)}%)</span>
+              <span>{formatINR(snapshot.gstAmount)}</span>
+            </div>
+          )}
           <div className="border-t border-gray-100 pt-2 flex justify-between font-bold text-base">
             <span>Total</span>
             <span className="text-brand-700">{formatINR(snapshot.total)}</span>

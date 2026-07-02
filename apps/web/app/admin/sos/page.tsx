@@ -171,13 +171,19 @@ export default function AdminSosPage() {
                   )}
                 </div>
                 <div className="flex flex-col gap-2 min-w-[140px]">
+                  <Link
+                    href={`/admin/sos/${r.id}`}
+                    className="btn-primary text-xs text-center"
+                  >
+                    Open console →
+                  </Link>
                   {r.status === 'OPEN' && (
                     <button
                       disabled={acting === r.id + 'ack'}
                       onClick={() => act(r.id, 'ack')}
-                      className="btn-primary text-xs"
+                      className="btn-ghost text-xs"
                     >
-                      {acting === r.id + 'ack' ? '…' : 'Acknowledge'}
+                      {acting === r.id + 'ack' ? '…' : 'Quick ack'}
                     </button>
                   )}
                   {(r.status === 'OPEN' || r.status === 'ACKNOWLEDGED') && (

@@ -4,8 +4,10 @@ import { CurrentUser, RequestUser } from '../common/decorators/current-user.deco
 import { Roles } from '../common/decorators/roles.decorator';
 import { ExperienceService } from './experience.service';
 import { BookExperienceDto } from './dto/book-experience.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
 @Roles(UserRole.GUEST)
+@FeatureGate('experiences')
 @Controller('guest/experiences')
 export class GuestExperienceController {
   constructor(private readonly service: ExperienceService) {}

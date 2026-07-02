@@ -13,8 +13,10 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { ExperienceService } from './experience.service';
 import { CreateExperienceDto } from './dto/create-experience.dto';
 import { UpdateExperienceDto } from './dto/update-experience.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
 @Roles(UserRole.HOST)
+@FeatureGate('experiences')
 @Controller('host/experiences')
 export class HostExperienceController {
   constructor(private readonly service: ExperienceService) {}

@@ -18,6 +18,13 @@ import { PayLaterMonths } from '../pay-later/dto/create-plan.dto';
 import { CreateBookingDto, PaymentPlanDto } from './dto/create-booking.dto';
 import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { PriceSnapshot } from '../pricing/dto/quote.dto';
+import { BookingStateMachine, BookingEvent, BookingLike } from './state-machine';
+import { PriceSnapshotSignerService } from '../common/services/price-snapshot-signer.service';
+import {
+  AmountMismatchException,
+  TamperedSnapshotException,
+} from './confirm-payment.exceptions';
+import { ConflictException } from '@nestjs/common';
 
 // Balance due window: 48h before check-in
 const BALANCE_DUE_HOURS_BEFORE_CHECKIN = 48;
@@ -38,6 +45,8 @@ export class BookingService {
     private readonly addOnService: AddOnService,
     private readonly membershipService: MembershipService,
     private readonly payLaterService: PayLaterService,
+    private readonly stateMachine: BookingStateMachine,
+    private readonly snapshotSigner: PriceSnapshotSignerService,
   ) {}
 
   /**
@@ -115,6 +124,8 @@ export class BookingService {
             dto.plan === PaymentPlanDto.PAY_LATER
               ? (dto.payLaterMonths as number)
               : null,
+          // Server-enforced record of terms acceptance — DTO validation guarantees this is set.
+          acceptedTermsAt: new Date(dto.acceptedTermsAt),
         },
       });
 
@@ -248,40 +259,106 @@ export class BookingService {
   }
 
   /**
-   * Called by payment webhook after deposit/full payment captured.
-   * Transitions: PAYMENT_PENDING → CONFIRMED_DEPOSIT | CONFIRMED_PAID
+   * Seven-step atomic confirm. MUST be called inside the caller's transaction
+   * (the webhook handler's `withSerializableRetry` block). It does NOT open
+   * its own transaction — that would nest inside the caller's and break
+   * atomicity (the payment.status=CAPTURED write and this confirm must commit
+   * or roll back together). The caller is responsible for SERIALIZABLE
+   * isolation + retry.
+   *
+   * Steps, in order:
+   *   1. SELECT … FOR UPDATE the booking row
+   *   2. Idempotency short-circuit (at-least-once webhook replay)
+   *   3. Re-verify the HMAC-signed price snapshot
+   *   4. Verify captured amount matches the expected (plan-aware)
+   *   5. Explicit overlap check under the lock (clean error before the trigger)
+   *   6. Route the status change through the state machine
+   *   7. Append immutable ledger entry (+ audit, + payout line)
+   *
+   * Returns `{ booking, didConfirm }`. `didConfirm=false` on an idempotent
+   * replay so the caller can skip the post-commit notification.
    */
   async confirmPayment(
+    tx: TxClient,
     bookingId: string,
     paymentId: string,
     amountCaptured: number,
-    tx?: TxClient,
-  ) {
-    const client: TxClient = tx ?? this.prisma;
-    const booking = await client.booking.findUnique({
-      where: { id: bookingId },
-    });
+  ): Promise<{ booking: BookingLike & { status: string }; didConfirm: boolean }> {
+    // ── Step 1: Lock the booking row ────────────────────────────────────
+    // FOR UPDATE serialises concurrent confirms on the same booking. Combined
+    // with the caller's SERIALIZABLE isolation, it kills the phantom-read race
+    // where two confirms each see "no conflict" via separate snapshots.
+    await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${bookingId} FOR UPDATE`;
+    const booking = await tx.booking.findUnique({ where: { id: bookingId } });
     if (!booking) throw new NotFoundException('Booking not found');
 
+    // ── Step 2: Idempotency (webhook is at-least-once) ──────────────────
+    const alreadyConfirmed: string[] = [
+      'CONFIRMED_DEPOSIT',
+      'CONFIRMED_PAID',
+      'BALANCE_DUE',
+      'COMPLETED',
+    ];
+    if (alreadyConfirmed.includes(booking.status)) {
+      return { booking: booking as BookingLike & { status: string }, didConfirm: false };
+    }
+    if (booking.status !== 'PAYMENT_PENDING') {
+      throw new ConflictException(
+        `Cannot confirm booking in status ${booking.status}`,
+      );
+    }
+
+    // ── Step 3: Re-verify HMAC on priceSnapshot ─────────────────────────
+    // NOT defending against client tampering — that's stopped at quote. This
+    // defends against any path that wrote to priceSnapshot between quote and
+    // confirm: bug in admin tooling, migration with bad data, compromised
+    // internal account. Do NOT "optimize" this away as redundant.
     const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
-    let nextStatus: string;
-
-    if (booking.plan === 'FULL') {
-      nextStatus = 'CONFIRMED_PAID';
-    } else if (booking.plan === 'PAY_LATER') {
-      // First instalment captured → plan activates, booking goes to
-      // CONFIRMED_DEPOSIT. Subsequent instalment captures are routed
-      // through PayLaterService.recordInstalmentCapture from the webhook.
-      nextStatus = 'CONFIRMED_DEPOSIT';
-
-      if (!booking.payLaterMonths) {
-        throw new BadRequestException(
-          'PAY_LATER booking missing payLaterMonths',
-        );
+    if (snapshot.hmac) {
+      const { hmac, ...withoutHmac } = snapshot;
+      if (
+        !this.snapshotSigner.verify(
+          withoutHmac as unknown as Record<string, unknown>,
+          hmac,
+        )
+      ) {
+        throw new TamperedSnapshotException(bookingId);
       }
+    }
 
+    // ── Step 4: Amount captured matches expected ────────────────────────
+    const expected = this.computeExpectedFirstCapturePaise(booking, snapshot);
+    if (expected !== null && amountCaptured !== expected) {
+      throw new AmountMismatchException(
+        amountCaptured,
+        expected,
+        bookingId,
+        paymentId,
+      );
+    }
+
+    // ── Step 5: Explicit overlap check under the lock ───────────────────
+    // The trg_prevent_booking_overlap trigger is the backstop — failing here
+    // gives a clean ConflictException instead of a 23P01 leak.
+    const conflicts = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "Booking"
+      WHERE "listingId" = ${booking.listingId}
+        AND id <> ${bookingId}
+        AND status IN ('CONFIRMED_DEPOSIT','CONFIRMED_PAID','BALANCE_DUE','PAYMENT_PENDING')
+        AND tsrange("startsAt","endsAt",'[)') && tsrange(${booking.startsAt},${booking.endsAt},'[)')
+    `;
+    if (conflicts.length > 0) {
+      throw new ConflictException('Dates no longer available');
+    }
+
+    // PAY_LATER plan creation happens inside the same tx, before the state
+    // transition, so the schedule is durable with the confirm.
+    if (booking.plan === 'PAY_LATER') {
+      if (!booking.payLaterMonths) {
+        throw new BadRequestException('PAY_LATER booking missing payLaterMonths');
+      }
       await this.payLaterService.createPlanFromFirstCapture(
-        client,
+        tx,
         {
           id: booking.id,
           startsAt: booking.startsAt,
@@ -292,66 +369,133 @@ export class BookingService {
         paymentId,
         amountCaptured,
       );
-    } else {
-      // DEPOSIT_50
-      if (amountCaptured >= snapshot.total) {
-        nextStatus = 'CONFIRMED_PAID';
-      } else {
-        nextStatus = 'CONFIRMED_DEPOSIT';
-      }
     }
 
-    const updated = await client.booking.update({
-      where: { id: bookingId },
-      data: { status: nextStatus },
-    });
+    const event: BookingEvent =
+      booking.plan === 'FULL'
+        ? 'PAYMENT_CONFIRMED_FULL'
+        : booking.plan === 'PAY_LATER'
+          ? 'PAY_LATER_FIRST_CAPTURED'
+          : 'PAYMENT_CONFIRMED_DEPOSIT';
 
+    // ── Step 6: Route through the state machine ─────────────────────────
+    const updated = await this.stateMachine.transition(
+      tx,
+      booking as BookingLike,
+      event,
+      {
+        actorId: 'system:razorpay',
+        metadata: { paymentId, amountCapturedPaise: amountCaptured },
+      },
+    );
+
+    // Snapshot the live cancellation policy onto the booking at confirm time
+    // (Step 7c). Frozen once; future policy edits don't affect this booking.
+    if (!booking.cancellationPolicySnapshot) {
+      await tx.booking.update({
+        where: { id: bookingId },
+        data: {
+          cancellationPolicySnapshot: PricingService.buildPolicySnapshot() as never,
+        },
+      });
+    }
+
+    // ── Step 7: Append immutable ledger entry + audit ───────────────────
     await this.ledgerService.record({
       type: 'PAYMENT_CAPTURED',
       amount: amountCaptured,
       bookingId,
-      metadata: { paymentId, nextStatus },
-      tx: client,
+      metadata: { paymentId, nextStatus: updated.status },
+      tx,
     });
-
     await this.auditService.log(
       null,
       'BOOKING_PAYMENT_CONFIRMED',
       'booking',
       bookingId,
-      { paymentId, amountCaptured, nextStatus },
-      client,
+      { paymentId, amountCaptured, nextStatus: updated.status },
+      tx,
     );
 
-    // Create payout line (eligible 24h after check-in)
-    const eligibleAt = new Date(
-      new Date(booking.startsAt).getTime() + 24 * 60 * 60 * 1000,
-    );
-
-    // Get host id from listing
-    const listing = await client.listing.findUnique({
+    // ── Payout line (host's accommodation share, eligible 24h after check-in) ─
+    const listing = await tx.listing.findUnique({
       where: { id: booking.listingId },
       select: { hostId: true },
     });
-
     if (listing) {
-      const hostShare = Math.round(amountCaptured * 0.9); // 90% to host (10% platform fee)
-      await client.payoutLine.create({
-        data: {
-          hostId: listing.hostId,
-          listingId: booking.listingId,
-          bookingId,
-          amount: hostShare,
-          eligibleAt,
-          status: 'NOT_ELIGIBLE',
-        },
-      });
+      const accommodationTotal =
+        (snapshot.subtotal ?? 0) + (snapshot.cleaningFee ?? 0);
+      const hostShare =
+        snapshot.total > 0
+          ? Math.round((accommodationTotal * amountCaptured) / snapshot.total)
+          : 0;
+      if (hostShare > 0) {
+        const eligibleAt = new Date(
+          new Date(booking.startsAt).getTime() + 24 * 60 * 60 * 1000,
+        );
+        await tx.payoutLine.create({
+          data: {
+            hostId: listing.hostId,
+            listingId: booking.listingId,
+            bookingId,
+            amount: hostShare,
+            eligibleAt,
+            status: 'NOT_ELIGIBLE',
+          },
+        });
+      }
     }
 
-    // Send booking confirmation notification (non-blocking)
-    void this.sendBookingConfirmedNotification(bookingId, updated);
+    return { booking: updated, didConfirm: true };
+  }
 
-    return updated;
+  /**
+   * Plan-aware expected paise for the FIRST capture on a booking.
+   * Returns null when the plan / state combo doesn't have a known expected
+   * value (defensive — the amount check is then skipped rather than rejecting
+   * a legitimate capture).
+   */
+  private computeExpectedFirstCapturePaise(
+    booking: { plan: string; payLaterMonths: number | null },
+    snapshot: PriceSnapshot,
+  ): number | null {
+    if (booking.plan === 'FULL') return snapshot.total;
+    if (booking.plan === 'DEPOSIT_50') return snapshot.depositAmount;
+    if (booking.plan === 'PAY_LATER') {
+      const months = booking.payLaterMonths;
+      const first = snapshot.payLaterFirstInstalment?.find(
+        (i) => i.months === months,
+      );
+      return first?.amountMinor ?? null;
+    }
+    return null;
+  }
+
+  /**
+   * Public entry point for the post-commit confirmation notification.
+   * The webhook handler calls this AFTER its SERIALIZABLE tx commits, so the
+   * booking row is guaranteed durable. Re-fetches the booking (the caller only
+   * has the id after commit) then delegates to the private sender.
+   * Fire-and-forget — never throws into the caller.
+   */
+  async sendBookingConfirmedNotificationPublic(bookingId: string): Promise<void> {
+    try {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: bookingId },
+        select: {
+          plan: true,
+          startsAt: true,
+          endsAt: true,
+          priceSnapshot: true,
+          listingId: true,
+          guestId: true,
+        },
+      });
+      if (!booking) return;
+      await this.sendBookingConfirmedNotification(bookingId, booking);
+    } catch {
+      // Non-fatal — notification failure must never break the confirm path.
+    }
   }
 
   private async sendBookingConfirmedNotification(bookingId: string, booking: { plan: string; startsAt: Date; endsAt: Date; priceSnapshot: unknown; listingId: string; guestId: string }) {
@@ -363,13 +507,16 @@ export class BookingService {
         }),
         this.prisma.listing.findUnique({
           where: { id: booking.listingId },
-          select: { title: true, host: { select: { id: true, user: { select: { fullName: true, email: true } } } } },
+          select: { title: true, city: true, state: true, country: true, host: { select: { id: true, user: { select: { fullName: true, email: true } } } } },
         }),
       ]);
       if (!guest || !listing) return;
       const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
       const checkIn = new Date(booking.startsAt).toLocaleDateString('en-IN');
       const checkOut = new Date(booking.endsAt).toLocaleDateString('en-IN');
+      const locationDescription = [listing.city, listing.state, listing.country]
+        .filter(Boolean)
+        .join(', ');
 
       // Guest notification — routed through the outbox so delivery is
       // decoupled from the booking write and retried on transient failure.
@@ -381,6 +528,9 @@ export class BookingService {
         listingTitle: listing.title,
         checkIn,
         checkOut,
+        checkInISO: new Date(booking.startsAt).toISOString(),
+        checkOutISO: new Date(booking.endsAt).toISOString(),
+        locationDescription,
         totalAmount: snapshot.total,
         plan: booking.plan as 'FULL' | 'DEPOSIT_50',
         depositAmount: snapshot.depositAmount,
@@ -458,16 +608,43 @@ export class BookingService {
 
   /**
    * Transition CONFIRMED_DEPOSIT → BALANCE_DUE when balance due date arrives.
+   * Routes per-row through the state machine so statusHistory is appended
+   * for every booking individually — bulk updateMany would skip that.
    */
   async transitionToBalanceDue(): Promise<number> {
     const now = new Date();
-    const result = await this.prisma.booking.updateMany({
+    const due = await this.prisma.booking.findMany({
       where: {
         status: 'CONFIRMED_DEPOSIT',
         balanceDueAt: { lte: now },
       },
-      data: { status: 'BALANCE_DUE' },
+      select: { id: true },
+      take: 200, // batch ceiling — cron runs every 15 min; backlog drains within an hour
     });
+
+    let count = 0;
+    for (const { id } of due) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          // Re-read inside the tx so the state machine sees the current row.
+          const fresh = await tx.booking.findUnique({ where: { id } });
+          if (!fresh || fresh.status !== 'CONFIRMED_DEPOSIT') return;
+          await this.stateMachine.transition(
+            tx,
+            fresh as BookingLike,
+            'BALANCE_DUE_TRIGGERED',
+            { actorId: 'system:cron-balance-due' },
+          );
+          count++;
+        });
+      } catch (err) {
+        // Non-fatal — log and continue (e.g. concurrent transition)
+        console.warn(
+          `Balance-due transition skipped for ${id}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+    const result = { count };
 
     if (result.count > 0) {
       await this.auditService.log(
@@ -504,6 +681,7 @@ export class BookingService {
         null,
         'AUTO_CANCEL_UNPAID_BALANCE',
         'Balance not paid within grace period',
+        'AUTO_CANCEL_UNPAID_BALANCE',
       );
       cancelled++;
     }
@@ -543,11 +721,15 @@ export class BookingService {
       );
     }
 
+    // Distinguish guest vs admin so the state machine records the right event.
+    const cancelEvent: BookingEvent =
+      requesterRole === 'ADMIN' ? 'ADMIN_CANCELLED' : 'GUEST_CANCELLED';
     const result = await this.cancelBookingInternal(
       bookingId,
       requesterId,
       'BOOKING_CANCEL',
       dto.reason ?? 'Guest/Admin cancellation',
+      cancelEvent,
     );
     // Return just the booking so the API response is a plain Booking object
     return result.booking;
@@ -624,6 +806,7 @@ export class BookingService {
       null,
       'AUTO_CANCEL_PAY_LATER_DEFAULT',
       'Pay Later plan defaulted — grace period expired',
+      'AUTO_CANCEL_PAY_LATER_DEFAULT',
     );
   }
 
@@ -632,6 +815,7 @@ export class BookingService {
     actorId: string | null,
     action: string,
     reason: string,
+    smEvent: BookingEvent,
   ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
@@ -649,10 +833,16 @@ export class BookingService {
     const accommodationTotal = (snapshot.total ?? totalPaid) - addOnsTotal;
     const checkIn = new Date(booking.startsAt);
 
-    // Accommodation refund applies booking-level policy to its portion of the snapshot
+    // Step 7c: read the frozen cancellation tiers off the booking. Falls back
+    // to the live policy for legacy rows that predate the snapshot column.
+    const policySnapshot =
+      (booking as unknown as { cancellationPolicySnapshot: unknown })
+        .cancellationPolicySnapshot ?? null;
     const accommodationRefund = this.pricingService.computeRefundAmount(
       accommodationTotal,
       checkIn,
+      new Date(),
+      policySnapshot as { tiers?: { minHoursBefore: number; refundPct: number }[] } | null,
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -677,10 +867,20 @@ export class BookingService {
         totalPaid,
       );
 
-      const updated = await tx.booking.update({
-        where: { id: bookingId },
-        data: { status: refundAmount > 0 ? 'REFUNDED' : 'CANCELLED' },
-      });
+      // Re-read inside the tx — state machine needs the current statusHistory.
+      const fresh = await tx.booking.findUnique({ where: { id: bookingId } });
+      if (!fresh) throw new NotFoundException('Booking not found');
+      // SM picks CANCELLED vs REFUNDED based on refundAmountPaise (cancelTarget).
+      const updated = await this.stateMachine.transition(
+        tx,
+        fresh as BookingLike,
+        smEvent,
+        {
+          actorId,
+          metadata: { reason, action, refundAmountPaise: refundAmount },
+          refundAmountPaise: refundAmount,
+        },
+      );
 
       if (refundAmount > 0) {
         await tx.refund.create({
@@ -781,6 +981,56 @@ export class BookingService {
   }
 
   /**
+   * Auto-complete bookings that finished their stay 24h+ ago.
+   * Triggered by hourly cron. Picks up bookings that are still in
+   * CONFIRMED_PAID/CONFIRMED_DEPOSIT after their endsAt + 24h grace window.
+   * Awards loyalty points + triggers referral credit via completeBooking().
+   *
+   * Returns the count of bookings successfully completed.
+   */
+  async autoCompleteCheckedOut(): Promise<number> {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // endsAt + 24h grace
+    const candidates = await this.prisma.booking.findMany({
+      where: {
+        status: { in: ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'] },
+        endsAt: { lt: cutoff },
+      },
+      select: { id: true },
+      take: 100,
+    });
+
+    if (candidates.length === 0) return 0;
+
+    let completed = 0;
+    for (const b of candidates) {
+      try {
+        // null actorId — system action. completeBooking accepts string but stores
+        // the actor in the audit log; passing null would bypass that. Use a sentinel.
+        await this.completeBooking(b.id, 'SYSTEM_AUTO_COMPLETE');
+        completed++;
+      } catch (err) {
+        // Non-fatal — log and continue. Common reasons: status changed concurrently
+        // (e.g., admin cancelled in the same window).
+        console.warn(
+          `Auto-complete skipped booking ${b.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    if (completed > 0) {
+      await this.auditService.log(
+        null,
+        'BOOKING_AUTO_COMPLETE_BATCH',
+        'booking',
+        'batch',
+        { count: completed, examined: candidates.length, cutoff: cutoff.toISOString() },
+      );
+    }
+
+    return completed;
+  }
+
+  /**
    * Mark booking as COMPLETED after checkout.
    */
   async completeBooking(bookingId: string, actorId: string) {
@@ -795,9 +1045,17 @@ export class BookingService {
       );
     }
 
-    const updated = await this.prisma.booking.update({
-      where: { id: bookingId },
-      data: { status: 'COMPLETED' },
+    // Cron path uses sentinel 'SYSTEM_AUTO_COMPLETE'; route the SM event accordingly.
+    const smEvent: BookingEvent =
+      actorId === 'SYSTEM_AUTO_COMPLETE' ? 'AUTO_COMPLETED' : 'STAY_COMPLETED';
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const fresh = await tx.booking.findUnique({ where: { id: bookingId } });
+      if (!fresh) throw new NotFoundException('Booking not found');
+      return this.stateMachine.transition(tx, fresh as BookingLike, smEvent, {
+        actorId,
+        metadata: { previousStatus: fresh.status },
+      });
     });
 
     await this.auditService.log(actorId, 'BOOKING_COMPLETE', 'booking', bookingId, {

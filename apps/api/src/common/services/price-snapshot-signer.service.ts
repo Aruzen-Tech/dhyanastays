@@ -47,11 +47,14 @@ export class PriceSnapshotSignerService {
       'cleaningFee',
       'platformFee',
       'addOnsTotal',
+      'gstRate',
+      'gstAmount',
       'total',
       'depositAmount',
       'balanceAmount',
       'currency',
       'snapshotAt',
+      'expiresAt',
     ];
     const parts = fields.map((f) => `${f}=${JSON.stringify(snapshot[f] ?? '')}`);
 

@@ -57,7 +57,8 @@ export class SosService {
       data: {
         userId,
         name: dto.name,
-        phone: dto.phone,
+        phone: dto.phone ?? null,
+        email: dto.email ?? null,
         relation: dto.relation,
         primary: dto.primary ?? false,
       },
@@ -83,7 +84,8 @@ export class SosService {
       where: { id },
       data: {
         name: dto.name,
-        phone: dto.phone,
+        phone: dto.phone ?? null,
+        email: dto.email ?? null,
         relation: dto.relation,
         primary: dto.primary ?? false,
       },
@@ -230,6 +232,193 @@ export class SosService {
     });
     await this.auditService.log(operatorId, 'SOS_IN_PROGRESS', 'sos', id, {});
     return updated;
+  }
+
+  /**
+   * SLA / ops dashboard metric — for SOS incidents acked in the last `windowHours`,
+   * return ack-latency stats and broadcast delivery rates. The Phase 1 SLA is
+   * P99 ack latency < 5s.
+   *
+   * Returns null values for stats when the window contains no incidents.
+   */
+  async getOpsMetrics(windowHours = 24): Promise<{
+    windowHours: number;
+    totalIncidents: number;
+    ackedCount: number;
+    pendingAckCount: number;
+    ackLatencyMs: {
+      p50: number | null;
+      p95: number | null;
+      p99: number | null;
+      max: number | null;
+    };
+    broadcastChannels: {
+      sent: number;
+      failed: number;
+      skipped: number;
+    };
+    /** Incidents whose acks blew the 5s SLA target. */
+    slaBreaches: number;
+  }> {
+    const since = new Date(Date.now() - windowHours * 60 * 60 * 1000);
+
+    const incidents = await this.prisma.sosIncident.findMany({
+      where: { openedAt: { gte: since } },
+      select: {
+        id: true,
+        openedAt: true,
+        ackedAt: true,
+        broadcasts: { select: { status: true } },
+      },
+    });
+
+    const totalIncidents = incidents.length;
+    const acked = incidents.filter((i) => i.ackedAt);
+    const pendingAckCount = totalIncidents - acked.length;
+    const SLA_TARGET_MS = 5000;
+
+    const latencies = acked
+      .map((i) => i.ackedAt!.getTime() - i.openedAt.getTime())
+      .sort((a, b) => a - b);
+
+    const pct = (p: number): number | null => {
+      if (latencies.length === 0) return null;
+      const idx = Math.min(latencies.length - 1, Math.floor((p / 100) * latencies.length));
+      return latencies[idx];
+    };
+
+    let sent = 0;
+    let failed = 0;
+    let skipped = 0;
+    for (const i of incidents) {
+      for (const b of i.broadcasts) {
+        if (b.status === 'SENT') sent++;
+        else if (b.status === 'FAILED') failed++;
+        else if (b.status === 'SKIPPED') skipped++;
+      }
+    }
+
+    const slaBreaches = latencies.filter((ms) => ms > SLA_TARGET_MS).length;
+
+    return {
+      windowHours,
+      totalIncidents,
+      ackedCount: acked.length,
+      pendingAckCount,
+      ackLatencyMs: {
+        p50: pct(50),
+        p95: pct(95),
+        p99: pct(99),
+        max: latencies.length > 0 ? latencies[latencies.length - 1] : null,
+      },
+      broadcastChannels: { sent, failed, skipped },
+      slaBreaches,
+    };
+  }
+
+  // ── Per-incident chat ────────────────────────────────────────────────────
+
+  /**
+   * List chat messages. Both guest (must own the incident) and admin can read.
+   * Sorted oldest-first so the UI can append new ones at the bottom.
+   */
+  async listMessages(
+    actorId: string,
+    incidentId: string,
+    role: 'GUEST' | 'ADMIN',
+  ) {
+    await this.assertIncidentAccess(actorId, incidentId, role);
+    return this.prisma.sosMessage.findMany({
+      where: { incidentId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Send a chat message into the incident thread. Guest can only post on their
+   * own incident; admin can post on any. The sender's role is decided by the
+   * controller, not the JWT — admin posting via the admin controller writes
+   * a row with senderRole='ADMIN' even if they happen to be the same person.
+   */
+  async sendMessage(
+    actorId: string,
+    incidentId: string,
+    role: 'GUEST' | 'ADMIN',
+    content: string,
+  ) {
+    await this.assertIncidentAccess(actorId, incidentId, role);
+    const trimmed = content.trim();
+    if (!trimmed) {
+      throw new BadRequestException('message content is required');
+    }
+    if (trimmed.length > 2000) {
+      throw new BadRequestException('message too long (max 2000 chars)');
+    }
+    return this.prisma.sosMessage.create({
+      data: {
+        incidentId,
+        senderId: actorId,
+        senderRole: role,
+        content: trimmed,
+      },
+    });
+  }
+
+  /**
+   * Status timeline for the guest tracking view. Derived from the existing
+   * timestamp columns + broadcast rows — no extra storage. Each entry is a
+   * distinct state transition the guest can see ("we've acknowledged",
+   * "help is on the way", "resolved").
+   */
+  async getStatusTimeline(actorId: string, incidentId: string, role: 'GUEST' | 'ADMIN') {
+    const incident = await this.assertIncidentAccess(actorId, incidentId, role);
+    const timeline: Array<{ status: string; at: string; note?: string }> = [
+      { status: 'OPENED', at: incident.openedAt.toISOString() },
+    ];
+    if (incident.ackedAt) {
+      timeline.push({
+        status: 'ACKNOWLEDGED',
+        at: incident.ackedAt.toISOString(),
+        note: 'Ops team has seen your alert and is responding.',
+      });
+    }
+    if (incident.status === 'IN_PROGRESS') {
+      timeline.push({
+        status: 'IN_PROGRESS',
+        at: (incident.ackedAt ?? incident.openedAt).toISOString(),
+        note: 'Help is on the way.',
+      });
+    }
+    if (incident.resolvedAt) {
+      timeline.push({
+        status: incident.status,
+        at: incident.resolvedAt.toISOString(),
+        note:
+          incident.status === 'FALSE_ALARM'
+            ? 'Marked as a false alarm.'
+            : 'Incident resolved.',
+      });
+    }
+    return { status: incident.status, timeline };
+  }
+
+  /**
+   * Authorization gate for incident-scoped reads/writes.
+   * GUEST: must own the incident. ADMIN: any incident (L1 gate enforced by controller).
+   */
+  private async assertIncidentAccess(
+    actorId: string,
+    incidentId: string,
+    role: 'GUEST' | 'ADMIN',
+  ) {
+    const incident = await this.prisma.sosIncident.findUnique({
+      where: { id: incidentId },
+    });
+    if (!incident) throw new NotFoundException('incident not found');
+    if (role === 'GUEST' && incident.userId !== actorId) {
+      throw new NotFoundException('incident not found');
+    }
+    return incident;
   }
 
   async resolveIncident(

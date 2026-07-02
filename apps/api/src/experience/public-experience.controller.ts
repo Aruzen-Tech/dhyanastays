@@ -2,7 +2,9 @@ import { Controller, Get, Param, Query } from '@nestjs/common';
 import { Public } from '../common/decorators/public.decorator';
 import { ExperienceService } from './experience.service';
 import { EXPERIENCE_CATEGORIES } from './dto/create-experience.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
+@FeatureGate('experiences')
 @Controller('experiences')
 export class PublicExperienceController {
   constructor(private readonly service: ExperienceService) {}

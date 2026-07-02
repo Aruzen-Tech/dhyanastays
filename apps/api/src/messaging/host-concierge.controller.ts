@@ -5,11 +5,13 @@ import { CurrentUser, RequestUser } from '../common/decorators/current-user.deco
 import { Roles } from '../common/decorators/roles.decorator';
 import { MessagingService } from './messaging.service';
 import { SendMessageDto } from './dto/send-message.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
 /**
  * Host side of the concierge chat (§5.10). Route mirrors the guest side
  * so a booking ID deep-links to the same thread from both dashboards.
  */
+@FeatureGate('concierge_chat')
 @Controller('host/bookings/:bookingId/chat')
 @Roles(UserRole.HOST)
 export class HostConciergeController {

@@ -10,9 +10,12 @@ import { NotificationOutboxProcessor } from './notification-outbox.processor';
 import { SosBroadcastProcessor } from './sos-broadcast.processor';
 import { ConciergeSlaProcessor } from './concierge-sla.processor';
 import { InvestorDistributionProcessor } from './investor-distribution.processor';
+import { PaymentReconProcessor } from './payment-recon.processor';
+import { AutoCompleteProcessor } from './auto-complete.processor';
 import { JobsScheduler } from './jobs.scheduler';
 import { HoldModule } from '../hold/hold.module';
 import { BookingModule } from '../booking/booking.module';
+import { PaymentModule } from '../payment/payment.module';
 import { PayoutModule } from '../payout/payout.module';
 import { PayLaterModule } from '../pay-later/pay-later.module';
 import { NotificationModule } from '../notification/notification.module';
@@ -29,6 +32,8 @@ import {
   QUEUE_SOS_BROADCAST,
   QUEUE_CONCIERGE_SLA,
   QUEUE_INVESTOR_DISTRIBUTION,
+  QUEUE_PAYMENT_RECON,
+  QUEUE_AUTO_COMPLETE,
 } from './jobs.constants';
 
 export {
@@ -41,6 +46,8 @@ export {
   QUEUE_SOS_BROADCAST,
   QUEUE_CONCIERGE_SLA,
   QUEUE_INVESTOR_DISTRIBUTION,
+  QUEUE_PAYMENT_RECON,
+  QUEUE_AUTO_COMPLETE,
 };
 
 @Module({
@@ -56,9 +63,12 @@ export {
       { name: QUEUE_SOS_BROADCAST },
       { name: QUEUE_CONCIERGE_SLA },
       { name: QUEUE_INVESTOR_DISTRIBUTION },
+      { name: QUEUE_PAYMENT_RECON },
+      { name: QUEUE_AUTO_COMPLETE },
     ),
     HoldModule,
     BookingModule,
+    PaymentModule,
     PayoutModule,
     PayLaterModule,
     NotificationModule,
@@ -76,6 +86,8 @@ export {
     SosBroadcastProcessor,
     ConciergeSlaProcessor,
     InvestorDistributionProcessor,
+    PaymentReconProcessor,
+    AutoCompleteProcessor,
     JobsScheduler,
   ],
 })

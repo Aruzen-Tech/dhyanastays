@@ -5,6 +5,7 @@ import { CurrentUser, RequestUser } from '../common/decorators/current-user.deco
 import { Roles } from '../common/decorators/roles.decorator';
 import { MessagingService } from './messaging.service';
 import { SendMessageDto } from './dto/send-message.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
 /**
  * Guest side of the concierge chat (§5.10). Mounted under /bookings/:id/chat
@@ -12,6 +13,7 @@ import { SendMessageDto } from './dto/send-message.dto';
  * caller owns the booking and that the booking is in a confirmed state
  * before returning the thread.
  */
+@FeatureGate('concierge_chat')
 @Controller('bookings/:bookingId/chat')
 @Roles(UserRole.GUEST)
 export class GuestConciergeController {

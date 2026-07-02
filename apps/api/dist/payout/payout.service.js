@@ -122,6 +122,42 @@ let PayoutService = PayoutService_1 = class PayoutService {
         });
         return { batchId, status: 'PAID', totalAmount: batch.totalAmount };
     }
+    async dryRunBatch() {
+        const eligibleLines = await this.prisma.payoutLine.findMany({
+            where: { status: 'ELIGIBLE' },
+            include: {
+                host: { include: { user: { select: { fullName: true, email: true } } } },
+            },
+        });
+        if (eligibleLines.length === 0) {
+            return { lineCount: 0, totalAmount: 0, hostCount: 0, breakdown: [] };
+        }
+        const byHost = new Map();
+        for (const line of eligibleLines) {
+            const existing = byHost.get(line.hostId);
+            if (existing) {
+                existing.lineCount++;
+                existing.amount += line.amount;
+            }
+            else {
+                byHost.set(line.hostId, {
+                    hostId: line.hostId,
+                    hostName: line.host.user.fullName ?? '',
+                    hostEmail: line.host.user.email,
+                    lineCount: 1,
+                    amount: line.amount,
+                });
+            }
+        }
+        const breakdown = Array.from(byHost.values()).sort((a, b) => b.amount - a.amount);
+        const totalAmount = eligibleLines.reduce((s, l) => s + l.amount, 0);
+        return {
+            lineCount: eligibleLines.length,
+            totalAmount,
+            hostCount: breakdown.length,
+            breakdown,
+        };
+    }
     async getEligibleLines() {
         return this.prisma.payoutLine.findMany({
             where: { status: 'ELIGIBLE' },

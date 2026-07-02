@@ -11,9 +11,9 @@ export declare class AdminListingController {
             updatedAt: Date;
             listingId: string;
             baseNightlyRate: number;
-            maxGuests: number;
             cleaningFee: number;
             minNights: number;
+            maxGuests: number;
         }[];
     } & {
         id: string;
@@ -27,7 +27,15 @@ export declare class AdminListingController {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: import("@prisma/client/runtime/library").JsonValue | null;
+        propertyDirections: import("@prisma/client/runtime/library").JsonValue | null;
+        propertyManual: import("@prisma/client/runtime/library").JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
     })[]>;
     approve(user: RequestUser, id: string, dto: AdminReviewDto): Promise<{
@@ -42,7 +50,15 @@ export declare class AdminListingController {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: import("@prisma/client/runtime/library").JsonValue | null;
+        propertyDirections: import("@prisma/client/runtime/library").JsonValue | null;
+        propertyManual: import("@prisma/client/runtime/library").JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
     }>;
     reject(user: RequestUser, id: string, dto: AdminReviewDto): Promise<{
@@ -57,7 +73,15 @@ export declare class AdminListingController {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: import("@prisma/client/runtime/library").JsonValue | null;
+        propertyDirections: import("@prisma/client/runtime/library").JsonValue | null;
+        propertyManual: import("@prisma/client/runtime/library").JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
     }>;
     requestChanges(user: RequestUser, id: string, dto: AdminReviewDto): Promise<{
@@ -72,7 +96,15 @@ export declare class AdminListingController {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: import("@prisma/client/runtime/library").JsonValue | null;
+        propertyDirections: import("@prisma/client/runtime/library").JsonValue | null;
+        propertyManual: import("@prisma/client/runtime/library").JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
     }>;
     listPendingHosts(): Promise<({

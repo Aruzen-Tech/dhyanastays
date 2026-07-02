@@ -11,12 +11,14 @@ import { ApplyStaffDto } from './dto/apply-staff.dto';
 import { ReviewApplicationDto } from './dto/review-application.dto';
 import { AssignStaffRoleDto } from './dto/assign-staff-role.dto';
 import { ChangeUserKindDto } from './dto/change-user-kind.dto';
+import { BookingStateMachine, BookingLike } from '../booking/state-machine';
 
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly stateMachine: BookingStateMachine,
   ) {}
 
   // ── Setting defaults (used by getSettings) ──
@@ -409,12 +411,26 @@ export class AdminService {
         },
       });
 
-      // If fully refunded, update booking status
+      // If cumulative refunds == totalPaid, flip the booking to REFUNDED via
+      // the state machine. Use ADMIN_FULL_REFUND_ISSUED so statusHistory
+      // distinguishes this from a cancellation.
       if (dto.amount + totalRefunded >= totalPaid) {
-        await tx.booking.update({
-          where: { id: dto.bookingId },
-          data: { status: 'REFUNDED' },
-        });
+        const fresh = await tx.booking.findUnique({ where: { id: dto.bookingId } });
+        if (fresh) {
+          await this.stateMachine.transition(
+            tx,
+            fresh as BookingLike,
+            'ADMIN_FULL_REFUND_ISSUED',
+            {
+              actorId,
+              metadata: {
+                refundId: r.id,
+                totalRefundedPaise: dto.amount + totalRefunded,
+                totalPaidPaise: totalPaid,
+              },
+            },
+          );
+        }
       }
 
       await tx.ledgerEvent.create({
@@ -580,17 +596,31 @@ export class AdminService {
   }
 
   async bulkCompleteBookings(actorId: string, ids: string[]) {
-    const result = await this.prisma.booking.updateMany({
-      where: {
-        id: { in: ids },
-        status: { in: ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'] },
-      },
-      data: { status: 'COMPLETED' },
-    });
+    // Per-row through the state machine so each booking gets its own
+    // statusHistory entry. Skips rows not in a completable state.
+    let count = 0;
     for (const id of ids) {
-      await this.auditService.log(actorId, 'BOOKING_COMPLETED', 'Booking', id, { bulk: true });
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const fresh = await tx.booking.findUnique({ where: { id } });
+          if (!fresh) return;
+          if (!['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'].includes(fresh.status)) return;
+          await this.stateMachine.transition(
+            tx,
+            fresh as BookingLike,
+            'STAY_COMPLETED',
+            { actorId, metadata: { bulk: true } },
+          );
+          count++;
+        });
+        await this.auditService.log(actorId, 'BOOKING_COMPLETED', 'Booking', id, { bulk: true });
+      } catch (err) {
+        console.warn(
+          `Bulk complete skipped ${id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
-    return { count: result.count };
+    return { count };
   }
 
   // ── Feature 10: Global Search ──

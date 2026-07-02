@@ -25,6 +25,7 @@ exports.ListingModule = ListingModule = __decorate([
             admin_listing_controller_1.AdminListingController,
             public_listing_controller_1.PublicListingController,
         ],
+        exports: [listing_service_1.ListingService],
     })
 ], ListingModule);
 //# sourceMappingURL=listing.module.js.map

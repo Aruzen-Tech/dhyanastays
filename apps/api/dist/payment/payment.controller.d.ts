@@ -10,17 +10,18 @@ export declare class PaymentController {
     private readonly paymentService;
     constructor(paymentService: PaymentService);
     init(user: RequestUser, dto: InitPaymentDto): Promise<{
+        type: import("@prisma/client").$Enums.PaymentPlan;
+        idempotencyKey: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        type: import("@prisma/client").$Enums.PaymentPlan;
         status: import("@prisma/client").$Enums.PaymentStatus;
-        bookingId: string;
         amount: number;
+        bookingId: string;
         gateway: string;
         gatewayPaymentRef: string | null;
         gatewayOrderRef: string | null;
-        idempotencyKey: string;
+        payLaterSeq: number | null;
     } | {
         paymentId: string;
         razorpayOrderId: string;
@@ -28,31 +29,32 @@ export declare class PaymentController {
         currency: string;
         keyId: string;
     }>;
-    webhook(req: RawBodyRequest<Request>, signature: string): Promise<{
+    webhook(req: RawBodyRequest<Request>, signature: string, eventId: string | undefined): Promise<{
         received: boolean;
+        deduped: boolean;
+    } | {
+        received: boolean;
+        deduped?: undefined;
     }>;
     payBalance(user: RequestUser, bookingId: string, dto: PayBalanceDto): Promise<{
+        type: import("@prisma/client").$Enums.PaymentPlan;
+        idempotencyKey: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        type: import("@prisma/client").$Enums.PaymentPlan;
         status: import("@prisma/client").$Enums.PaymentStatus;
-        bookingId: string;
         amount: number;
+        bookingId: string;
         gateway: string;
         gatewayPaymentRef: string | null;
         gatewayOrderRef: string | null;
-        idempotencyKey: string;
+        payLaterSeq: number | null;
     } | {
         paymentId: string;
         razorpayOrderId: string;
         amount: number;
         currency: string;
         keyId: string;
-    }>;
-    stubConfirm(paymentId: string): Promise<{
-        payment: any;
-        message: string;
     }>;
 }
 export {};

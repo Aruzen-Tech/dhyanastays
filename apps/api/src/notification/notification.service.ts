@@ -4,11 +4,19 @@ import * as nodemailer from 'nodemailer';
 
 // ─── Email payload ────────────────────────────────────────────────────────────
 
+export interface EmailAttachment {
+  filename: string;
+  /** Base64-encoded content (so it survives outbox JSON serialization). */
+  contentBase64: string;
+  contentType: string;
+}
+
 export interface EmailPayload {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  attachments?: EmailAttachment[];
 }
 
 // ─── SMS payload ──────────────────────────────────────────────────────────────
@@ -26,8 +34,16 @@ export interface BookingConfirmedPayload {
   guestPhone?: string;
   bookingId: string;
   listingTitle: string;
+  /** Human-readable check-in date (e.g. "11 May 2026") — for the email body. */
   checkIn: string;
+  /** Human-readable check-out date. */
   checkOut: string;
+  /** ISO 8601 check-in datetime — for the ICS calendar attachment. */
+  checkInISO?: string;
+  /** ISO 8601 check-out datetime — for the ICS calendar attachment. */
+  checkOutISO?: string;
+  /** Optional property location string for the ICS LOCATION field. */
+  locationDescription?: string;
   totalAmount: number;
   plan: 'FULL' | 'DEPOSIT_50';
   depositAmount?: number;
@@ -129,11 +145,62 @@ export class NotificationService {
 
   // ── Public notification methods ─────────────────────────────────────────────
 
+  /**
+   * Build an RFC 5545 ICS file for a booking — guests can click "Add to Calendar"
+   * in supported email clients (Gmail, Outlook, Apple Mail).
+   * Returns null if check-in/check-out ISO timestamps aren't provided.
+   */
+  private buildIcsForBooking(payload: BookingConfirmedPayload): EmailAttachment | null {
+    if (!payload.checkInISO || !payload.checkOutISO) return null;
+
+    const fmt = (iso: string): string => {
+      // ICS DATE-TIME format: YYYYMMDDTHHMMSSZ (UTC)
+      return new Date(iso)
+        .toISOString()
+        .replace(/[-:]/g, '')
+        .replace(/\.\d{3}/, '');
+    };
+    const dtStart = fmt(payload.checkInISO);
+    const dtEnd = fmt(payload.checkOutISO);
+    const dtStamp = fmt(new Date().toISOString());
+    const uid = `booking-${payload.bookingId}@dhyanastays.com`;
+    const location = (payload.locationDescription ?? payload.listingTitle).replace(/[\r\n]+/g, ' ');
+    const summary = `Stay at ${payload.listingTitle}`;
+    const description = `Booking ID: ${payload.bookingId.slice(0, 12)} — View at ${this.webUrl}/bookings/${payload.bookingId}`;
+
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Dhyana Stays//Booking Confirmation//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTAMP:${dtStamp}`,
+      `DTSTART:${dtStart}`,
+      `DTEND:${dtEnd}`,
+      `SUMMARY:${summary}`,
+      `LOCATION:${location}`,
+      `DESCRIPTION:${description}`,
+      'STATUS:CONFIRMED',
+      'TRANSP:OPAQUE',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n'); // RFC 5545 requires CRLF line endings
+
+    return {
+      filename: 'booking.ics',
+      contentBase64: Buffer.from(ics, 'utf-8').toString('base64'),
+      contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
+    };
+  }
+
   buildBookingConfirmedEmail(payload: BookingConfirmedPayload): EmailPayload {
     const depositNote =
       payload.plan === 'DEPOSIT_50'
         ? `<p style="color:#b45309">Balance of ₹${this.formatINR(payload.totalAmount - (payload.depositAmount ?? 0))} is due before check-in.</p>`
         : '';
+    const ics = this.buildIcsForBooking(payload);
     return {
       to: payload.guestEmail,
       subject: `Booking Confirmed — ${payload.listingTitle}`,
@@ -162,6 +229,7 @@ export class NotificationService {
         </div>
       `,
       text: `Booking confirmed for ${payload.listingTitle}. Check-in: ${payload.checkIn}. Check-out: ${payload.checkOut}. Total: ₹${this.formatINR(payload.totalAmount)}.`,
+      ...(ics ? { attachments: [ics] } : {}),
     };
   }
 
@@ -411,6 +479,14 @@ export class NotificationService {
         subject: payload.subject,
         html: payload.html,
         text: payload.text,
+        ...(payload.attachments && payload.attachments.length > 0
+          ? {
+              attachments: payload.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.contentBase64,
+              })),
+            }
+          : {}),
       }),
     });
 
@@ -446,6 +522,16 @@ export class NotificationService {
           { type: 'text/html', value: payload.html },
           ...(payload.text ? [{ type: 'text/plain', value: payload.text }] : []),
         ],
+        ...(payload.attachments && payload.attachments.length > 0
+          ? {
+              attachments: payload.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.contentBase64,
+                type: a.contentType,
+                disposition: 'attachment',
+              })),
+            }
+          : {}),
       }),
     });
 
@@ -483,6 +569,15 @@ export class NotificationService {
       subject: payload.subject,
       html: payload.html,
       text: payload.text,
+      ...(payload.attachments && payload.attachments.length > 0
+        ? {
+            attachments: payload.attachments.map((a) => ({
+              filename: a.filename,
+              content: Buffer.from(a.contentBase64, 'base64'),
+              contentType: a.contentType,
+            })),
+          }
+        : {}),
     });
     this.logger.log(`Email sent via SMTP to ${payload.to}`);
   }

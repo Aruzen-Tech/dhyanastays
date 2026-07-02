@@ -202,6 +202,7 @@ model User {
   createdExpenses     ExpenseSplit[]      @relation("ExpenseCreator")
   // ── Phase 3 §5.9 AI Itinerary ────────────────────────────────────────────
   itineraries         Itinerary[]         @relation("ItineraryOwner")
+  itineraryUsage      ItineraryUsage[]    @relation("ItineraryUsageOwner")
 }
 
 model Host {
@@ -218,6 +219,7 @@ model Host {
   notifications       HostNotification[]
   quickReplies        HostQuickReply[]
   experiences         Experience[]
+  settings            HostSetting?
 }
 
 model Listing {
@@ -364,6 +366,20 @@ model Booking {
   checkOutData     Json?
   balanceDueAt     DateTime?
   payLaterMonths   Int?
+  /** Timestamp when the guest accepted the cancellation policy + terms. Required at booking creation. */
+  acceptedTermsAt  DateTime?
+  /**
+   * Append-only timeline of state transitions. Written by BookingStateMachine only.
+   * Each entry: { from, to, event, actorId, at: ISO-8601, metadata? }.
+   * Source of truth for dispute resolution and admin debugging.
+   */
+  statusHistory    Json         @default("[]")
+  /**
+   * Frozen cancellation-policy tiers, copied onto the booking at confirmation.
+   * cancelBookingInternal reads from here, never from a live policy source.
+   * Shape: { tiers: [{ minHoursBefore, refundPct }, ...] }.
+   */
+  cancellationPolicySnapshot Json?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   listing          Listing      @relation(fields: [listingId], references: [id])
@@ -403,6 +419,27 @@ model Payment {
 
   @@index([bookingId])
   @@index([status, createdAt])
+}
+
+/**
+ * Webhook event-ID dedup table for Razorpay.
+ *
+ * Razorpay delivers webhooks at-least-once (their own retry semantics + our
+ * non-2xx replays). The unique constraint on `eventId` makes the very first
+ * INSERT win and every subsequent INSERT fail — the handler exits clean on
+ * the duplicate-key error and we never run the side effects twice.
+ *
+ * Inserted INSIDE the signature-verify path so attackers can't poison the
+ * table with unsigned junk event IDs. The (signature → dedup-insert → handle)
+ * order is invariant; see payment.service.handleWebhook.
+ */
+model ProcessedRazorpayEvent {
+  eventId    String   @id
+  /** Razorpay event type (payment.captured, payment.failed, refund.processed). */
+  eventType  String
+  receivedAt DateTime @default(now())
+
+  @@index([receivedAt])
 }
 
 model PayLaterPlan {
@@ -511,6 +548,41 @@ model SystemConfig {
   value     Json
   updatedAt DateTime @updatedAt
   updatedBy String?
+}
+
+/**
+ * Platform feature flag override. The canonical set of flags lives in code
+ * (feature-flags.registry.ts); this table holds only admin OVERRIDES of the
+ * code-defined default. A missing row means "use the registry default".
+ * Toggling a flag off makes the @FeatureGate guard reject the feature's API
+ * with 503 and hides it in the UI.
+ */
+model FeatureFlag {
+  key       String   @id
+  enabled   Boolean
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+/**
+ * Per-host control-panel settings. Host-owned toggles the host manages
+ * themselves (distinct from platform feature flags set by admins).
+ */
+model HostSetting {
+  hostId            String   @id
+  /** Auto-confirm bookings without manual host review (forward-looking). */
+  instantBook       Boolean  @default(false)
+  /** Allow guests to start a direct message thread with this host. */
+  allowGuestMessages Boolean @default(true)
+  /** Allow guests to open a concierge chat on their booking. */
+  allowConciergeChat Boolean @default(true)
+  /** Email this host when a new booking lands. */
+  emailOnNewBooking Boolean  @default(true)
+  /** SMS this host when a new booking lands. */
+  smsOnNewBooking   Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+
+  host              Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
 }
 
 model AdminNotification {
@@ -1121,7 +1193,10 @@ model TrustedContact {
   id        String   @id @default(cuid())
   userId    String
   name      String
-  phone     String
+  /** E.164 phone, optional. At least one of phone or email must be set (enforced server-side). */
+  phone     String?
+  /** Email, optional. At least one of phone or email must be set (enforced server-side). */
+  email     String?
   relation  String
   primary   Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -1152,10 +1227,30 @@ model SosIncident {
   user        User         @relation(fields: [userId], references: [id])
   booking     Booking?     @relation(fields: [bookingId], references: [id])
   broadcasts  SosBroadcast[]
+  messages    SosMessage[]
 
   @@index([userId])
   @@index([status, openedAt(sort: Desc)])
   @@index([bookingId])
+}
+
+/**
+ * Per-incident chat thread between the guest and the responding admin.
+ * Polling-based real-time (3s on guest, 5s on admin) keeps the surface
+ * simple; SSE/WebSocket upgrade is a Phase 2 optimization.
+ */
+model SosMessage {
+  id          String      @id @default(cuid())
+  incidentId  String
+  senderId    String
+  /** 'GUEST' | 'ADMIN' — derived from the requesting controller, not from JWT role. */
+  senderRole  String
+  content     String
+  createdAt   DateTime    @default(now())
+
+  incident    SosIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, createdAt])
 }
 
 model SosBroadcast {
@@ -1445,23 +1540,76 @@ enum ItineraryStatus {
 }
 
 model Itinerary {
-  id              String           @id @default(cuid())
+  id              String              @id @default(cuid())
   userId          String
   listingId       String?
   destination     String
   startsAt        DateTime
   endsAt          DateTime
-  travelers       Int              @default(2)
-  interests       String[]         @default([])
+  travelers       Int                 @default(2)
+  interests       String[]            @default([])
   budgetMinor     Int?
-  status          ItineraryStatus  @default(DRAFT)
+  /** Optional theme/concept the user picked from suggestions, e.g. "Detox & Yoga". */
+  themeHint       String?
+  status          ItineraryStatus     @default(DRAFT)
   summary         String?
-  days            Json?            // [{ day: 1, date, title, sessions: [{ time, title, description, category }] }]
+  days            Json?               // [{ day: 1, date, title, sessions: [{ time, title, description, category }] }]
   model           String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  /** Cumulative input + output token counts for cost reporting. */
+  tokensInput     Int                 @default(0)
+  tokensOutput    Int                 @default(0)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
-  user            User             @relation("ItineraryOwner", fields: [userId], references: [id])
+  user            User                @relation("ItineraryOwner", fields: [userId], references: [id])
+  messages        ItineraryMessage[]
 
   @@index([userId, createdAt(sort: Desc)])
+}
+
+/**
+ * Chat history for refining an existing itinerary. The assistant can either
+ * reply text-only OR include a structured patch that mutates `Itinerary.days`.
+ * `appliedPatch` records what was applied (audit trail for the mutation).
+ */
+model ItineraryMessage {
+  id           String    @id @default(cuid())
+  itineraryId  String
+  role         String    // 'user' | 'assistant'
+  content      String
+  /** When the assistant response included a structured change to the itinerary days. */
+  appliedPatch Json?
+  /** Per-message token counts (for cost tracking). */
+  tokensInput  Int       @default(0)
+  tokensOutput Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  itinerary    Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+
+  @@index([itineraryId, createdAt])
+}
+
+/**
+ * Per-user, per-month usage counter for the AI itinerary planner. Drives the
+ * cost cap (ITINERARY_USER_MONTHLY_CAP_PAISE). Idempotent via the (userId,
+ * monthBucket) unique index — the service uses an upsert on every call.
+ */
+model ItineraryUsage {
+  id            String   @id @default(cuid())
+  userId        String
+  /** YYYY-MM bucket — e.g. "2026-05". Resets monthly. */
+  monthBucket   String
+  generations   Int      @default(0)
+  chatMessages  Int      @default(0)
+  tokensInput   Int      @default(0)
+  tokensOutput  Int      @default(0)
+  /** Cumulative cost for the month in paise (computed from token totals at write time). */
+  costPaise     Int      @default(0)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  user          User     @relation("ItineraryUsageOwner", fields: [userId], references: [id])
+
+  @@unique([userId, monthBucket])
+  @@index([monthBucket])
 }

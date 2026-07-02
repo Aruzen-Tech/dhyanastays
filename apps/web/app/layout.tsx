@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css';
 import './globals.css';
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
+import { FeatureProvider } from '../context/FeatureContext';
 import Navbar from '../components/Navbar';
 
 export const metadata: Metadata = {
@@ -53,6 +54,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-screen bg-surface flex flex-col">
         <ThemeProvider>
           <AuthProvider>
+            <FeatureProvider>
             <Navbar />
             <main className="flex-1 animate-fade-in">{children}</main>
 
@@ -74,6 +76,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 </div>
               </div>
             </footer>
+            </FeatureProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

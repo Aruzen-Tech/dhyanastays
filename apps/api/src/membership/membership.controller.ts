@@ -8,7 +8,9 @@ import { SipService } from './sip.service';
 import { StartSipDto } from './dto/start-sip.dto';
 import { ContributeSipDto } from './dto/contribute-sip.dto';
 import { SipStatusDto } from './dto/sip-status.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
+@FeatureGate('membership')
 @Controller('me')
 export class MembershipController {
   constructor(

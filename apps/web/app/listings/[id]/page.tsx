@@ -28,7 +28,59 @@ import {
   reviewsApi,
 } from '../../../lib/api';
 import type { AddOnSelection, Booking, GuestDetails, Hold, Listing, ListingReviews, PriceQuote } from '../../../lib/types';
-import AddOnPicker from '../../../components/AddOnPicker';
+// AddOnPicker disabled in Phase 1 — see add-on JSX block below.
+// import AddOnPicker from '../../../components/AddOnPicker';
+
+// ─── Hold countdown ───────────────────────────────────────────────────────────
+// Live MM:SS countdown to hold.expiresAt. Calls onExpire() exactly once when
+// the timer hits zero. Switches to red urgency styling under 60s.
+
+function HoldCountdown({
+  expiresAt,
+  onExpire,
+}: {
+  expiresAt: string;
+  onExpire: () => void;
+}) {
+  const [msRemaining, setMsRemaining] = useState(
+    () => new Date(expiresAt).getTime() - Date.now(),
+  );
+
+  useEffect(() => {
+    const target = new Date(expiresAt).getTime();
+    setMsRemaining(target - Date.now());
+    const id = setInterval(() => {
+      const remaining = target - Date.now();
+      setMsRemaining(remaining);
+      if (remaining <= 0) {
+        clearInterval(id);
+        onExpire();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt, onExpire]);
+
+  if (msRemaining <= 0) {
+    return (
+      <div className="alert-error text-xs">
+        ⏱ Hold expired — please re-quote and try again.
+      </div>
+    );
+  }
+
+  const totalSeconds = Math.floor(msRemaining / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const mmss = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  const urgent = totalSeconds < 60;
+
+  return (
+    <div className={urgent ? 'alert-error text-xs' : 'alert-info text-xs'}>
+      ⏱ Dates held — <span className="font-mono font-semibold">{mmss}</span>{' '}
+      remaining. Complete booking before the timer runs out.
+    </div>
+  );
+}
 
 // ─── Razorpay type declaration ────────────────────────────────────────────────
 
@@ -121,6 +173,7 @@ export default function ListingDetailPage() {
   const [hold, setHold] = useState<Hold | null>(null);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [paymentPlan, setPaymentPlan] = useState<'FULL' | 'DEPOSIT_50'>('FULL');
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [addOnSelections, setAddOnSelections] = useState<AddOnSelection[]>([]);
   const [guestDetails, setGuestDetails] = useState<GuestDetails>({
     fullName: '',
@@ -208,6 +261,7 @@ export default function ListingDetailPage() {
           ...(guestDetails.estimatedArrival && { estimatedArrival: guestDetails.estimatedArrival }),
           ...(guestDetails.specialRequests && { specialRequests: guestDetails.specialRequests }),
         },
+        acceptedTermsAt: new Date().toISOString(),
       });
       setBooking(b);
       setStep('payment');
@@ -549,12 +603,16 @@ export default function ListingDetailPage() {
                     <p className="text-xs text-gray-400 mt-1">Max {listing.rateRules[0].maxGuests} guests</p>
                   )}
                 </div>
+                {/* Add-ons disabled in Phase 1 launch — provider payout pipeline is queued for Phase 2.
+                    Re-enable by uncommenting once provider payouts ship. */}
+                {/*
                 <AddOnPicker
                   listingId={id}
                   value={addOnSelections}
                   onChange={setAddOnSelections}
                   disabled={actionLoading}
                 />
+                */}
                 {actionError && <div className="alert-error text-xs">{actionError}</div>}
                 <button onClick={handleGetQuote} disabled={!checkIn || !checkOut || actionLoading}
                   className="btn-primary w-full">
@@ -581,11 +639,22 @@ export default function ListingDetailPage() {
                     <span className="text-gray-600">Platform fee ({Math.round((quote.platformFeeRate ?? 0.1) * 100)}%)</span>
                     <span className="font-medium">{formatINR(quote.platformFee)}</span>
                   </div>
+                  {quote.gstAmount > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">GST ({Math.round((quote.gstRate ?? 0.18) * 100)}%)</span>
+                      <span className="font-medium">{formatINR(quote.gstAmount)}</span>
+                    </div>
+                  )}
                   <div className="divider !my-2" />
                   <div className="flex justify-between font-bold text-base">
                     <span>Total</span>
                     <span className="text-brand-700">{formatINR(quote.total)}</span>
                   </div>
+                  {quote.expiresAt && (
+                    <p className="text-xs text-gray-400 text-center pt-1">
+                      Quote valid until {new Date(quote.expiresAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  )}
                 </div>
                 <div className="text-xs text-gray-500 text-center">
                   {formatDate(checkIn)} → {formatDate(checkOut)}
@@ -609,9 +678,14 @@ export default function ListingDetailPage() {
             {/* Step: Guest details */}
             {step === 'guestdetails' && hold && (
               <div className="space-y-4">
-                <div className="alert-info text-xs">
-                  ⏱ Dates held for 15 minutes. Fill in your details to continue.
-                </div>
+                <HoldCountdown
+                  expiresAt={hold.expiresAt}
+                  onExpire={() => {
+                    setHold(null);
+                    setActionError('Hold expired. Please get a fresh quote.');
+                    setStep('quote');
+                  }}
+                />
                 <div className="space-y-3">
                   <div>
                     <label className="label">Full name *</label>
@@ -690,8 +764,31 @@ export default function ListingDetailPage() {
                     </button>
                   ))}
                 </div>
+                <label className="flex items-start gap-2 text-xs text-gray-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={termsAccepted}
+                    onChange={(e) => setTermsAccepted(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-700 focus:ring-brand-700"
+                  />
+                  <span>
+                    I&apos;ve read and accept the{' '}
+                    <a href="/legal/terms" target="_blank" className="text-brand-700 hover:underline">
+                      terms of service
+                    </a>{' '}
+                    and{' '}
+                    <a href="/legal/cancellation" target="_blank" className="text-brand-700 hover:underline">
+                      cancellation policy
+                    </a>{' '}
+                    (100% refund if cancelled ≥48h before check-in, 50% if 10–48h, 0% if &lt;10h).
+                  </span>
+                </label>
                 {actionError && <div className="alert-error text-xs">{actionError}</div>}
-                <button onClick={handleCreateBooking} disabled={actionLoading} className="btn-primary w-full">
+                <button
+                  onClick={handleCreateBooking}
+                  disabled={actionLoading || !termsAccepted}
+                  className="btn-primary w-full"
+                >
                   {actionLoading ? <><span className="spinner" /> Creating booking…</> : 'Confirm booking'}
                 </button>
               </div>

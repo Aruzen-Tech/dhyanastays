@@ -10,10 +10,12 @@
     "lint": "eslint \"src/**/*.ts\"",
     "test": "jest",
     "test:e2e": "jest --config jest-e2e.config.json --runInBand --forceExit",
+    "test:int": "dotenv -e .env -- jest --config jest-integration.config.json --runInBand --forceExit",
     "test:cov": "jest --coverage",
     "prisma:generate": "dotenv -e .env -- prisma generate",
     "prisma:migrate": "dotenv -e .env -- prisma migrate dev",
     "prisma:deploy": "dotenv -e .env -- prisma migrate deploy",
+    "post-migrate": "dotenv -e .env -- prisma db execute --file prisma/post-migrate/01_booking_gist_index.sql --schema prisma/schema.prisma",
     "seed": "dotenv -e .env -- ts-node src/prisma/seed.ts"
   },
   "dependencies": {

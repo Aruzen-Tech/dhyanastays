@@ -203,11 +203,17 @@ export interface PriceQuote {
   platformFee: number;
   addOnsTotal: number;
   addOns: PriceSnapshotAddOn[];
+  /** GST rate applied (0–1). 0.18 in Phase 1. */
+  gstRate: number;
+  /** GST amount in paise — 18% of platform fee + add-on commission. */
+  gstAmount: number;
   total: number;
   depositAmount: number;
   balanceAmount: number;
   currency: string;
   snapshotAt: string;
+  /** ISO timestamp when this snapshot expires. Payment endpoints reject expired snapshots with 410 Gone. */
+  expiresAt: string;
   hmac?: string;
 }
 
@@ -1518,10 +1524,101 @@ export interface Itinerary {
   travelers: number;
   interests: string[];
   budgetMinor: number | null;
+  themeHint: string | null;
   status: ItineraryStatus;
   summary: string | null;
   days: ItineraryDay[] | null;
   model: string | null;
+  tokensInput: number;
+  tokensOutput: number;
   createdAt: string;
   updatedAt: string;
+  messages?: ItineraryMessage[];
+}
+
+export interface ItinerarySuggestion {
+  key: string;
+  title: string;
+  theme: string;
+  summary: string;
+}
+
+export interface ItineraryMessage {
+  id: string;
+  itineraryId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  appliedPatch: { days?: ItineraryDay[]; summary?: string } | null;
+  tokensInput: number;
+  tokensOutput: number;
+  createdAt: string;
+}
+
+export interface ItineraryUsage {
+  monthBucket: string;
+  capPaise: number;
+  generations: number;
+  chatMessages: number;
+  costPaise: number;
+  tokensInput: number;
+  tokensOutput: number;
+}
+
+export interface SendMessageResult {
+  userMessage: ItineraryMessage;
+  assistantMessage: ItineraryMessage;
+  updated: Itinerary;
+}
+
+// ─── Platform Control Panel — Feature Flags (admin) ──────────────────────────
+
+export type FeatureCategory =
+  | 'Bookings & Payments'
+  | 'Guest Experience'
+  | 'AI & Concierge'
+  | 'Safety'
+  | 'Loyalty & Growth'
+  | 'Messaging'
+  | 'Investor';
+
+export interface ResolvedFeature {
+  key: string;
+  label: string;
+  description: string;
+  category: FeatureCategory;
+  defaultEnabled: boolean;
+  audience: Array<'guest' | 'host' | 'admin' | 'investor'>;
+  critical?: boolean;
+  enabled: boolean;
+  overridden: boolean;
+  updatedAt: string | null;
+  updatedBy: string | null;
+}
+
+/** key → enabled map from /platform/features (UI gating). */
+export type FeatureEnabledMap = Record<string, boolean>;
+
+// ─── Host Control Panel — host settings ──────────────────────────────────────
+
+export interface HostSettings {
+  hostId: string;
+  instantBook: boolean;
+  allowGuestMessages: boolean;
+  allowConciergeChat: boolean;
+  emailOnNewBooking: boolean;
+  smsOnNewBooking: boolean;
+  updatedAt: string;
+}
+
+export interface HostFeatureAvailability {
+  key: string;
+  label: string;
+  description: string;
+  category: FeatureCategory;
+  enabled: boolean;
+}
+
+export interface HostControlPanel {
+  settings: HostSettings;
+  features: HostFeatureAvailability[];
 }

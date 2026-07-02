@@ -1,6 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { BookingController } from './booking.controller';
 import { BookingService } from './booking.service';
+import { BookingStateMachine } from './state-machine';
 import { PricingModule } from '../pricing/pricing.module';
 import { NotificationModule } from '../notification/notification.module';
 import { ListingModule } from '../listing/listing.module';
@@ -19,8 +20,8 @@ import { PayLaterModule } from '../pay-later/pay-later.module';
     MembershipModule,
     forwardRef(() => PayLaterModule),
   ],
-  providers: [BookingService],
+  providers: [BookingService, BookingStateMachine],
   controllers: [BookingController],
-  exports: [BookingService],
+  exports: [BookingService, BookingStateMachine],
 })
 export class BookingModule {}

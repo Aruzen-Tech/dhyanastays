@@ -57,10 +57,17 @@ describe('PricingService', () => {
     expect(snapshot.cleaningFee).toBe(100000);
     // Platform fee: 10% of (subtotal + cleaning) = 10% of ₹16,000 = ₹1,600
     expect(snapshot.platformFee).toBe(160000);
-    expect(snapshot.total).toBe(1760000); // ₹17,600
-    expect(snapshot.depositAmount).toBe(880000); // 50%
-    expect(snapshot.balanceAmount).toBe(880000);
+    // GST 18% on platform fee + add-on commission (no add-ons here): 18% of ₹1,600 = ₹288
+    expect(snapshot.gstRate).toBe(0.18);
+    expect(snapshot.gstAmount).toBe(28800);
+    // Total = subtotal + cleaning + platform fee + GST = ₹17,888
+    expect(snapshot.total).toBe(1788800);
+    expect(snapshot.depositAmount).toBe(894400); // 50%
+    expect(snapshot.balanceAmount).toBe(894400);
     expect(snapshot.hmac).toBe('mock-hmac');
+    // Snapshot has a 30-min TTL set by SNAPSHOT_TTL_MS
+    expect(typeof snapshot.expiresAt).toBe('string');
+    expect(new Date(snapshot.expiresAt).getTime()).toBeGreaterThan(Date.now() + 25 * 60 * 1000);
     expect(signer.sign).toHaveBeenCalledTimes(1);
   });
 

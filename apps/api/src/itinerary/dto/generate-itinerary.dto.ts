@@ -43,4 +43,10 @@ export class GenerateItineraryDto {
   @IsOptional()
   @IsString()
   listingId?: string;
+
+  /** Optional theme/concept the user picked from suggestions, e.g. "Detox & Yoga". */
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  themeHint?: string;
 }

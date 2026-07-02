@@ -15,12 +15,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PaymentService } from '../payment/payment.service';
 import { PayLaterService } from './pay-later.service';
 import { PayInstalmentDto } from './dto/pay-instalment.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
 /**
  * Guest-facing endpoints for Pay Later instalments. The plan itself is
  * created automatically when the first (booking-time) instalment captures —
  * see BookingService.confirmPayment.
  */
+@FeatureGate('pay_later')
 @Controller('bookings')
 export class PayLaterController {
   constructor(

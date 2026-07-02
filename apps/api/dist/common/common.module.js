@@ -11,14 +11,28 @@ const common_1 = require("@nestjs/common");
 const access_control_service_1 = require("./access-control/access-control.service");
 const audit_service_1 = require("./services/audit.service");
 const ledger_service_1 = require("./services/ledger.service");
+const price_snapshot_signer_service_1 = require("./services/price-snapshot-signer.service");
+const capabilities_service_1 = require("./services/capabilities.service");
 let CommonModule = class CommonModule {
 };
 exports.CommonModule = CommonModule;
 exports.CommonModule = CommonModule = __decorate([
     (0, common_1.Global)(),
     (0, common_1.Module)({
-        providers: [audit_service_1.AuditService, ledger_service_1.LedgerService, access_control_service_1.AccessControlService],
-        exports: [audit_service_1.AuditService, ledger_service_1.LedgerService, access_control_service_1.AccessControlService],
+        providers: [
+            audit_service_1.AuditService,
+            ledger_service_1.LedgerService,
+            access_control_service_1.AccessControlService,
+            price_snapshot_signer_service_1.PriceSnapshotSignerService,
+            capabilities_service_1.CapabilitiesService,
+        ],
+        exports: [
+            audit_service_1.AuditService,
+            ledger_service_1.LedgerService,
+            access_control_service_1.AccessControlService,
+            price_snapshot_signer_service_1.PriceSnapshotSignerService,
+            capabilities_service_1.CapabilitiesService,
+        ],
     })
 ], CommonModule);
 //# sourceMappingURL=common.module.js.map

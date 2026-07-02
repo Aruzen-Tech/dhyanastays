@@ -468,6 +468,8 @@ export const bookingsApi = {
     idempotencyKey: string;
     guestDetails: GuestDetails;
     payLaterMonths?: 3 | 6 | 12;
+    /** ISO timestamp recording when guest accepted terms + cancellation policy. Required server-side. */
+    acceptedTermsAt: string;
   }) =>
     request<Booking>('/bookings', {
       method: 'POST',
@@ -592,6 +594,43 @@ export const payoutsApi = {
 
   dryRun: () =>
     request<PayoutDryRun>('/admin/payouts/dry-run'),
+};
+
+// ─── Platform Control Panel — feature flags + host settings ──────────────────
+
+import type {
+  ResolvedFeature,
+  FeatureEnabledMap,
+  HostControlPanel,
+  HostSettings,
+} from './types';
+
+export const adminFeaturesApi = {
+  list: () => request<ResolvedFeature[]>('/admin/features'),
+  toggle: (key: string, enabled: boolean) =>
+    request<ResolvedFeature>(`/admin/features/${key}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+  bulk: (updates: Array<{ key: string; enabled: boolean }>) =>
+    request<ResolvedFeature[]>('/admin/features/bulk', {
+      method: 'PATCH',
+      body: JSON.stringify({ updates }),
+    }),
+};
+
+/** Public feature-availability map for UI gating. */
+export const platformFeaturesApi = {
+  enabledMap: () => request<FeatureEnabledMap>('/platform/features'),
+};
+
+export const hostSettingsApi = {
+  get: () => request<HostControlPanel>('/host/settings'),
+  update: (body: Partial<Omit<HostSettings, 'hostId' | 'updatedAt'>>) =>
+    request<HostSettings>('/host/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
 };
 
 // ─── Admin Console ───────────────────────────────────────────────────────────
@@ -1333,7 +1372,10 @@ export type SosStatus =
 export interface TrustedContact {
   id: string;
   name: string;
-  phone: string;
+  /** E.164 phone, optional. At least one of phone or email is required. */
+  phone: string | null;
+  /** Email, optional. At least one of phone or email is required. */
+  email: string | null;
   relation: string;
   primary: boolean;
   createdAt: string;
@@ -1366,6 +1408,26 @@ export interface SosIncident {
   user?: { id: string; fullName: string; phone: string | null };
 }
 
+export interface SosMessage {
+  id: string;
+  incidentId: string;
+  senderId: string;
+  senderRole: 'GUEST' | 'ADMIN';
+  content: string;
+  createdAt: string;
+}
+
+export interface SosTimelineEntry {
+  status: string;
+  at: string;
+  note?: string;
+}
+
+export interface SosTimeline {
+  status: SosStatus;
+  timeline: SosTimelineEntry[];
+}
+
 export const sosApi = {
   trigger: (body: {
     tier: SosTier;
@@ -1377,6 +1439,15 @@ export const sosApi = {
     request<SosIncident>('/sos', { method: 'POST', body: JSON.stringify(body) }),
   listMine: () => request<SosIncident[]>('/sos'),
   getIncident: (id: string) => request<SosIncident>(`/sos/${id}`),
+  /** Guest-facing status timeline (OPENED → ACKED → IN_PROGRESS → RESOLVED). */
+  getTimeline: (id: string) => request<SosTimeline>(`/sos/${id}/timeline`),
+  /** Guest-side chat with the responding admin. Polls every 3s on the detail page. */
+  listMessages: (id: string) => request<SosMessage[]>(`/sos/${id}/messages`),
+  sendMessage: (id: string, content: string) =>
+    request<SosMessage>(`/sos/${id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
 
   listContacts: () => request<TrustedContact[]>('/me/trusted-contacts'),
   createContact: (body: Omit<TrustedContact, 'id' | 'createdAt'>) =>
@@ -1404,6 +1475,13 @@ export const adminSosApi = {
       `/admin/sos${status ? `?status=${status}` : ''}`,
     ),
   get: (id: string) => request<SosIncident>(`/admin/sos/${id}`),
+  getTimeline: (id: string) => request<SosTimeline>(`/admin/sos/${id}/timeline`),
+  listMessages: (id: string) => request<SosMessage[]>(`/admin/sos/${id}/messages`),
+  sendMessage: (id: string, content: string) =>
+    request<SosMessage>(`/admin/sos/${id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
   ack: (id: string, note?: string) =>
     request<SosIncident>(`/admin/sos/${id}/ack`, {
       method: 'POST',
@@ -1603,9 +1681,34 @@ export const tripGroupsApi = {
 
 // ─── AI Itinerary (§5.9) ────────────────────────────────────────────────────
 
+import type {
+  ItineraryMessage,
+  ItinerarySuggestion,
+  ItineraryUsage,
+  SendMessageResult,
+} from './types';
+
 export const itinerariesApi = {
   list: () => request<Itinerary[]>('/itineraries'),
 
+  /** Per-user usage + monthly cap. */
+  usage: () => request<ItineraryUsage>('/itineraries/usage'),
+
+  /** Step 1: get 2–3 concept cards before committing to a full plan. */
+  suggest: (body: {
+    destination: string;
+    startsAt: string;
+    endsAt: string;
+    travelers: number;
+    interests?: string[];
+    budgetMinor?: number;
+  }) =>
+    request<{ suggestions: ItinerarySuggestion[] }>('/itineraries/suggestions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  /** Step 2: full day-by-day generation. Optionally pass themeHint from a chosen suggestion. */
   generate: (body: {
     destination: string;
     startsAt: string;
@@ -1614,6 +1717,7 @@ export const itinerariesApi = {
     interests?: string[];
     budgetMinor?: number;
     listingId?: string;
+    themeHint?: string;
   }) =>
     request<Itinerary>('/itineraries/generate', {
       method: 'POST',
@@ -1621,6 +1725,17 @@ export const itinerariesApi = {
     }),
 
   getById: (id: string) => request<Itinerary>(`/itineraries/${id}`),
+
+  /** Step 3: chat refinement — list prior messages. */
+  listMessages: (id: string) =>
+    request<ItineraryMessage[]>(`/itineraries/${id}/messages`),
+
+  /** Step 3: chat refinement — send a message; assistant may patch the itinerary. */
+  sendMessage: (id: string, content: string) =>
+    request<SendMessageResult>(`/itineraries/${id}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
 
   finalize: (id: string) =>
     request<Itinerary>(`/itineraries/${id}/finalize`, { method: 'PATCH' }),

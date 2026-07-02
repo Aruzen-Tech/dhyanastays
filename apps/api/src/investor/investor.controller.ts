@@ -5,7 +5,9 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Kinds } from '../common/decorators/kinds.decorator';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { InvestorService } from './investor.service';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
+@FeatureGate('investor_dashboard')
 @Controller('investor')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Kinds(UserKind.INVESTOR)

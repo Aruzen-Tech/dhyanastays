@@ -31,6 +31,8 @@ import { InvestorModule } from './investor/investor.module';
 import { ExperienceModule } from './experience/experience.module';
 import { TripGroupModule } from './trip-group/trip-group.module';
 import { ItineraryModule } from './itinerary/itinerary.module';
+import { FeatureModule } from './feature/feature.module';
+import { HostSettingsModule } from './host-settings/host-settings.module';
 import { ThrottleTrackerInterceptor } from './common/interceptors/throttle-tracker.interceptor';
 import { LoggerModule } from './common/logger/logger.module';
 import { DlqModule } from './common/queues/dlq.module';
@@ -73,6 +75,14 @@ export class AppModule {
     const redisUp = await isRedisAvailable(redisHost, redisPort);
 
     if (!redisUp) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error(
+          `Redis (>= 5.0) is required in production but not reachable at ${redisHost}:${redisPort}. ` +
+          `Background jobs (hold expiry, payout batches, balance-due reminders, SOS broadcast, ` +
+          `outbox dispatcher, concierge SLA) cannot run without it. Set REDIS_HOST/REDIS_PORT/REDIS_PASSWORD ` +
+          `to a reachable Redis >= 5.0 instance and restart.`,
+        );
+      }
       // eslint-disable-next-line no-console
       console.warn(
         '\n[!] Redis (>= 5.0) not available at %s:%d - background jobs disabled.\n' +
@@ -190,6 +200,10 @@ export class AppModule {
 
         // AI Itinerary Planner (Phase 3 §5.9)
         ItineraryModule,
+
+        // Platform control panel — feature flags (global service for FeatureGuard)
+        FeatureModule,
+        HostSettingsModule,
 
         // Redis-dependent modules (BullMQ + Jobs) — only if Redis is reachable
         ...redisImports,

@@ -15,28 +15,60 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AuthController = void 0;
 const common_1 = require("@nestjs/common");
 const auth_service_1 = require("./auth.service");
+const mfa_service_1 = require("./services/mfa.service");
 const public_decorator_1 = require("../common/decorators/public.decorator");
 const login_dto_1 = require("./dto/login.dto");
 const refresh_dto_1 = require("./dto/refresh.dto");
 const register_dto_1 = require("./dto/register.dto");
 const sync_user_dto_1 = require("./dto/sync-user.dto");
+const mfa_verify_dto_1 = require("./dto/mfa-verify.dto");
+const mfa_challenge_dto_1 = require("./dto/mfa-challenge.dto");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 const jwt_auth_guard_1 = require("../common/guards/jwt-auth.guard");
+const login_throttle_guard_1 = require("./guards/login-throttle.guard");
+function clientInfo(req) {
+    return {
+        ipAddress: req.headers['x-forwarded-for']?.split(',')[0]?.trim() ?? req.ip ?? 'unknown',
+        userAgent: req.headers['user-agent'] ?? 'unknown',
+    };
+}
 let AuthController = class AuthController {
-    constructor(authService) {
+    constructor(authService, mfaService) {
         this.authService = authService;
+        this.mfaService = mfaService;
     }
     register(dto) {
         return this.authService.register(dto);
     }
-    login(dto) {
-        return this.authService.login(dto);
+    login(dto, req) {
+        return this.authService.login(dto, clientInfo(req));
     }
-    refresh(dto) {
-        return this.authService.refresh(dto);
+    refresh(dto, req) {
+        return this.authService.refresh(dto, clientInfo(req));
     }
     logout(user) {
         return this.authService.logout(user.sub);
+    }
+    getSessions(user) {
+        return this.authService.getSessions(user.sub);
+    }
+    logoutSession(user, familyId) {
+        return this.authService.logoutSession(user.sub, familyId);
+    }
+    getMfaStatus(user) {
+        return this.mfaService.getStatus(user.sub);
+    }
+    setupMfa(user) {
+        return this.mfaService.setupTotp(user.sub);
+    }
+    confirmMfa(user, dto) {
+        return this.mfaService.confirmTotp(user.sub, dto.code);
+    }
+    disableMfa(user, dto) {
+        return this.mfaService.disableTotp(user.sub, dto.code);
+    }
+    mfaChallenge(dto, req) {
+        return this.mfaService.challenge(dto.mfaToken, dto.code, clientInfo(req));
     }
     syncUser(user, dto) {
         return this.authService.syncUser(user, dto);
@@ -56,18 +88,21 @@ __decorate([
 ], AuthController.prototype, "register", null);
 __decorate([
     (0, public_decorator_1.Public)(),
+    (0, common_1.UseGuards)(login_throttle_guard_1.LoginThrottleGuard),
     (0, common_1.Post)('login'),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [login_dto_1.LoginDto]),
+    __metadata("design:paramtypes", [login_dto_1.LoginDto, Object]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "login", null);
 __decorate([
     (0, public_decorator_1.Public)(),
     (0, common_1.Post)('refresh'),
     __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", [refresh_dto_1.RefreshDto]),
+    __metadata("design:paramtypes", [refresh_dto_1.RefreshDto, Object]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "refresh", null);
 __decorate([
@@ -78,6 +113,66 @@ __decorate([
     __metadata("design:paramtypes", [Object]),
     __metadata("design:returntype", void 0)
 ], AuthController.prototype, "logout", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)('sessions'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "getSessions", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Delete)('sessions/:familyId'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('familyId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "logoutSession", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Get)('mfa'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "getMfaStatus", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Post)('mfa/setup'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "setupMfa", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Post)('mfa/confirm'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, mfa_verify_dto_1.MfaVerifyDto]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "confirmMfa", null);
+__decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Delete)('mfa'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, mfa_verify_dto_1.MfaVerifyDto]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "disableMfa", null);
+__decorate([
+    (0, public_decorator_1.Public)(),
+    (0, common_1.Post)('mfa/challenge'),
+    __param(0, (0, common_1.Body)()),
+    __param(1, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [mfa_challenge_dto_1.MfaChallengeDto, Object]),
+    __metadata("design:returntype", void 0)
+], AuthController.prototype, "mfaChallenge", null);
 __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
     (0, common_1.Post)('sync'),
@@ -97,6 +192,7 @@ __decorate([
 ], AuthController.prototype, "getMe", null);
 exports.AuthController = AuthController = __decorate([
     (0, common_1.Controller)('auth'),
-    __metadata("design:paramtypes", [auth_service_1.AuthService])
+    __metadata("design:paramtypes", [auth_service_1.AuthService,
+        mfa_service_1.MfaService])
 ], AuthController);
 //# sourceMappingURL=auth.controller.js.map

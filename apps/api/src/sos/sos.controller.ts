@@ -15,6 +15,7 @@ import {
 import { SosService } from './sos.service';
 import { CreateIncidentDto } from './dto/create-incident.dto';
 import { UpsertTrustedContactDto } from './dto/trusted-contact.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
 /**
  * Guest-facing SOS routes. POST /sos is rate-limited to 5 req/min per IP
@@ -22,6 +23,7 @@ import { UpsertTrustedContactDto } from './dto/trusted-contact.dto';
  * double-taps stay within the budget. Trusted contact CRUD has the normal
  * global limit.
  */
+@FeatureGate('sos')
 @Controller()
 export class SosController {
   constructor(private readonly sos: SosService) {}
@@ -43,6 +45,28 @@ export class SosController {
   @Get('sos/:id')
   getIncident(@CurrentUser() user: RequestUser, @Param('id') id: string) {
     return this.sos.getIncidentForUser(user.sub, id);
+  }
+
+  /** Status timeline for the guest tracking view. */
+  @Get('sos/:id/timeline')
+  getTimeline(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.sos.getStatusTimeline(user.sub, id, 'GUEST');
+  }
+
+  /** Chat with the responding admin. */
+  @Get('sos/:id/messages')
+  listMessages(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.sos.listMessages(user.sub, id, 'GUEST');
+  }
+
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Post('sos/:id/messages')
+  sendMessage(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { content: string },
+  ) {
+    return this.sos.sendMessage(user.sub, id, 'GUEST', body?.content ?? '');
   }
 
   // ── Trusted contacts ─────────────────────────────────────────────────────

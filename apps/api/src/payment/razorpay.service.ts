@@ -110,6 +110,39 @@ export class RazorpayService {
   }
 
   /**
+   * Fetch all payments associated with a Razorpay order.
+   * Used by the reconciliation cron to recover from missed webhooks.
+   * Returns an empty list in stub mode.
+   */
+  async getPaymentsForOrder(
+    orderId: string,
+  ): Promise<Array<{ id: string; status: string; amount: number; order_id: string }>> {
+    if (this.stubMode) {
+      return [];
+    }
+
+    const auth = Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64');
+    const response = await fetch(
+      `https://api.razorpay.com/v1/orders/${orderId}/payments`,
+      {
+        headers: { Authorization: `Basic ${auth}` },
+      },
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(
+        `Razorpay getPaymentsForOrder failed: ${response.status} ${text}`,
+      );
+    }
+
+    const json = (await response.json()) as {
+      items: Array<{ id: string; status: string; amount: number; order_id: string }>;
+    };
+    return json.items ?? [];
+  }
+
+  /**
    * Initiate a refund via Razorpay.
    * @param paymentId   Razorpay payment_id
    * @param amountPaise Amount to refund in paise

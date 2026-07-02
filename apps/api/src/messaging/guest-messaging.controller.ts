@@ -5,7 +5,9 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { MessagingService } from './messaging.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
+@FeatureGate('guest_host_messaging')
 @Controller('guest/conversations')
 @Roles(UserRole.GUEST)
 export class GuestMessagingController {

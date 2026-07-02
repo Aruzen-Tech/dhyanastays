@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 const roles_decorator_1 = require("../common/decorators/roles.decorator");
+const idempotency_interceptor_1 = require("../common/interceptors/idempotency.interceptor");
 const create_hold_dto_1 = require("./dto/create-hold.dto");
 const hold_service_1 = require("./hold.service");
 let HoldController = class HoldController {
@@ -30,6 +31,7 @@ let HoldController = class HoldController {
 exports.HoldController = HoldController;
 __decorate([
     (0, common_1.Post)(),
+    (0, common_1.UseInterceptors)(idempotency_interceptor_1.IdempotencyInterceptor),
     __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __param(1, (0, common_1.Body)()),
     __metadata("design:type", Function),

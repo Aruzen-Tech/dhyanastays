@@ -18,6 +18,7 @@ import { AdminNotificationService } from '../admin/admin-notification.service';
 import { AuditService } from '../common/services/audit.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
+import { HostSettingsService } from '../host-settings/host-settings.service';
 
 /**
  * Concierge SLA: host must reply within this window after a guest message,
@@ -52,6 +53,7 @@ export class MessagingService {
     private readonly outbox: OutboxService,
     private readonly adminNotifications: AdminNotificationService,
     private readonly auditService: AuditService,
+    private readonly hostSettings: HostSettingsService,
   ) {}
 
   // ─── Create or find conversation (ad-hoc, pre-booking) ────────────────────
@@ -65,6 +67,16 @@ export class MessagingService {
       where: { id: dto.recipientId },
     });
     if (!recipient) throw new NotFoundException('Recipient not found');
+
+    // Host control-panel toggle: a host can decline direct guest messages.
+    if (userRole === 'GUEST' && recipient.role === 'HOST') {
+      const allowed = await this.hostSettings.allowsGuestMessages(recipient.id);
+      if (!allowed) {
+        throw new ForbiddenException(
+          'This host is not accepting direct messages right now.',
+        );
+      }
+    }
 
     const type = this.resolveConversationType(userRole, recipient.role);
     const [userOneId, userTwoId] = this.orderParticipants(
@@ -363,7 +375,12 @@ export class MessagingService {
   async getConciergeThreadForGuest(bookingId: string, guestId: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
-      select: { id: true, guestId: true, status: true },
+      select: {
+        id: true,
+        guestId: true,
+        status: true,
+        listing: { select: { host: { select: { userId: true } } } },
+      },
     });
     if (!booking) throw new NotFoundException('Booking not found');
     if (booking.guestId !== guestId) {
@@ -371,6 +388,17 @@ export class MessagingService {
     }
     if (!CONFIRMED_BOOKING_STATUSES.includes(booking.status)) {
       throw new BadRequestException('Concierge chat is available after confirmation');
+    }
+
+    // Host control-panel toggle: a host can decline concierge chat.
+    const hostUserId = booking.listing?.host?.userId;
+    if (hostUserId) {
+      const allowed = await this.hostSettings.allowsConciergeChat(hostUserId);
+      if (!allowed) {
+        throw new ForbiddenException(
+          'Concierge chat is not available for this stay.',
+        );
+      }
     }
 
     const thread = await this.ensureConciergeThread(bookingId);
