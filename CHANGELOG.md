@@ -1,5 +1,174 @@
 # Changelog
 
+All notable changes to **Dhyana Stays** are recorded here. Newest first.
+Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
+`0000_name`; commits as short SHAs.
+
+> **Convention:** every change/update to the platform is recorded in this file.
+> When you ship work, add an entry under the current dated section with the right
+> category (Added / Changed / Fixed / Security / Infrastructure / Migration) and
+> cite the migration and/or commit.
+
+---
+
+## 2026-07-02 — Hold lifecycle: release-on-abandon + shared visibility
+
+Commit `0f38f27`.
+
+### Added
+- **Release a hold when the guest abandons the flow.** `HoldService.releaseHold`
+  (owner-only, idempotent, refuses holds already converted to a booking) +
+  `DELETE /holds/:id`. Frees the dates immediately instead of holding them for the
+  full 15-minute TTL.
+- **Hold status for other guests.** `HoldService.getHoldStatus` →
+  `{ held, mine, heldUntil, remainingSeconds }` + `GET /holds/status`. The
+  hold-create conflict response is enriched with `heldUntil` + `remainingSeconds`.
+
+### Changed
+- **Booking panel** (`apps/web/app/listings/[id]`): releases the hold on tab close
+  (`pagehide` + `fetch(keepalive)`), SPA unmount, and an explicit "Back (release
+  hold)" button — guarded so a hold that became a booking is never released. Shows
+  a live **"on hold — MM:SS remaining"** banner to other guests at quote time and
+  on a lost race; disables the Hold button until the countdown expires, then
+  auto-rechecks. The hold-reaper cron remains the backstop.
+
+---
+
+## 2026-07-02 — Platform Control Panel + Feature Flags
+
+Commit `2b67128`. Migration `0032_feature_flags_host_settings`.
+
+### Added
+- **Feature-flag system.** Canonical code registry (`feature-flags.registry.ts`,
+  12 features / 7 categories) merged with admin DB overrides (`FeatureFlag`).
+  `FeatureFlagService` with a 15s hot-path cache.
+- **`@FeatureGate('key')` decorator + global `FeatureGuard`** — a disabled feature
+  returns **503** for everyone (admins included). Applied to 14 feature controllers
+  (experiences, trip-groups, itineraries, SOS, membership, referrals, pay-later,
+  investor, guest/host messaging, guest/host concierge).
+- **Endpoints:** `GET /admin/features`, `PATCH /admin/features/:key`,
+  `PATCH /admin/features/bulk` (L1+); public `GET /platform/features` (enabled map).
+- **Host control panel.** `HostSetting` model + `GET/PATCH /host/settings` —
+  `instantBook`, `allowGuestMessages`, `allowConciergeChat`, `emailOnNewBooking`,
+  `smsOnNewBooking`.
+- **Admin control panel UI** (`/admin/control-panel`) — grouped toggles,
+  critical-feature confirm, search, optimistic updates.
+- **Host control panel UI** (`/host/control-panel`) — own toggles + read-only
+  platform feature availability.
+- **`FeatureContext`** (web) for UI gating; navbar hides disabled features and
+  links to both control panels.
+
+### Changed
+- Messaging `startConversation` (guest→host) gated by host `allowGuestMessages`;
+  concierge access gated by `allowConciergeChat`.
+
+---
+
+## 2026-06 — Booking-engine production-correctness pass
+
+Migrations `0029_booking_status_history`, `0030_booking_gist_index`,
+`0031_booking_correctness_pass`. (Landed under commit `2b67128`.)
+
+### Added
+- **`BookingStateMachine`** — single chokepoint for every `Booking.status`
+  transition with an append-only `statusHistory` audit trail. Illegal transitions
+  rejected. All status writes route through it (grep-verified zero direct writes).
+- **`withSerializableRetry`** — SERIALIZABLE isolation + single retry on 40001/P2034,
+  emits `db.serialization_retry` metric log. Used only in `createHold` and confirm.
+- **Seven-step atomic confirm** (`confirmPayment`, tx-scoped): FOR UPDATE →
+  idempotency → HMAC re-verify → amount check → overlap check → state machine →
+  ledger append. Exceptions `TamperedSnapshotException`, `AmountMismatchException`.
+- **GiST partial index** `idx_booking_active_range` (mirrors the overlap trigger's
+  predicate), applied `CONCURRENTLY` via `prisma/post-migrate/` + `pnpm post-migrate`.
+- **`ProcessedRazorpayEvent`** — webhook event-ID dedup (INSERT after signature verify).
+- **`Booking.cancellationPolicySnapshot`** — refund tiers frozen at confirm; cancel
+  reads the snapshot, never the live policy.
+- **Idempotency** on `POST /bookings` via `IdempotencyInterceptor`.
+- **Integration suite** (`test/integration/`, real Postgres, `pnpm test:int`):
+  overlap-trigger double-booking prevention, GiST index usage, ledger immutability,
+  webhook dedup, **concurrency proofs at 50 iterations** (exactly-one-winner),
+  serializable retry, tampered-snapshot HMAC, state-machine persistence.
+
+### Fixed
+- **Nested-transaction split-brain** in the webhook confirm path — `confirmPayment`
+  is tx-scoped (inline steps) and `withSerializableRetry` wraps the whole webhook
+  handler, so payment-capture + confirm + ledger commit atomically.
+
+---
+
+## 2026-06 — Phase-1 production hardening (Parts I–IV)
+
+Migrations `0025_booking_terms_acceptance`, `0026_trusted_contact_email`,
+`0027_itinerary_chat_and_usage`, `0028_sos_chat`.
+
+### Fixed — Part I (critical booking bugs)
+- **Razorpay 100× overcharge** — snapshot amounts are paise; removed the erroneous
+  `× 100` at `createOrder`.
+- **Webhook unit mismatch** — stopped dividing captured paise by 100 (had broken
+  status transitions and under-recorded payouts).
+- **Host-share computation** — host receives `subtotal + cleaningFee` allocated
+  proportionally to the captured amount; platform keeps the markup.
+
+### Added / Changed — Part II (booking flow)
+- 30-min **quote/snapshot TTL** (HMAC-covered `expiresAt`; 410 on expired).
+- **GST 18%** line item on platform fee + add-on commission.
+- **Hold reaper** now deletes expired rows (was audit-only).
+- **Payment reconciliation cron** (recovers missed webhooks).
+- **Server-enforced terms acceptance** (`acceptedTermsAt` required).
+- **Distributed cron locks** via deterministic BullMQ job IDs.
+- **ICS calendar attachment** on the booking-confirmed email.
+- **Auto-complete cron** (stay ended 24h+ ago → COMPLETED).
+- Frontend **hold-expiry countdown**; add-ons **disabled in Phase 1 UI**.
+
+### Added / Changed — Part III (SOS)
+- Production env gates (`SOS_OPS_PHONE`/`SOS_OPS_EMAIL`), **SMS circuit breaker**,
+  ack-latency metrics, strict E.164 validation.
+- **Platform-level SOS**: trusted contacts support email + phone; broadcast fans
+  out to both.
+- **SOS console**: guest live incident page (status timeline + chat + call), admin
+  incident console, guest SOS history; trigger redirects to the live console.
+
+### Added / Changed — Part IV (AI Itinerary)
+- No silent stub in production; per-user rate limits; monthly cost cap
+  (`ItineraryUsage`); prompt caching; retry/backoff.
+- **3-step planner**: trip form → AI concept suggestions → full plan → chat
+  refinement (`ItineraryMessage`).
+
+### Infrastructure
+- Env validation requires `REDIS_URL`, `ANTHROPIC_API_KEY`, SOS ops contacts in
+  production; app fails fast if Redis is unreachable in prod.
+- Installed **Memurai** (Redis-compatible) for BullMQ locally.
+- Fixed geolocation `Permissions-Policy` (`geolocation=(self)`) for the SOS page.
+- `docs/PRODUCTION_LAUNCH_ROADMAP.md` — 7-part launch plan.
+
+---
+
+## 2026-04-23 — Remaining spec sections
+
+Commit `3c0f24e`. Migrations `0021`–`0024`.
+
+### Added
+- **§5.15 Experiences** — host/guest/public/admin, atomic seat allocation
+  (`0024_experiences_groups_itinerary`).
+- **§5.8 Trip Groups** + expense splitting (EQUAL/CUSTOM) + balances.
+- **§5.9 AI Itinerary** — generation via Anthropic Haiku.
+- **§5.10 Concierge Chat** (`0021_concierge_chat`) + host quick replies.
+- **§5.14 Investor Dashboard** (`0022_investor_dashboard`).
+- **§5.18 Discovery facets** (`0023_listing_discovery_facets`).
+
+---
+
+## 2026-04-19 — SOS service foundation
+
+Commit `de191fd`. Migration `0020_sos_support`.
+
+### Added
+- SOS incident service, trusted-contact register, BullMQ `sos-broadcast` queue
+  (priority 1, inline dispatch for the P99 < 5s SLA).
+
+---
+<!-- ── Historical entries below (Phase 1/2, Auth0, providers) ──────────────── -->
+
 ## [Unreleased] — Auth0 Integration (dual-mode)
 
 ### Added — `apps/api/`
