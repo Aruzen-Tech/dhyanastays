@@ -27,6 +27,12 @@ let HoldController = class HoldController {
     create(user, dto) {
         return this.holdService.createHold(user.sub, dto);
     }
+    status(user, listingId, checkIn, checkOut) {
+        return this.holdService.getHoldStatus(user.sub, listingId, checkIn, checkOut);
+    }
+    release(user, id) {
+        return this.holdService.releaseHold(user.sub, id);
+    }
 };
 exports.HoldController = HoldController;
 __decorate([
@@ -38,6 +44,24 @@ __decorate([
     __metadata("design:paramtypes", [Object, create_hold_dto_1.CreateHoldDto]),
     __metadata("design:returntype", void 0)
 ], HoldController.prototype, "create", null);
+__decorate([
+    (0, common_1.Get)('status'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Query)('listingId')),
+    __param(2, (0, common_1.Query)('checkIn')),
+    __param(3, (0, common_1.Query)('checkOut')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String, String]),
+    __metadata("design:returntype", void 0)
+], HoldController.prototype, "status", null);
+__decorate([
+    (0, common_1.Delete)(':id'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String]),
+    __metadata("design:returntype", void 0)
+], HoldController.prototype, "release", null);
 exports.HoldController = HoldController = __decorate([
     (0, common_1.Controller)('holds'),
     (0, roles_decorator_1.Roles)(client_1.UserRole.GUEST),

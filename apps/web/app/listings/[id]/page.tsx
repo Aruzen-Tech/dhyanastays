@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
@@ -26,6 +26,7 @@ import {
   paymentsApi,
   pricingApi,
   reviewsApi,
+  type HoldStatus,
 } from '../../../lib/api';
 import type { AddOnSelection, Booking, GuestDetails, Hold, Listing, ListingReviews, PriceQuote } from '../../../lib/types';
 // AddOnPicker disabled in Phase 1 — see add-on JSX block below.
@@ -78,6 +79,53 @@ function HoldCountdown({
     <div className={urgent ? 'alert-error text-xs' : 'alert-info text-xs'}>
       ⏱ Dates held — <span className="font-mono font-semibold">{mmss}</span>{' '}
       remaining. Complete booking before the timer runs out.
+    </div>
+  );
+}
+
+// ─── "Held by another guest" banner ────────────────────────────────────────────
+// Shown to a DIFFERENT guest who selects dates already on hold. Counts down the
+// remaining time; calls onFree() once when it hits zero so the parent can
+// re-check availability and re-enable the Hold button.
+
+function HeldByOthersBanner({
+  remainingSeconds,
+  onFree,
+}: {
+  remainingSeconds: number;
+  onFree: () => void;
+}) {
+  const [sec, setSec] = useState(remainingSeconds);
+
+  useEffect(() => {
+    setSec(remainingSeconds);
+    const id = setInterval(() => {
+      setSec((s) => {
+        if (s <= 1) {
+          clearInterval(id);
+          onFree();
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [remainingSeconds, onFree]);
+
+  const mm = Math.floor(sec / 60);
+  const ss = sec % 60;
+  const mmss = `${mm}:${ss.toString().padStart(2, '0')}`;
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+      <div className="font-semibold flex items-center gap-1">
+        🔒 These dates are on hold
+      </div>
+      <p className="mt-1">
+        Another guest is currently booking these dates. They&apos;ll free up in{' '}
+        <span className="font-mono font-semibold">{mmss}</span> if the hold isn&apos;t
+        completed. You can try again then, or pick different dates.
+      </p>
     </div>
   );
 }
@@ -186,6 +234,16 @@ export default function ListingDetailPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
   const [listingReviews, setListingReviews] = useState<ListingReviews | null>(null);
+  // Hold status for the selected dates when held by ANOTHER guest.
+  const [othersHold, setOthersHold] = useState<HoldStatus | null>(null);
+
+  // Kept in refs so the unmount/pagehide cleanup reads the latest values
+  // without re-subscribing the listener on every hold change.
+  const holdRef = useRef<Hold | null>(null);
+  const holdConsumedRef = useRef(false);
+  useEffect(() => {
+    holdRef.current = hold;
+  }, [hold]);
 
   useEffect(() => {
     listingsApi
@@ -198,6 +256,36 @@ export default function ListingDetailPage() {
       .then(setListingReviews)
       .catch(() => {});
   }, [id]);
+
+  // Release-on-abandon: if the guest leaves with an active (un-booked) hold,
+  // free the dates immediately for others instead of blocking for the full
+  // 15 minutes. Covers tab close / reload (pagehide) and SPA navigation
+  // (component unmount). keepalive fetch survives the unload.
+  useEffect(() => {
+    const releaseIfAbandoned = () => {
+      const h = holdRef.current;
+      if (h && !holdConsumedRef.current) {
+        holdsApi.releaseBeacon(h.id);
+        holdRef.current = null;
+      }
+    };
+    window.addEventListener('pagehide', releaseIfAbandoned);
+    return () => {
+      window.removeEventListener('pagehide', releaseIfAbandoned);
+      releaseIfAbandoned();
+    };
+  }, []);
+
+  // Refresh whether these dates are held by someone else.
+  const refreshOthersHold = useCallback(async () => {
+    if (!checkIn || !checkOut) return;
+    try {
+      const s = await holdsApi.status(id, checkIn, checkOut);
+      setOthersHold(s.held && !s.mine ? s : null);
+    } catch {
+      setOthersHold(null);
+    }
+  }, [id, checkIn, checkOut]);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -215,6 +303,8 @@ export default function ListingDetailPage() {
       });
       setQuote(q);
       setStep('quote');
+      // Surface whether another guest already holds these dates.
+      void refreshOthersHold();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to get quote');
     } finally {
@@ -236,9 +326,12 @@ export default function ListingDetailPage() {
         addOns: addOnSelections.length > 0 ? addOnSelections : undefined,
       });
       setHold(h);
+      setOthersHold(null);
       setStep('guestdetails');
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to hold dates');
+      // Lost a race — someone else grabbed these dates. Show the countdown.
+      void refreshOthersHold();
     } finally {
       setActionLoading(false);
     }
@@ -264,11 +357,28 @@ export default function ListingDetailPage() {
         acceptedTermsAt: new Date().toISOString(),
       });
       setBooking(b);
+      // Hold is now a booking — never release it on unmount.
+      holdConsumedRef.current = true;
       setStep('payment');
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to create booking');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  /** Explicit abandon: release the hold and return to the quote step. */
+  const handleReleaseAndBack = async () => {
+    const h = hold;
+    setHold(null);
+    setStep('quote');
+    if (h) {
+      try {
+        await holdsApi.release(h.id);
+      } catch {
+        // best-effort — reaper will clean it up
+      }
+      void refreshOthersHold();
     }
   };
 
@@ -659,17 +769,30 @@ export default function ListingDetailPage() {
                 <div className="text-xs text-gray-500 text-center">
                   {formatDate(checkIn)} → {formatDate(checkOut)}
                 </div>
+                {othersHold?.held && (
+                  <HeldByOthersBanner
+                    remainingSeconds={othersHold.remainingSeconds ?? 0}
+                    onFree={() => {
+                      setOthersHold(null);
+                      void refreshOthersHold();
+                    }}
+                  />
+                )}
                 {actionError && <div className="alert-error text-xs">{actionError}</div>}
                 {!user ? (
                   <button onClick={() => router.push('/auth/login')} className="btn-primary w-full">
                     Sign in to book
+                  </button>
+                ) : othersHold?.held ? (
+                  <button disabled className="btn-primary w-full opacity-60 cursor-not-allowed">
+                    Dates on hold — try again shortly
                   </button>
                 ) : (
                   <button onClick={handleCreateHold} disabled={actionLoading} className="btn-primary w-full">
                     {actionLoading ? <><span className="spinner" /> Holding dates…</> : 'Hold these dates (15 min)'}
                   </button>
                 )}
-                <button onClick={() => setStep('details')} className="btn-ghost w-full text-sm">
+                <button onClick={() => { setOthersHold(null); setStep('details'); }} className="btn-ghost w-full text-sm">
                   ← Change dates
                 </button>
               </div>
@@ -738,7 +861,9 @@ export default function ListingDetailPage() {
                   className="btn-primary w-full">
                   Continue to payment →
                 </button>
-                <button onClick={() => setStep('quote')} className="btn-ghost w-full text-sm">← Back</button>
+                <button onClick={handleReleaseAndBack} className="btn-ghost w-full text-sm">
+                  ← Back (release hold)
+                </button>
               </div>
             )}
 

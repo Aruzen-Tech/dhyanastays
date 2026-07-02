@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -100,9 +101,21 @@ export class HoldService {
       });
 
       if (overlappingHold) {
-        throw new ConflictException(
-          'Listing is temporarily held for the selected dates. Try again in a few minutes.',
+        // Tell the losing guest exactly how long until the dates free up, so
+        // the UI can show a live "held — MM:SS remaining" countdown instead of
+        // a vague "try again later".
+        const remainingSeconds = Math.max(
+          0,
+          Math.ceil((overlappingHold.expiresAt.getTime() - Date.now()) / 1000),
         );
+        throw new ConflictException({
+          statusCode: 409,
+          error: 'DatesOnHold',
+          message:
+            'These dates are currently held by another guest. They will free up if the hold expires.',
+          heldUntil: overlappingHold.expiresAt.toISOString(),
+          remainingSeconds,
+        });
       }
 
       // Check availability blocks
@@ -144,6 +157,88 @@ export class HoldService {
     });
 
     return hold;
+  }
+
+  /**
+   * Release a hold early when the guest abandons the flow (leaves the page,
+   * cancels, closes the tab). Frees the dates immediately for other guests
+   * instead of blocking them for the full 15-minute TTL.
+   *
+   * Owner-only. Idempotent — releasing an already-gone hold is a no-op. A hold
+   * that has already been converted to a booking CANNOT be released here (that
+   * goes through booking cancellation with its refund policy).
+   */
+  async releaseHold(guestId: string, holdId: string) {
+    const hold = await this.prisma.hold.findUnique({
+      where: { id: holdId },
+      include: { booking: { select: { id: true } } },
+    });
+    // Already reaped / never existed — nothing to do.
+    if (!hold) return { released: true, alreadyGone: true };
+    if (hold.guestId !== guestId) {
+      throw new ForbiddenException('Not your hold');
+    }
+    if (hold.booking) {
+      throw new BadRequestException(
+        'This hold has already become a booking — cancel the booking instead.',
+      );
+    }
+    await this.prisma.hold.delete({ where: { id: holdId } });
+    await this.auditService.log(guestId, 'HOLD_RELEASED', 'hold', holdId, {
+      listingId: hold.listingId,
+      reason: 'guest_abandoned',
+    });
+    return { released: true };
+  }
+
+  /**
+   * Hold status for a listing + date range, from the perspective of the
+   * requesting guest. Lets the UI show "these dates are on hold — MM:SS
+   * remaining" (and whether the hold is the caller's own).
+   */
+  async getHoldStatus(
+    guestId: string,
+    listingId: string,
+    checkIn: string,
+    checkOut: string,
+  ) {
+    const checkInDate = new Date(checkIn);
+    const checkOutDate = new Date(checkOut);
+    if (
+      Number.isNaN(checkInDate.getTime()) ||
+      Number.isNaN(checkOutDate.getTime()) ||
+      checkInDate >= checkOutDate
+    ) {
+      throw new BadRequestException('Invalid date range');
+    }
+
+    const hold = await this.prisma.hold.findFirst({
+      where: {
+        listingId,
+        expiresAt: { gt: new Date() },
+        booking: null, // still a raw hold, not yet a booking
+        AND: [
+          { startsAt: { lt: checkOutDate } },
+          { endsAt: { gt: checkInDate } },
+        ],
+      },
+      // The latest-expiring overlapping hold blocks the dates the longest.
+      orderBy: { expiresAt: 'desc' },
+      select: { guestId: true, expiresAt: true },
+    });
+
+    if (!hold) return { held: false as const };
+
+    const remainingSeconds = Math.max(
+      0,
+      Math.ceil((hold.expiresAt.getTime() - Date.now()) / 1000),
+    );
+    return {
+      held: true as const,
+      mine: hold.guestId === guestId,
+      heldUntil: hold.expiresAt.toISOString(),
+      remainingSeconds,
+    };
   }
 
   async expireStaleHolds(): Promise<number> {

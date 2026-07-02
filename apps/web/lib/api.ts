@@ -444,6 +444,13 @@ export const pricingApi = {
 
 // ─── Holds ────────────────────────────────────────────────────────────────────
 
+export interface HoldStatus {
+  held: boolean;
+  mine?: boolean;
+  heldUntil?: string;
+  remainingSeconds?: number;
+}
+
 export const holdsApi = {
   create: (body: {
     listingId: string;
@@ -457,6 +464,35 @@ export const holdsApi = {
       method: 'POST',
       body: JSON.stringify({ guests: 1, ...body }),
     }),
+
+  /** Is a date range currently on hold (and by whom)? Drives the "held — MM:SS" banner. */
+  status: (listingId: string, checkIn: string, checkOut: string) =>
+    request<HoldStatus>(
+      `/holds/status?listingId=${encodeURIComponent(listingId)}&checkIn=${encodeURIComponent(checkIn)}&checkOut=${encodeURIComponent(checkOut)}`,
+    ),
+
+  /** Release a hold when the guest abandons the flow (SPA navigation / cancel). */
+  release: (id: string) =>
+    request<{ released: boolean }>(`/holds/${id}`, { method: 'DELETE' }),
+
+  /**
+   * Fire-and-forget release that survives tab close / navigation via
+   * `fetch(keepalive)`. Carries the bearer token from the token store.
+   * Best-effort — no await, no error surfaced.
+   */
+  releaseBeacon: (id: string) => {
+    if (typeof window === 'undefined') return;
+    const token = tokenStore.getAccess();
+    try {
+      void fetch(`/api/holds/${id}`, {
+        method: 'DELETE',
+        keepalive: true,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+    } catch {
+      // best-effort — the reaper cron will clean it up within a minute anyway
+    }
+  },
 };
 
 // ─── Bookings ─────────────────────────────────────────────────────────────────

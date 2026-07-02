@@ -82,7 +82,14 @@ let HoldService = class HoldService {
                 },
             });
             if (overlappingHold) {
-                throw new common_1.ConflictException('Listing is temporarily held for the selected dates. Try again in a few minutes.');
+                const remainingSeconds = Math.max(0, Math.ceil((overlappingHold.expiresAt.getTime() - Date.now()) / 1000));
+                throw new common_1.ConflictException({
+                    statusCode: 409,
+                    error: 'DatesOnHold',
+                    message: 'These dates are currently held by another guest. They will free up if the hold expires.',
+                    heldUntil: overlappingHold.expiresAt.toISOString(),
+                    remainingSeconds,
+                });
             }
             const blocked = await tx.availabilityBlock.findFirst({
                 where: {
@@ -116,6 +123,57 @@ let HoldService = class HoldService {
             total: snapshot.total,
         });
         return hold;
+    }
+    async releaseHold(guestId, holdId) {
+        const hold = await this.prisma.hold.findUnique({
+            where: { id: holdId },
+            include: { booking: { select: { id: true } } },
+        });
+        if (!hold)
+            return { released: true, alreadyGone: true };
+        if (hold.guestId !== guestId) {
+            throw new common_1.ForbiddenException('Not your hold');
+        }
+        if (hold.booking) {
+            throw new common_1.BadRequestException('This hold has already become a booking — cancel the booking instead.');
+        }
+        await this.prisma.hold.delete({ where: { id: holdId } });
+        await this.auditService.log(guestId, 'HOLD_RELEASED', 'hold', holdId, {
+            listingId: hold.listingId,
+            reason: 'guest_abandoned',
+        });
+        return { released: true };
+    }
+    async getHoldStatus(guestId, listingId, checkIn, checkOut) {
+        const checkInDate = new Date(checkIn);
+        const checkOutDate = new Date(checkOut);
+        if (Number.isNaN(checkInDate.getTime()) ||
+            Number.isNaN(checkOutDate.getTime()) ||
+            checkInDate >= checkOutDate) {
+            throw new common_1.BadRequestException('Invalid date range');
+        }
+        const hold = await this.prisma.hold.findFirst({
+            where: {
+                listingId,
+                expiresAt: { gt: new Date() },
+                booking: null,
+                AND: [
+                    { startsAt: { lt: checkOutDate } },
+                    { endsAt: { gt: checkInDate } },
+                ],
+            },
+            orderBy: { expiresAt: 'desc' },
+            select: { guestId: true, expiresAt: true },
+        });
+        if (!hold)
+            return { held: false };
+        const remainingSeconds = Math.max(0, Math.ceil((hold.expiresAt.getTime() - Date.now()) / 1000));
+        return {
+            held: true,
+            mine: hold.guestId === guestId,
+            heldUntil: hold.expiresAt.toISOString(),
+            remainingSeconds,
+        };
     }
     async expireStaleHolds() {
         const BATCH = 200;
