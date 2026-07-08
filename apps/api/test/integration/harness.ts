@@ -192,12 +192,29 @@ export async function createPendingBooking(
 
 /** Tear down EVERYTHING this run created. Order respects FKs. */
 export async function teardownFixtures(): Promise<void> {
+  // The real services mint their own random cuIDs, so bookings/holds created
+  // through them are NOT RUN_TAG-prefixed. Identify our bookings by their FK to
+  // the tagged listing (covers both seed helpers and real-service rows).
+  const bookings = await prisma.booking.findMany({
+    where: {
+      OR: [{ id: { startsWith: RUN_TAG } }, { listingId: { startsWith: RUN_TAG } }],
+    },
+    select: { id: true },
+  });
+  const bookingIds = bookings.map((b) => b.id);
+  const idList = bookingIds.map((id) => `'${id.replace(/'/g, "''")}'`).join(',');
+
   // Ledger rows are immutable via trigger — disable as owner to delete ours.
   try {
     await prisma.$executeRawUnsafe('ALTER TABLE "LedgerEvent" DISABLE TRIGGER USER');
     await prisma.$executeRawUnsafe(
       `DELETE FROM "LedgerEvent" WHERE "bookingId" LIKE '${RUN_TAG}%'`,
     );
+    if (idList) {
+      await prisma.$executeRawUnsafe(
+        `DELETE FROM "LedgerEvent" WHERE "bookingId" IN (${idList})`,
+      );
+    }
   } finally {
     await prisma.$executeRawUnsafe('ALTER TABLE "LedgerEvent" ENABLE TRIGGER USER');
   }
@@ -205,11 +222,26 @@ export async function teardownFixtures(): Promise<void> {
   await prisma.$executeRawUnsafe(
     `DELETE FROM "ProcessedRazorpayEvent" WHERE "eventId" LIKE '${RUN_TAG}%'`,
   );
-  await prisma.payoutLine.deleteMany({ where: { bookingId: { startsWith: RUN_TAG } } });
-  await prisma.payment.deleteMany({ where: { bookingId: { startsWith: RUN_TAG } } });
-  await prisma.booking.deleteMany({ where: { id: { startsWith: RUN_TAG } } });
-  await prisma.hold.deleteMany({ where: { id: { startsWith: RUN_TAG } } });
+  if (bookingIds.length) {
+    // PayLaterPlan / BookingAddOn cascade with the booking; Payment / PayoutLine
+    // / LedgerEvent / Refund do not, so clear them first.
+    await prisma.refund.deleteMany({ where: { bookingId: { in: bookingIds } } });
+    await prisma.payoutLine.deleteMany({ where: { bookingId: { in: bookingIds } } });
+    await prisma.payment.deleteMany({ where: { bookingId: { in: bookingIds } } });
+    await prisma.booking.deleteMany({ where: { id: { in: bookingIds } } });
+  }
+  await prisma.hold.deleteMany({
+    where: {
+      OR: [{ id: { startsWith: RUN_TAG } }, { listingId: { startsWith: RUN_TAG } }],
+    },
+  });
   await prisma.listing.deleteMany({ where: { id: { startsWith: RUN_TAG } } });
+  // Booking confirm/complete writes HostNotification rows directly (not via the
+  // stubbed NotificationService); clear them before deleting the host.
+  await prisma.hostNotification.deleteMany({ where: { hostId: { startsWith: RUN_TAG } } });
   await prisma.host.deleteMany({ where: { id: { startsWith: RUN_TAG } } });
+  // GuestNotification (userId FK) is also written directly by the booking flow.
+  await prisma.guestNotification.deleteMany({ where: { userId: { startsWith: RUN_TAG } } });
+  // NotificationOutbox rows cascade on user delete.
   await prisma.user.deleteMany({ where: { id: { startsWith: RUN_TAG } } });
 }

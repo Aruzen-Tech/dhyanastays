@@ -16,6 +16,59 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-06 — Booking-engine hardening: top-standard test suite + 4 reliability fixes
+
+Comprehensive real-service integration suite for the booking engine
+(`test/integration/booking-lifecycle.int-spec.ts`, 17 tests) exercising the full
+lifecycle through the *actual* production services. It exposed four genuine
+defects — all fixed; engine now green across 260 unit + 34 integration tests and
+the concurrency proofs at 50 iterations.
+
+### Fixed
+- **Payment confirmation was broken for every capture.** The overlap backstop
+  query in `BookingService.confirmPayment` used `tsrange(...)` with JS `Date`
+  params, which Prisma binds as `timestamptz` — no matching `tsrange` overload,
+  so the query threw `42883` on *every* capture. Bound params now converted to
+  the UTC wall-clock the `timestamp` columns store (`AT TIME ZONE 'UTC'`). The
+  existing unit test had mocked `$queryRaw`, so it never caught this.
+- **DEPOSIT_50 balance never settled.** Paying the balance marked the payment
+  CAPTURED but left the booking at `BALANCE_DUE` forever (no `CONFIRMED_PAID`, no
+  balance ledger entry, no second payout). `BALANCE_PAID` was dead code with no
+  emitter. Added `BookingService.settleBalance` (lock → idempotency → HMAC →
+  amount vs `balanceAmount` → `BALANCE_PAID` → ledger → second payout line) and
+  routed balance captures to it in `handlePaymentCaptured` (by booking status).
+- **Auto-complete cron under-counted and logged false warnings.** It passed the
+  sentinel `'SYSTEM_AUTO_COMPLETE'` as `AuditLog.actorUserId` (a nullable FK to
+  User), so the post-commit audit write threw *after* the booking was already
+  COMPLETED. System completions now log `actorUserId = null` (sentinel kept in
+  metadata).
+- **PAY_LATER bookings could never be paid.** `initPayment` had no `PAY_LATER`
+  branch (rejected FULL/DEPOSIT/BALANCE), yet `confirmPayment` fully supported the
+  first capture — so a guest could create an un-payable booking that held
+  inventory. Wired the first (booking-time) instalment using
+  `snapshot.payLaterFirstInstalment`.
+
+### Changed
+- `BALANCE_PAID` state transition now also accepts `CONFIRMED_DEPOSIT` (balance
+  paid early, before the balance-due cron), not just `BALANCE_DUE`.
+
+### Tests / Infrastructure
+- New real-service harness (`test/integration/services-harness.ts`): wires every
+  real booking service against dev Postgres; only NotificationService (no-op) and
+  Razorpay (stub mode) are doubled.
+- New lifecycle suite covers quote (paise/GST/HMAC/TTL), FULL + DEPOSIT_50 +
+  PAY_LATER lifecycles, money math (ledger + host-payout sums), cancellation
+  refund tiers (100/50/0), webhook replay/amount-mismatch/tamper, idempotency
+  keys, crons, and overlap/expired-hold guards.
+- Unit tests added for `settleBalance` (6) and balance-capture routing (1).
+- `teardownFixtures` rewritten to clean rows minted with random cuIDs by the real
+  services (relationship-based; adds Refund / HostNotification / GuestNotification).
+- **Test report:** [`docs/booking-engine-test-report.md`](docs/booking-engine-test-report.md)
+  — full inventory (34 integration + new unit cases), methodology, the 4 defects,
+  money-correctness math, and results.
+
+---
+
 ## 2026-07-02 — Hold lifecycle: release-on-abandon + shared visibility
 
 Commit `0f38f27`.

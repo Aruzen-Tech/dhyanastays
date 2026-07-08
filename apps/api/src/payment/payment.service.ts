@@ -88,7 +88,26 @@ export class PaymentService {
 
     // Determine amount based on payment type. All snapshot fields are in paise.
     let amountPaise: number;
-    if (dto.type === PaymentTypeDto.FULL) {
+    if (booking.plan === 'PAY_LATER') {
+      // First (booking-time) Pay Later instalment. The plan is created when this
+      // capture confirms (confirmPayment → createPlanFromFirstCapture); later
+      // instalments go through initPayLaterInstalmentPayment. Without this branch
+      // a PAY_LATER booking could never be paid at all.
+      if (dto.type === PaymentTypeDto.BALANCE) {
+        throw new BadRequestException(
+          'Pay Later is settled as scheduled instalments, not a lump balance',
+        );
+      }
+      const first = snapshot.payLaterFirstInstalment?.find(
+        (i) => i.months === booking.payLaterMonths,
+      );
+      if (!first) {
+        throw new BadRequestException(
+          'Pay Later first instalment is unavailable for this booking',
+        );
+      }
+      amountPaise = first.amountMinor;
+    } else if (dto.type === PaymentTypeDto.FULL) {
       if (booking.plan !== 'FULL') {
         throw new BadRequestException('Booking plan is DEPOSIT_50, not FULL');
       }
@@ -119,7 +138,17 @@ export class PaymentService {
       data: {
         bookingId: dto.bookingId,
         amount: amountPaise,
-        type: dto.type === PaymentTypeDto.FULL ? 'FULL' : dto.type === PaymentTypeDto.DEPOSIT ? 'DEPOSIT_50' : 'FULL',
+        type:
+          booking.plan === 'PAY_LATER'
+            ? 'PAY_LATER'
+            : dto.type === PaymentTypeDto.FULL
+              ? 'FULL'
+              : dto.type === PaymentTypeDto.DEPOSIT
+                ? 'DEPOSIT_50'
+                : 'FULL',
+        // seq 1 = the booking-time instalment; instalments 2+ are minted by
+        // initPayLaterInstalmentPayment. Non-pay-later payments leave this null.
+        payLaterSeq: booking.plan === 'PAY_LATER' ? 1 : null,
         status: 'INITIATED',
         gateway: 'razorpay',
         gatewayOrderRef: order.id,
@@ -284,15 +313,38 @@ export class PaymentService {
             );
           }
         } else {
-          // First/full capture — run the seven-step confirm in THIS tx.
-          const res = await this.bookingService.confirmPayment(
-            tx,
-            payment.bookingId,
-            payment.id,
-            amountPaise,
-          );
-          didConfirm = res.didConfirm;
-          confirmedBookingId = payment.bookingId;
+          // Not a pay-later instalment. Route by the booking's status: an
+          // INITIAL capture lands on a PAYMENT_PENDING booking (→ confirmPayment),
+          // whereas a BALANCE capture lands on a CONFIRMED_DEPOSIT/BALANCE_DUE
+          // booking (→ settleBalance). This is unambiguous because we only reach
+          // here for a not-yet-CAPTURED payment, and initPayment only issues a
+          // BALANCE order while the booking is CONFIRMED_DEPOSIT or BALANCE_DUE.
+          const bk = await tx.booking.findUnique({
+            where: { id: payment.bookingId },
+            select: { status: true },
+          });
+          if (bk && (bk.status === 'CONFIRMED_DEPOSIT' || bk.status === 'BALANCE_DUE')) {
+            const res = await this.bookingService.settleBalance(
+              tx,
+              payment.bookingId,
+              payment.id,
+              amountPaise,
+            );
+            // Balance settlement doesn't re-send the "booking confirmed" email;
+            // the guest was already notified at deposit-confirm time.
+            didConfirm = false;
+            confirmedBookingId = res.didSettle ? null : confirmedBookingId;
+          } else {
+            // First/full capture — run the seven-step confirm in THIS tx.
+            const res = await this.bookingService.confirmPayment(
+              tx,
+              payment.bookingId,
+              payment.id,
+              amountPaise,
+            );
+            didConfirm = res.didConfirm;
+            confirmedBookingId = payment.bookingId;
+          }
         }
 
         await this.auditService.log(

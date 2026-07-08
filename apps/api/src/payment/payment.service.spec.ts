@@ -19,6 +19,10 @@ function makeBookingMock() {
     confirmPayment: jest
       .fn()
       .mockResolvedValue({ booking: { id: 'booking-1', status: 'CONFIRMED_PAID' }, didConfirm: true }),
+    // settleBalance handles the SECOND (balance) capture on a DEPOSIT_50 booking.
+    settleBalance: jest
+      .fn()
+      .mockResolvedValue({ booking: { id: 'booking-1', status: 'CONFIRMED_PAID' }, didSettle: true }),
     sendBookingConfirmedNotificationPublic: jest.fn().mockResolvedValue(undefined),
   };
 }
@@ -387,6 +391,12 @@ describe('PaymentService', () => {
           findUnique: jest.fn().mockResolvedValue(existingPayment),
           update: jest.fn().mockResolvedValue({ ...existingPayment, status: 'CAPTURED' }),
         },
+        // handlePaymentCaptured routes by booking status: PAYMENT_PENDING → the
+        // initial confirmPayment path (this test); CONFIRMED_DEPOSIT/BALANCE_DUE
+        // would route to settleBalance instead.
+        booking: {
+          findUnique: jest.fn().mockResolvedValue({ status: 'PAYMENT_PENDING' }),
+        },
       };
 
       const prismaMock = {
@@ -426,6 +436,63 @@ describe('PaymentService', () => {
         'payment-1',
         1705000,
       );
+    });
+
+    it('routes a BALANCE capture (booking already CONFIRMED_DEPOSIT/BALANCE_DUE) to settleBalance, not confirmPayment', async () => {
+      const capturedEvent = JSON.stringify({
+        event: 'payment.captured',
+        payload: {
+          payment: {
+            entity: { id: 'pay_rzp_bal', order_id: 'order_bal_1', amount: 894400 },
+          },
+        },
+      });
+
+      const balancePayment = {
+        id: 'payment-bal',
+        bookingId: 'booking-1',
+        status: 'INITIATED',
+        type: 'FULL', // BALANCE payments are stored as type FULL — routing is by booking status
+        payLaterSeq: null,
+        gatewayOrderRef: 'order_bal_1',
+      };
+
+      const txMock = {
+        payment: {
+          findUnique: jest.fn().mockResolvedValue(balancePayment),
+          update: jest.fn().mockResolvedValue({ ...balancePayment, status: 'CAPTURED' }),
+        },
+        booking: {
+          findUnique: jest.fn().mockResolvedValue({ status: 'BALANCE_DUE' }),
+        },
+      };
+      const prismaMock = {
+        payment: { findFirst: jest.fn().mockResolvedValue({ id: 'payment-bal' }) },
+        $transaction: jest.fn().mockImplementation(async (fn: any) => fn(txMock)),
+      };
+      const bookingMock = makeBookingMock();
+
+      const service = new PaymentService(
+        prismaMock as any,
+        bookingMock as any,
+        makeAuditMock() as any,
+        makeRazorpayMock() as any,
+        makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
+      );
+
+      await service.handleWebhook(capturedEvent, 'valid-sig');
+
+      expect(bookingMock.settleBalance).toHaveBeenCalledWith(
+        txMock,
+        'booking-1',
+        'payment-bal',
+        894400,
+      );
+      expect(bookingMock.confirmPayment).not.toHaveBeenCalled();
+      // Balance settlement does not re-send the "booking confirmed" notification.
+      expect(bookingMock.sendBookingConfirmedNotificationPublic).not.toHaveBeenCalled();
     });
 
     it('skips payment.captured if payment already CAPTURED (idempotent)', async () => {

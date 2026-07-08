@@ -13,6 +13,131 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-06 — Booking-engine hardening: top-standard test suite + 4 reliability fixes
+
+**Commit:** _pending_ · **Migration:** none (application + test code only)
+
+### Goal
+Build top-standard test coverage for the booking engine, run it against the real
+engine, and fix whatever the tests expose so the engine is strong and reliable.
+
+### Approach — real-service integration harness
+`apps/api/test/integration/services-harness.ts` (new):
+- `makeEngine(prisma)` wires the **actual** production services against dev
+  Postgres — `PricingService`, `HoldService`, `BookingService`, `PaymentService`,
+  `PayLaterService`, `LedgerService`, `AuditService`, `PriceSnapshotSignerService`,
+  `BookingStateMachine`, `OutboxService`, `ReferralService`, `MembershipService`,
+  `AddOnService`. Only two adapters are doubled: `NotificationService` (no-op) and
+  `RazorpayService` (real class in **stub mode** — no keys → deterministic
+  `stub_order_*` ids, `verifyWebhookSignature` → true).
+- `makeConfig()` supplies `PRICE_SNAPSHOT_SECRET` + empty Razorpay keys;
+  `capturedEvent(orderId, amountPaise)` / `failedEvent(orderId)` build Razorpay
+  webhook JSON.
+- Exercises the same methods the HTTP controllers call, so the suite proves the
+  engine, not a re-implementation.
+
+`apps/api/test/integration/booking-lifecycle.int-spec.ts` (new, 17 tests):
+quote correctness (paise, 10% platform fee, 18% GST, signed TTL-bounded snapshot);
+FULL lifecycle (→ `CONFIRMED_PAID` + ledger + payout + policy snapshot); DEPOSIT_50
+lifecycle (deposit → `CONFIRMED_DEPOSIT` → balance-due cron → balance paid →
+`CONFIRMED_PAID`, asserting **2 ledger captures summing 1 788 800** and **2 payout
+lines summing 1 600 000**); PAY_LATER first capture (→ `CONFIRMED_DEPOSIT` +
+`PayLaterPlan`, seq-1 instalment paid); cancellation refund tiers 100/50/0 from the
+frozen policy snapshot; webhook replay ×3 idempotency + amount-mismatch + tampered
+snapshot; hold/booking/payment idempotency keys; `autoCancelUnpaidBalance` +
+`autoCompleteCheckedOut` crons; overlap + expired-hold guards.
+
+### Fix 1 — overlap query threw on every capture (`src/booking/booking.service.ts`)
+`confirmPayment` Step 5 overlap backstop ran:
+```sql
+… tsrange("startsAt","endsAt",'[)') && tsrange(${booking.startsAt}, ${booking.endsAt}, '[)')
+```
+`startsAt`/`endsAt` columns are Prisma `DateTime` → Postgres `timestamp` (no tz),
+but `$queryRaw` binds a JS `Date` as `timestamptz`. There is no
+`tsrange(timestamptz, timestamptz, unknown)`, so Postgres raised `42883
+function … does not exist` on **every** payment capture. The pre-existing unit
+test mocked `$queryRaw`, so it never executed the real SQL; the prior integration
+tests only inserted dedup rows and never drove a capture — the bug was invisible.
+**Fix:** convert the bound params back to the UTC wall-clock the column stores:
+```sql
+… && tsrange((${booking.startsAt}::timestamptz AT TIME ZONE 'UTC'),
+             (${booking.endsAt}::timestamptz AT TIME ZONE 'UTC'), '[)')
+```
+Validated by the double-booking concurrency proof (50 iterations, exactly one
+CONFIRMED survivor).
+
+### Fix 2 — DEPOSIT_50 balance never settled (`booking.service.ts`, `payment.service.ts`, `state-machine.ts`)
+`BALANCE_PAID` (`BALANCE_DUE → CONFIRMED_PAID`) had **no emitter**. A balance
+capture went `handlePaymentCaptured → confirmPayment`, but the booking was
+`BALANCE_DUE` (in `confirmPayment`'s already-confirmed set) → `didConfirm:false`.
+Net effect: payment row CAPTURED, but booking stuck at `BALANCE_DUE`, no balance
+ledger entry, no second payout — money-state inconsistent.
+- **`BookingService.settleBalance(tx, bookingId, paymentId, amountCaptured)`**
+  (new): lock (`FOR UPDATE`) → idempotency (no-op if `CONFIRMED_PAID`/`COMPLETED`/
+  `REFUNDED`) → HMAC re-verify → amount must equal `snapshot.balanceAmount` →
+  state machine `BALANCE_PAID` → immutable `PAYMENT_CAPTURED` ledger → second
+  payout line (same proportional `round(accommodationTotal × amountCaptured /
+  total)` formula, so deposit + balance shares sum to the host's full share).
+  Returns `{ booking, didSettle }`.
+- **`PaymentService.handlePaymentCaptured`**: the non-pay-later branch now routes
+  by booking status — `PAYMENT_PENDING` → `confirmPayment` (initial capture);
+  `CONFIRMED_DEPOSIT`/`BALANCE_DUE` → `settleBalance` (balance capture).
+  Unambiguous because the branch is only reached for a not-yet-CAPTURED payment,
+  and `initPayment` only issues a BALANCE order in those two states. Balance
+  settlement deliberately does **not** re-send the "booking confirmed" email.
+- **`state-machine.ts`**: `BALANCE_PAID.from` extended to
+  `['BALANCE_DUE', 'CONFIRMED_DEPOSIT']` (balance can be paid early).
+
+### Fix 3 — auto-complete cron FK violation (`booking.service.ts`)
+`completeBooking` passed the sentinel `'SYSTEM_AUTO_COMPLETE'` as
+`AuditLog.actorUserId`, a **nullable FK to User**. The state-machine transition
+(committed in its own tx, storing the actor in `statusHistory` JSON) succeeded, but
+the subsequent `auditService.log(actorId, …)` threw a P2003 FK violation **after**
+the booking was already `COMPLETED`. `autoCompleteCheckedOut` swallowed it →
+returned 0 and logged a false "skipped" warning every run. **Fix:** system
+completions log `actorUserId = null`, keeping the sentinel in metadata
+(`{ systemActor: 'SYSTEM_AUTO_COMPLETE' }`).
+
+### Fix 4 — PAY_LATER bookings were un-payable (`payment.service.ts`)
+`initPayment` had branches only for FULL / DEPOSIT / BALANCE — a `PAY_LATER`
+booking's first payment threw `BadRequestException`, even though `confirmPayment`
+fully supported `PAY_LATER_FIRST_CAPTURED` + `createPlanFromFirstCapture`. A guest
+could create a PAY_LATER booking that could never be paid, holding inventory until
+a cron cancelled it. **Fix:** added a `PAY_LATER` branch charging the first
+booking-time instalment from `snapshot.payLaterFirstInstalment[months]` (the same
+field `computeExpectedFirstCapturePaise` checks, so init and confirm agree; and
+`createPlanFromFirstCapture` re-derives from the signed `total` as a backstop). The
+payment row is stored `type: 'PAY_LATER', payLaterSeq: 1`; instalments 2+ still go
+through `initPayLaterInstalmentPayment`.
+
+### Tests
+- **Unit** (`src/booking/confirm-payment.spec.ts`): 6 new `settleBalance` tests
+  (BALANCE_DUE settle; early settle from CONFIRMED_DEPOSIT; idempotent replay;
+  amount mismatch; tampered HMAC; invalid-status rejection).
+- **Unit** (`src/payment/payment.service.spec.ts`): balance-capture routing test
+  (booking `BALANCE_DUE` → `settleBalance`, not `confirmPayment`, no re-notify) +
+  fixed the existing captured-webhook test's tx mock (added `booking.findUnique`).
+- **Harness** (`test/integration/harness.ts`): `teardownFixtures` rewritten to
+  delete rows the real services mint with random cuIDs — identifies bookings by
+  their FK to the RUN_TAG listing and cascades Refund / PayoutLine / Payment /
+  LedgerEvent / HostNotification / GuestNotification before the parents.
+
+### Results
+- Unit: **259 passed** (1 pre-existing, unrelated `listing.service.spec` failure —
+  confirmed failing with these changes stashed).
+- Integration: **34 passed** across all 3 suites run together.
+- Concurrency crown-jewel (`booking-engine.int-spec`) **@ 50 iterations**: idempotency
+  race (exactly 1 winner) + double-booking race (exactly 1 survivor) green.
+
+### Report
+- **[`docs/booking-engine-test-report.md`](./booking-engine-test-report.md)** (new) —
+  standalone test report: methodology (real-service harness), test-data money
+  reference, full per-suite test inventory with assertions and pass/fail, the four
+  defects (symptom / root cause / fix / verification), results tables, coverage
+  assessment with residual risks, and reproduction steps.
+
+---
+
 ## 2026-07-02 — Hold lifecycle: release-on-abandon + shared visibility
 
 **Commit:** `0f38f27` · **Migration:** none

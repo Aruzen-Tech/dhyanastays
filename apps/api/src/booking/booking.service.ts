@@ -340,12 +340,19 @@ export class BookingService {
     // ── Step 5: Explicit overlap check under the lock ───────────────────
     // The trg_prevent_booking_overlap trigger is the backstop — failing here
     // gives a clean ConflictException instead of a 23P01 leak.
+    // `startsAt`/`endsAt` columns are `timestamp` (no tz); Prisma binds JS Date
+    // params as `timestamptz`, so the bound side must be converted back to the
+    // UTC wall-clock the column stores (`AT TIME ZONE 'UTC'`) — otherwise
+    // `tsrange(timestamptz, …)` has no matching function and the query throws.
     const conflicts = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM "Booking"
       WHERE "listingId" = ${booking.listingId}
         AND id <> ${bookingId}
         AND status IN ('CONFIRMED_DEPOSIT','CONFIRMED_PAID','BALANCE_DUE','PAYMENT_PENDING')
-        AND tsrange("startsAt","endsAt",'[)') && tsrange(${booking.startsAt},${booking.endsAt},'[)')
+        AND tsrange("startsAt","endsAt",'[)') && tsrange(
+              (${booking.startsAt}::timestamptz AT TIME ZONE 'UTC'),
+              (${booking.endsAt}::timestamptz AT TIME ZONE 'UTC'),
+              '[)')
     `;
     if (conflicts.length > 0) {
       throw new ConflictException('Dates no longer available');
@@ -447,6 +454,132 @@ export class BookingService {
     }
 
     return { booking: updated, didConfirm: true };
+  }
+
+  /**
+   * Settle the outstanding balance on a DEPOSIT_50 booking (the SECOND capture).
+   *
+   * Runs inside the caller's SERIALIZABLE tx (from handlePaymentCaptured), the
+   * same way confirmPayment handles the first capture. The deposit's first
+   * payment already moved the booking to CONFIRMED_DEPOSIT (and possibly on to
+   * BALANCE_DUE via the balance-due cron); this books the balance capture:
+   *   1. Lock the booking row (FOR UPDATE)
+   *   2. Idempotency — already CONFIRMED_PAID/COMPLETED/REFUNDED → no-op
+   *   3. Re-verify the priceSnapshot HMAC
+   *   4. Captured amount must equal the snapshot's balanceAmount
+   *   5. State machine BALANCE_PAID → CONFIRMED_PAID
+   *   6. Immutable ledger PAYMENT_CAPTURED (+ audit)
+   *   7. Second payout line — host's share of the balance capture
+   *
+   * Returns `{ booking, didSettle }`; didSettle=false on an idempotent replay.
+   */
+  async settleBalance(
+    tx: TxClient,
+    bookingId: string,
+    paymentId: string,
+    amountCaptured: number,
+  ): Promise<{ booking: BookingLike & { status: string }; didSettle: boolean }> {
+    // ── Step 1: Lock the booking row ────────────────────────────────────
+    await tx.$queryRaw`SELECT id FROM "Booking" WHERE id = ${bookingId} FOR UPDATE`;
+    const booking = await tx.booking.findUnique({ where: { id: bookingId } });
+    if (!booking) throw new NotFoundException('Booking not found');
+
+    // ── Step 2: Idempotency (webhook is at-least-once) ──────────────────
+    const alreadySettled: string[] = ['CONFIRMED_PAID', 'COMPLETED', 'REFUNDED'];
+    if (alreadySettled.includes(booking.status)) {
+      return { booking: booking as BookingLike & { status: string }, didSettle: false };
+    }
+    if (!['CONFIRMED_DEPOSIT', 'BALANCE_DUE'].includes(booking.status)) {
+      throw new ConflictException(
+        `Cannot settle balance in status ${booking.status}`,
+      );
+    }
+
+    // ── Step 3: Re-verify HMAC on priceSnapshot (see confirmPayment) ────
+    const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
+    if (snapshot.hmac) {
+      const { hmac, ...withoutHmac } = snapshot;
+      if (
+        !this.snapshotSigner.verify(
+          withoutHmac as unknown as Record<string, unknown>,
+          hmac,
+        )
+      ) {
+        throw new TamperedSnapshotException(bookingId);
+      }
+    }
+
+    // ── Step 4: Amount captured equals the outstanding balance ──────────
+    const expected = snapshot.balanceAmount;
+    if (expected != null && amountCaptured !== expected) {
+      throw new AmountMismatchException(
+        amountCaptured,
+        expected,
+        bookingId,
+        paymentId,
+      );
+    }
+
+    // ── Step 5: Route the status change through the state machine ───────
+    const updated = await this.stateMachine.transition(
+      tx,
+      booking as BookingLike,
+      'BALANCE_PAID',
+      {
+        actorId: 'system:razorpay',
+        metadata: { paymentId, amountCapturedPaise: amountCaptured, kind: 'balance' },
+      },
+    );
+
+    // ── Step 6: Immutable ledger entry + audit ──────────────────────────
+    await this.ledgerService.record({
+      type: 'PAYMENT_CAPTURED',
+      amount: amountCaptured,
+      bookingId,
+      metadata: { paymentId, nextStatus: updated.status, kind: 'balance' },
+      tx,
+    });
+    await this.auditService.log(
+      null,
+      'BOOKING_BALANCE_SETTLED',
+      'booking',
+      bookingId,
+      { paymentId, amountCaptured, nextStatus: updated.status },
+      tx,
+    );
+
+    // ── Step 7: Second payout line (host's share of the balance capture) ─
+    // Same proportional formula as confirmPayment, so deposit + balance shares
+    // sum to the host's full accommodation share.
+    const listing = await tx.listing.findUnique({
+      where: { id: booking.listingId },
+      select: { hostId: true },
+    });
+    if (listing) {
+      const accommodationTotal =
+        (snapshot.subtotal ?? 0) + (snapshot.cleaningFee ?? 0);
+      const hostShare =
+        snapshot.total > 0
+          ? Math.round((accommodationTotal * amountCaptured) / snapshot.total)
+          : 0;
+      if (hostShare > 0) {
+        const eligibleAt = new Date(
+          new Date(booking.startsAt).getTime() + 24 * 60 * 60 * 1000,
+        );
+        await tx.payoutLine.create({
+          data: {
+            hostId: listing.hostId,
+            listingId: booking.listingId,
+            bookingId,
+            amount: hostShare,
+            eligibleAt,
+            status: 'NOT_ELIGIBLE',
+          },
+        });
+      }
+    }
+
+    return { booking: updated, didSettle: true };
   }
 
   /**
@@ -1058,9 +1191,22 @@ export class BookingService {
       });
     });
 
-    await this.auditService.log(actorId, 'BOOKING_COMPLETE', 'booking', bookingId, {
-      previousStatus: booking.status,
-    });
+    // System (cron) completions carry the sentinel 'SYSTEM_AUTO_COMPLETE', which
+    // is NOT a real User id. AuditLog.actorUserId is a nullable FK to User, so
+    // passing the sentinel would violate that FK and throw AFTER the tx already
+    // committed — silently under-counting the cron and logging a false warning.
+    // Record null and keep the sentinel in metadata instead.
+    const isSystemActor = actorId === 'SYSTEM_AUTO_COMPLETE';
+    await this.auditService.log(
+      isSystemActor ? null : actorId,
+      'BOOKING_COMPLETE',
+      'booking',
+      bookingId,
+      {
+        previousStatus: booking.status,
+        ...(isSystemActor ? { systemActor: actorId } : {}),
+      },
+    );
 
     // Award loyalty points for completed accommodation spend (Phase 2 §5.13).
     // Points = floor(accommodationTotal_paise / 10000). Add-ons don't earn points.

@@ -166,8 +166,11 @@ export const TRANSITIONS: readonly Transition[] = [
     to: 'BALANCE_DUE',
   },
   {
+    // Balance can be paid after the balance-due cron flips the booking to
+    // BALANCE_DUE, OR early — directly from CONFIRMED_DEPOSIT — since
+    // initPayment permits a BALANCE capture in either state.
     event: 'BALANCE_PAID',
-    from: ['BALANCE_DUE'],
+    from: ['BALANCE_DUE', 'CONFIRMED_DEPOSIT'],
     to: 'CONFIRMED_PAID',
   },
 

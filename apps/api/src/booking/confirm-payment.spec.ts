@@ -295,3 +295,87 @@ describe('BookingService.confirmPayment — seven-step contract (tx-scoped)', ()
     });
   });
 });
+
+/**
+ * settleBalance — the SECOND (balance) capture on a DEPOSIT_50 booking.
+ * Mirrors the confirmPayment contract but drives BALANCE_PAID → CONFIRMED_PAID,
+ * checks against snapshot.balanceAmount, and books the second payout line.
+ * End-to-end money math (deposit + balance ledger/payout sums) lives in the
+ * integration suite (test/integration/booking-lifecycle.int-spec.ts).
+ */
+describe('BookingService.settleBalance — balance-capture contract (tx-scoped)', () => {
+  it('BALANCE_DUE → transitions BALANCE_PAID, writes ledger + second payout, didSettle=true', async () => {
+    const { tx } = makeTx(makeBooking({ status: 'BALANCE_DUE', plan: 'DEPOSIT_50' }));
+    const { service, stateMachineMock, ledgerMock } = makeService();
+
+    const res = await service.settleBalance(tx as never, 'booking-1', 'pay-bal', 850000);
+
+    expect(res.didSettle).toBe(true);
+    expect(stateMachineMock.transition).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ id: 'booking-1' }),
+      'BALANCE_PAID',
+      expect.anything(),
+    );
+    expect(ledgerMock.record).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'PAYMENT_CAPTURED', amount: 850000, bookingId: 'booking-1' }),
+    );
+    expect(tx.payoutLine.create).toHaveBeenCalled();
+  });
+
+  it('settles a balance paid early — directly from CONFIRMED_DEPOSIT', async () => {
+    const { tx } = makeTx(makeBooking({ status: 'CONFIRMED_DEPOSIT', plan: 'DEPOSIT_50' }));
+    const { service, stateMachineMock } = makeService();
+
+    const res = await service.settleBalance(tx as never, 'booking-1', 'pay-bal', 850000);
+
+    expect(res.didSettle).toBe(true);
+    expect(stateMachineMock.transition).toHaveBeenCalledWith(
+      tx,
+      expect.anything(),
+      'BALANCE_PAID',
+      expect.anything(),
+    );
+  });
+
+  it('idempotent replay: already CONFIRMED_PAID → didSettle=false, no side effects', async () => {
+    const { tx } = makeTx(makeBooking({ status: 'CONFIRMED_PAID', plan: 'DEPOSIT_50' }));
+    const { service, stateMachineMock, ledgerMock } = makeService();
+
+    const res = await service.settleBalance(tx as never, 'booking-1', 'pay-bal', 850000);
+
+    expect(res.didSettle).toBe(false);
+    expect(stateMachineMock.transition).not.toHaveBeenCalled();
+    expect(ledgerMock.record).not.toHaveBeenCalled();
+    expect(tx.payoutLine.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a balance amount that does not equal snapshot.balanceAmount', async () => {
+    const { tx } = makeTx(makeBooking({ status: 'BALANCE_DUE', plan: 'DEPOSIT_50' }));
+    const { service } = makeService();
+
+    await expect(
+      service.settleBalance(tx as never, 'booking-1', 'pay-bal', 850001),
+    ).rejects.toBeInstanceOf(AmountMismatchException);
+  });
+
+  it('rejects a tampered snapshot (HMAC verify fails)', async () => {
+    const { tx } = makeTx(makeBooking({ status: 'BALANCE_DUE', plan: 'DEPOSIT_50' }));
+    const { service } = makeService({
+      signer: { verify: jest.fn().mockReturnValue(false), sign: jest.fn() },
+    });
+
+    await expect(
+      service.settleBalance(tx as never, 'booking-1', 'pay-bal', 850000),
+    ).rejects.toBeInstanceOf(TamperedSnapshotException);
+  });
+
+  it('rejects settling a balance from an invalid status (e.g. PAYMENT_PENDING)', async () => {
+    const { tx } = makeTx(makeBooking({ status: 'PAYMENT_PENDING', plan: 'DEPOSIT_50' }));
+    const { service } = makeService();
+
+    await expect(
+      service.settleBalance(tx as never, 'booking-1', 'pay-bal', 850000),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+});
