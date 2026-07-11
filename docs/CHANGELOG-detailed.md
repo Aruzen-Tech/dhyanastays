@@ -13,6 +13,113 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-08 — Dev performance: Turbopack + Redis recovery
+
+**Commit:** _pending_ · **Migration:** none
+
+### Symptom & diagnosis
+"Clicking around the platform is slow." Measured each layer:
+- Ports: Postgres :5432 OPEN, **Redis :6379 CLOSED**, **Meilisearch :7700 CLOSED**,
+  API :3001 OPEN, Web :3000 OPEN.
+- API latency: `/api/listings` 59–174 ms — backend healthy. Meilisearch-down is
+  harmless (search falls back to Postgres per `listing.service.ts`).
+- Web: running `next dev` (webpack) — first visit to a route compiles it
+  on-demand: **3,529 ms first hit vs 532 ms warm** on `/experiences`. This was
+  the perceived slowness.
+- Redis: no Docker/WSL on this machine; Redis is **Memurai 4.1.2** (Windows
+  service, StartType=Automatic) which was **Stopped** — so the API had booted
+  with all BullMQ job modules disabled (its graceful-degradation path).
+
+### Fixes
+- `apps/web/package.json`: `"dev": "next dev --turbopack -p 3000"` —
+  `next.config.js` has no custom webpack config, so Turbopack is safe. Requires
+  a one-time dev-server restart to take effect.
+- Started Memurai directly (service start needs elevation; ran
+  `memurai.exe` as user process — `PING → PONG`), then triggered a nodemon
+  restart of the API by touching `src/main.ts`. Verified all **12 BullMQ queues**
+  re-registered in Redis (`bull:*:meta`): hold-expiry, balance-due,
+  payout-eligibility, weekly-payout, pay-later-dunning, notification-outbox,
+  sos-broadcast, concierge-sla, investor-distribution, payment-recon,
+  auto-complete, dead-letter.
+
+### Follow-ups (noted for the user)
+- Restart the web dev server to activate Turbopack.
+- To make Redis survive reboots, start the Memurai *service* once from an
+  elevated shell (`Start-Service Memurai`); it is already set to Automatic.
+- Meilisearch stays optional locally (needs Docker); DB fallback covers search.
+
+---
+
+## 2026-07-08 — Nature-luxury visual theme (all pages)
+
+**Commit:** _pending_ · **Migration:** none (web styling only)
+
+### Approach
+The web app's design system is fully CSS-variable driven (`--brand-*`,
+`--gray-*`, `--surface`, glass tints) with Tailwind tokens mapped onto the vars
+in `tailwind.config.ts`. Re-skinning the token layer restyles all 76 pages at
+once — no per-page edits. Semantic status colors (red/amber/green/blue badges
+and alerts) were deliberately left untouched.
+
+### `apps/web/app/globals.css`
+- **Light mode:** brand 50–900 rebuilt as a deep-evergreen scale (primary
+  `--brand-700: 34 77 56` ≈ `#224d38`); neutrals warmed to stone/linen
+  (`gray-900: 28 26 21` … `gray-50: 250 249 246`); surface `246 244 238` warm
+  ivory; new `--gold: 166 129 72` (antique gold); `--ambient` radial evergreen
+  wash layered over the body's grain texture; glass/nav tints warmed.
+- **Dark mode:** brand becomes a sage scale (primary `220 233 224` near-white
+  sage); surfaces forest-night (`--surface: 10 13 11`, cards `19 24 20`);
+  green-tinted inverted grays; `--gold: 209 174 118` brightened.
+- **Components:** `.btn-primary` hover shimmer now gold-tinted;
+  `.gradient-border` animates evergreen→gold; `.text-gradient` ends in gold;
+  `.card`/`.card-hover` shadows warmed (rgba base 21,32,25); new `.text-gold`
+  and `.eyebrow` (small-caps gold kicker) utilities.
+
+### `apps/web/tailwind.config.ts`
+- New `gold` color token → `rgb(var(--gold) / <alpha-value>)`.
+- `boxShadow` set warmed to the forest-tinted rgba base; `glow` now evergreen.
+
+### `apps/web/components/ListingCard.tsx`
+- Placeholder SVG gradients switched from monochrome blacks to five
+  deterministic forest/moss/earth pairs (e.g. `#0f2a1c→#2f6349`).
+
+### Build fixes (pre-existing, exposed by verification build)
+- `app/auth/register/page.tsx` + `app/sos/page.tsx`: `useSearchParams()` without
+  a `<Suspense>` boundary fails Next 15 static prerender. Wrapped both default
+  exports in `<Suspense>` (inner component pattern). These failures pre-dated the
+  theme work and blocked `next build` entirely.
+
+### Verification
+- `next build`: ✓ compiled; **all 76 pages prerendered** (register/sos included).
+- Built CSS confirmed to contain the new tokens (`34 77 56`, `246 244 238`,
+  both `--gold` values).
+- Remaining local-only failure: `output: 'standalone'` copy step needs symlinks,
+  which Windows blocks without Developer Mode (EPERM). Environmental; CI/Linux
+  unaffected; pre-existing.
+
+---
+
+## 2026-07-08 — Docs: Word test report + roadmap
+
+**Commit:** _pending_ · **Migration:** none
+
+- **`docs/booking-engine-test-report.docx`** — the markdown test report converted
+  to a native Word document using the repo's `docx` v9.6.1 library (no pandoc
+  available). Real OOXML: Word heading styles, all 8 tables with shaded headers +
+  per-column alignment, shaded monospace code blocks, lists/blockquotes/inline
+  formatting. Package validated (all required parts present; content intact).
+- **`docs/TODO.md`** — forward roadmap after the hardening pass, every item
+  verified against the repo: P0 housekeeping (push `dev` [ahead 6], untrack
+  committed `apps/api/dist/`, `.docx` decision, `listing.service.spec` triage);
+  P1 engine follow-ups (CI runs unit only despite having a Postgres container —
+  add `migrate deploy` + `test:int`; pay-later seq-2+ lifecycle test; balance
+  notification decision; payout rounding test); P2 product gaps (booking UI plan
+  selector offers only FULL/DEPOSIT_50 — expose PAY_LATER behind a feature flag;
+  merge `dev`→`main`); P3 launch readiness (no web E2E exists; provider
+  provisioning; monitoring; backups; security review).
+
+---
+
 ## 2026-07-06 — Booking-engine hardening: top-standard test suite + 4 reliability fixes
 
 **Commit:** _pending_ · **Migration:** none (application + test code only)

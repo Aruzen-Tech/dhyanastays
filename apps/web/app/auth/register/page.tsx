@@ -2,10 +2,19 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 
+// useSearchParams() requires a Suspense boundary for static prerender.
 export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
+  );
+}
+
+function RegisterForm() {
   const { register, loginWithAuth0, isAuth0Mode } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();

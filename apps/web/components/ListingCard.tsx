@@ -5,13 +5,13 @@ import { formatINR } from '../lib/api';
 import type { Listing } from '../lib/types';
 import WishlistButton from './WishlistButton';
 
-// Deterministic monochrome gradient palette
+// Deterministic nature-tone gradient palette (deep forest, moss, earth)
 const GRADIENTS: [string, string][] = [
-  ['#0a0a0a', '#2a2a2a'],
-  ['#1a1a1a', '#3a3a3a'],
-  ['#111111', '#333333'],
-  ['#0d0d0d', '#2d2d2d'],
-  ['#141414', '#383838'],
+  ['#0f2a1c', '#2f6349'],
+  ['#1a3d2c', '#47805f'],
+  ['#16241c', '#3d5a47'],
+  ['#233a2b', '#6b9c80'],
+  ['#1f3326', '#5c7a52'],
 ];
 
 function ListingPlaceholder({ id, title }: { id: string; title: string }) {

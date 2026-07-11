@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../context/AuthContext';
 import { sosApi, type SosIncident, type SosTier } from '../../lib/api';
@@ -15,7 +15,16 @@ const TIERS: { value: SosTier; label: string; desc: string; color: string }[] = 
   { value: 'OTHER', label: 'Other', desc: 'Any emergency not covered above', color: 'bg-gray-700' },
 ];
 
+// useSearchParams() requires a Suspense boundary for static prerender.
 export default function SosPage() {
+  return (
+    <Suspense>
+      <SosPageInner />
+    </Suspense>
+  );
+}
+
+function SosPageInner() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
   const search = useSearchParams();

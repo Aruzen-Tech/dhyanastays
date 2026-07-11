@@ -16,6 +16,58 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-08 — Dev performance: Turbopack + Redis recovery
+
+### Changed
+- **Web dev server now uses Turbopack** (`next dev --turbopack`) — page-to-page
+  clicks in dev were slow because webpack compiled each of the 80+ routes
+  on-demand (measured 3.5s first visit vs 0.5s after); Turbopack compiles
+  drastically faster. Production builds unchanged.
+
+### Infrastructure (local dev, no code change)
+- Diagnosed "slow clicks": API was healthy (~60 ms); Redis (Memurai Windows
+  service) was stopped, silently disabling all 12 background queues (hold
+  expiry, balance due, outbox, SOS…). Started Memurai, restarted the API —
+  all queues re-registered. Meilisearch remains down (no Docker on this
+  machine); listing search gracefully falls back to Postgres.
+
+---
+
+## 2026-07-08 — Nature-luxury visual theme (all pages)
+
+### Changed
+- **Design system re-skinned to a nature-luxury palette** — because every page
+  reads colors from CSS variables, redefining the tokens in `globals.css`
+  restyled all 76 pages at once: deep-evergreen brand scale (light) / soft sage
+  (dark), warm ivory & stone neutrals replacing cool grays, forest-night dark
+  surfaces, warm glass/nav tints, forest-tinted shadows, and an ambient evergreen
+  wash behind every page.
+- **Antique-gold accent** (`--gold`, Tailwind `gold`, `.text-gold`, `.eyebrow`):
+  gold-tinted button shimmer, evergreen→gold `.text-gradient` and
+  `.gradient-border`.
+- **Listing photo placeholders** now use deterministic forest/moss gradients
+  instead of monochrome blacks.
+
+### Fixed
+- Production build: wrapped `useSearchParams()` in Suspense boundaries on
+  `/auth/register` and `/sos` (pre-existing prerender failures that blocked
+  `next build`). All 76 pages now prerender.
+
+---
+
+## 2026-07-08 — Docs: Word test report + roadmap
+
+### Added
+- **[`docs/booking-engine-test-report.docx`](docs/booking-engine-test-report.docx)** —
+  native Word version of the test report (converted with the `docx` lib; headings,
+  8 tables, code blocks preserved).
+- **[`docs/TODO.md`](docs/TODO.md)** — prioritized P0–P3 roadmap after the
+  hardening pass: housekeeping (push, untrack `dist/`, listing-spec triage),
+  engine follow-ups (integration tests in CI, pay-later 2+, balance notification),
+  product gaps (PAY_LATER in booking UI), launch readiness.
+
+---
+
 ## 2026-07-06 — Booking-engine hardening: top-standard test suite + 4 reliability fixes
 
 Comprehensive real-service integration suite for the booking engine
