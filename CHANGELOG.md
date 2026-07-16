@@ -16,6 +16,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-12 — Fix Render deploy crash: pnpm layout in API runtime image
+
+### Fixed
+- `apps/api/Dockerfile` runtime stage: container crashed on boot with
+  `Cannot find module '@nestjs/common'`. pnpm links each package's deps inside
+  its own `node_modules` as relative symlinks into the root `.pnpm` store; the
+  runtime stage flattened `dist` to `/app` and copied only the root
+  `node_modules`, breaking resolution. Now preserves the workspace layout
+  (root store + `apps/api/node_modules` + `apps/api/dist`) and runs from
+  `WORKDIR /app/apps/api`.
+
+---
+
 ## 2026-07-12 — CI green: fix all 273 lint errors + the last failing unit test
 
 ### Fixed

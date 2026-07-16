@@ -23,18 +23,25 @@ RUN pnpm --filter @dhyana/api exec prisma generate
 RUN pnpm --filter @dhyana/api build
 
 # ── Stage 3: Production runtime ──────────────────────────────────────
+# pnpm links each package's dependencies inside its own node_modules as
+# RELATIVE symlinks into the root .pnpm store (apps/api/node_modules/@nestjs/
+# common → ../../../node_modules/.pnpm/...). Both trees must therefore be
+# preserved at the same workspace-relative paths — flattening dist to /app
+# breaks module resolution (Cannot find module '@nestjs/common').
 FROM node:22-alpine AS runtime
 RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001 -G appgroup
 WORKDIR /app
 
-COPY --from=build --chown=appuser:appgroup /app/apps/api/dist ./dist
-COPY --from=build --chown=appuser:appgroup /app/apps/api/prisma ./prisma
 COPY --from=build --chown=appuser:appgroup /app/node_modules ./node_modules
-COPY --from=build --chown=appuser:appgroup /app/apps/api/package.json ./package.json
+COPY --from=build --chown=appuser:appgroup /app/apps/api/node_modules ./apps/api/node_modules
+COPY --from=build --chown=appuser:appgroup /app/apps/api/dist ./apps/api/dist
+COPY --from=build --chown=appuser:appgroup /app/apps/api/prisma ./apps/api/prisma
+COPY --from=build --chown=appuser:appgroup /app/apps/api/package.json ./apps/api/package.json
 
 ENV NODE_ENV=production
 ENV PORT=3001
 EXPOSE 3001
 
 USER appuser
+WORKDIR /app/apps/api
 CMD ["node", "dist/main.js"]
