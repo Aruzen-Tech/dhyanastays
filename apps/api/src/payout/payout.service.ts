@@ -220,10 +220,11 @@ export class PayoutService {
         existing.lineCount++;
         existing.amount += line.amount;
       } else {
+        const hostUser = (line.host as { user: { fullName: string | null; email: string } }).user;
         byHost.set(line.hostId, {
           hostId: line.hostId,
-          hostName: (line.host as any).user.fullName ?? '',
-          hostEmail: (line.host as any).user.email,
+          hostName: hostUser.fullName ?? '',
+          hostEmail: hostUser.email,
           lineCount: 1,
           amount: line.amount,
         });

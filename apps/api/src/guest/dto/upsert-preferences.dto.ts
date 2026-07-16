@@ -7,7 +7,7 @@ import {
   MaxLength,
 } from 'class-validator';
 
-const DIETARY_OPTIONS = [
+export const DIETARY_OPTIONS = [
   'vegetarian',
   'vegan',
   'gluten-free',
@@ -17,7 +17,7 @@ const DIETARY_OPTIONS = [
   'no-preference',
 ];
 
-const WELLNESS_OPTIONS = [
+export const WELLNESS_OPTIONS = [
   'yoga',
   'meditation',
   'ayurveda',

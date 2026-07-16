@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -7,7 +8,7 @@ export class AdminNotificationService {
 
   async create(type: string, title: string, message: string, metadata: Record<string, unknown> = {}) {
     return this.prisma.adminNotification.create({
-      data: { type, title, message, metadata: metadata as any },
+      data: { type, title, message, metadata: metadata as Prisma.InputJsonValue },
     });
   }
 

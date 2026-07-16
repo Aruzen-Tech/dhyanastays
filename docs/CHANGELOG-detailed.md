@@ -13,6 +13,63 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-12 — CI green: fix all 273 lint errors + the last failing unit test
+
+**Commit:** _pending_ · **Migration:** none
+
+### Context
+GitHub CI's lint job (`pnpm --filter @dhyana/api lint`) failed with 293 problems
+(273 errors). ~230 were `no-explicit-any` in spec files (mock noise); ~40 were
+genuine issues in production source.
+
+### `eslint.config.mjs`
+- Override block for `src/**/*.spec.ts`: `@typescript-eslint/no-explicit-any: off`
+  — mocks and Prisma doubles legitimately need `any`; enforcing it in specs
+  produces noise, not safety.
+- `@typescript-eslint/no-unused-vars` configured with
+  `argsIgnorePattern/varsIgnorePattern/caughtErrorsIgnorePattern: '^_'` — the
+  processors' `_job` params and `_dto` were already following this convention
+  but the rule wasn't.
+
+### Real fixes (17 files)
+- **Typed Prisma filters**: `where: any` → `Prisma.BookingWhereInput`
+  (`booking.service.getAllBookings`, `admin.service.getCalendarBookings`,
+  `host-analytics` calendar + getBookings) and `Prisma.AuditLogWhereInput`
+  (`admin.service` audit query); `status` string params cast to `BookingStatus`.
+- **JSON writes**: `metadata/value as any` → `Prisma.InputJsonValue`
+  (admin-notification, host-analytics notification, admin systemConfig ×3).
+- **Snapshot reads**: `priceSnapshot as any` → narrow inline types
+  (`{ total?: number; depositAmount?: number; balanceAmount?: number } | null`)
+  in admin revenue rollup + 3 host-analytics call sites.
+- **payout.service**: `(line.host as any).user` → single typed cast for the
+  host-user include shape.
+- **storage.service**: two `require('crypto')` lazy imports → `createHmac` added
+  to the existing top-level crypto import.
+- **payment.service**: dead `type TxClient = any` alias removed.
+- **Dead imports removed**: `AddOn` (add-on), `generate` (mfa),
+  `PricingService` (booking spec), `UserRole`+`Roles` (feature-flag controller),
+  `InvestorDocumentKind` (investor), `IsObject` (update-preparation DTO),
+  `Body`+`MarkBatchPaidDto` class+`IsString` (payout controller),
+  `Delete`+`Param` (referral controller), `Prisma` (trip-group).
+- **upsert-preferences DTO**: `DIETARY_OPTIONS`/`WELLNESS_OPTIONS` exported
+  (documented allowed values, previously unused consts).
+- 20 stale `eslint-disable` directives auto-removed via `--fix`.
+
+### `listing.service.spec.ts` — pre-existing failure root-caused
+`updateHostListing` reads the listing twice: ownership check, then a re-fetch
+(with `rateRules` + `media`) which is the return value. The mock returned the
+ownership row (no `status`) for both reads → `result.status` undefined. Fixed
+with `mockResolvedValueOnce` per read. The service was always correct.
+
+### Verification
+- `eslint "src/**/*.ts"` → exit 0 (was 273 errors).
+- `tsc --noEmit` → 0 errors (one narrow-type miss caught and fixed:
+  `balanceAmount` added to the admin snapshot cast).
+- Unit suite: **260/260 — fully green for the first time** (the listing spec
+  was failing since before the booking-engine hardening pass).
+
+---
+
 ## 2026-07-12 — Deployment kit: live staging on Render + Vercel
 
 **Commit:** _pending_ · **Migration:** none

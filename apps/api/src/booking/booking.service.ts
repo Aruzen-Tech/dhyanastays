@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { AuditService } from '../common/services/audit.service';
@@ -229,8 +230,8 @@ export class BookingService {
 
   /** Admin: get all bookings with guest + listing info, optional status/search filters */
   async getAllBookings(page = 1, limit = 50, status?: string, search?: string) {
-    const where: any = {};
-    if (status) where.status = status;
+    const where: Prisma.BookingWhereInput = {};
+    if (status) where.status = status as BookingStatus;
     if (search) {
       where.OR = [
         { id: { contains: search, mode: 'insensitive' } },

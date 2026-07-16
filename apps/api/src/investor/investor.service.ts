@@ -9,7 +9,6 @@ import {
   BookingStatus,
   CapitalCallStatus,
   DistributionStatus,
-  InvestorDocumentKind,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';

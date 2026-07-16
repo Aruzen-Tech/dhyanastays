@@ -48,6 +48,11 @@ services:
         fromDatabase:
           name: dhyana-postgres
           property: connectionString
+      # schema.prisma declares directUrl = env("DIRECT_URL"); same DB, no pooler.
+      - key: DIRECT_URL
+        fromDatabase:
+          name: dhyana-postgres
+          property: connectionString
       - key: REDIS_HOST
         fromService:
           type: keyvalue

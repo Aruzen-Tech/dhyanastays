@@ -83,7 +83,7 @@ export class AppModule {
           `to a reachable Redis >= 5.0 instance and restart.`,
         );
       }
-      // eslint-disable-next-line no-console
+       
       console.warn(
         '\n[!] Redis (>= 5.0) not available at %s:%d - background jobs disabled.\n' +
         '   Hold expiry, payout batches, and scheduled tasks will NOT run.\n' +

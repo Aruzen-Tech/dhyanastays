@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { AdminLevel, ApplicationStatus, UserKind, UserRole } from '@prisma/client';
+import { AdminLevel, ApplicationStatus, Prisma, UserKind, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/services/audit.service';
 import { ApplyStaffDto } from './dto/apply-staff.dto';
@@ -464,7 +464,7 @@ export class AdminService {
       // Seed defaults
       const entries = Object.entries(this.SETTING_DEFAULTS).map(([key, value]) => ({
         key,
-        value: value as any,
+        value: value as Prisma.InputJsonValue,
       }));
       await this.prisma.systemConfig.createMany({ data: entries });
       return this.prisma.systemConfig.findMany();
@@ -476,8 +476,8 @@ export class AdminService {
     for (const { key, value } of updates) {
       await this.prisma.systemConfig.upsert({
         where: { key },
-        create: { key, value: value as any, updatedBy: actorId },
-        update: { value: value as any, updatedBy: actorId },
+        create: { key, value: value as Prisma.InputJsonValue, updatedBy: actorId },
+        update: { value: value as Prisma.InputJsonValue, updatedBy: actorId },
       });
 
       await this.auditService.log(actorId, 'SETTING_UPDATED', 'SystemConfig', key, {
@@ -494,7 +494,7 @@ export class AdminService {
     const startOfMonth = new Date(year, mon - 1, 1);
     const endOfMonth = new Date(year, mon, 0, 23, 59, 59, 999);
 
-    const where: any = {
+    const where: Prisma.BookingWhereInput = {
       startsAt: { lte: endOfMonth },
       endsAt: { gte: startOfMonth },
       status: { notIn: ['CANCELLED', 'REFUNDED'] },
@@ -708,7 +708,7 @@ export class AdminService {
     });
     const adminIds = adminUsers.map((u) => u.id);
 
-    const where: any = {
+    const where: Prisma.AuditLogWhereInput = {
       actorUserId: adminId ? adminId : { in: adminIds },
     };
 
@@ -1215,7 +1215,11 @@ export class AdminService {
       let expectedBalance = 0;
 
       for (const b of inRange) {
-        const snap = b.priceSnapshot as any;
+        const snap = b.priceSnapshot as {
+          total?: number;
+          depositAmount?: number;
+          balanceAmount?: number;
+        } | null;
         const total = snap?.total ?? 0;
         const deposit = snap?.depositAmount ?? 0;
         const balance = snap?.balanceAmount ?? 0;

@@ -76,7 +76,7 @@ describe('RazorpayService', () => {
         }),
       };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const svc = new RazorpayService(configMock as any);
       expect(svc.verifyWebhookSignature(body, validSig)).toBe(true);
     });
@@ -99,7 +99,7 @@ describe('RazorpayService', () => {
         }),
       };
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const svc = new RazorpayService(configMock as any);
       expect(svc.verifyWebhookSignature(tamperedBody, sigForOriginal)).toBe(false);
     });
@@ -108,7 +108,7 @@ describe('RazorpayService', () => {
       const configMock = {
         get: jest.fn((_key: string, def: string) => def ?? ''),
       };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const svc = new RazorpayService(configMock as any);
       expect(svc.verifyWebhookSignature('any-body', 'any-sig')).toBe(true);
     });
@@ -117,7 +117,7 @@ describe('RazorpayService', () => {
       const configMock = {
         get: jest.fn((_key: string, def: string) => def ?? ''),
       };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const svc = new RazorpayService(configMock as any);
       const order = await svc.createOrder(1705000, 'booking-1_FULL');
       expect(order.id).toMatch(/^stub_order_/);
@@ -182,7 +182,7 @@ describe('PaymentService', () => {
         { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const result = await service.initPayment('guest-1', {
         bookingId: 'booking-1',
         type: 'FULL' as any,
@@ -295,7 +295,7 @@ describe('PaymentService', () => {
         { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       const result = await service.initPayment('guest-1', {
         bookingId: 'booking-2',
         type: 'DEPOSIT' as any,

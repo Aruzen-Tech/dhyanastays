@@ -6,7 +6,6 @@ import {
 } from '@nestjs/common';
 import {
   ExpenseSplitMethod,
-  Prisma,
   TripGroupInviteStatus,
   TripGroupRole,
 } from '@prisma/client';

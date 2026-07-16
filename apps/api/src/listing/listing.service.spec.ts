@@ -40,10 +40,19 @@ describe('ListingService', () => {
   });
 
   it('moves to pending approval when sensitive fields are changed', async () => {
-    prismaMock.listing.findUnique.mockResolvedValue({
-      id: 'listing-1',
-      host: { userId: 'user-1' },
-    });
+    // updateHostListing reads the listing twice: first for the ownership check,
+    // then a re-fetch (with rateRules + media) that becomes the return value.
+    prismaMock.listing.findUnique
+      .mockResolvedValueOnce({
+        id: 'listing-1',
+        host: { userId: 'user-1' },
+      })
+      .mockResolvedValueOnce({
+        id: 'listing-1',
+        status: ListingStatus.PENDING_APPROVAL,
+        rateRules: [],
+        media: [],
+      });
     prismaMock.listing.update.mockResolvedValue({
       id: 'listing-1',
       status: ListingStatus.PENDING_APPROVAL,
