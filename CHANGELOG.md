@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-16 — Web: tolerate trailing slash in NEXT_PUBLIC_API_URL
+
+### Fixed
+- `apps/web/next.config.js`: the `/api/*` rewrite now strips trailing slashes
+  from `NEXT_PUBLIC_API_URL`. A value saved as `https://host/` produced
+  `https://host//api/...` → 404 (`Cannot GET //api/listings`) on the deployed
+  site.
+
+---
+
 ## 2026-07-16 — Allow NODE_ENV=staging (deployed-for-testing mode)
 
 ### Fixed

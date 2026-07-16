@@ -13,6 +13,24 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-16 — Web: tolerate trailing slash in NEXT_PUBLIC_API_URL
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Symptom (deployed Vercel site):** every API call 404s with
+  `Cannot GET //api/listings` — note the double slash. The request *did* reach
+  the Render API (that's a Nest/Express 404 body), but with a malformed path.
+- **Root cause:** `NEXT_PUBLIC_API_URL` was saved in Vercel with a trailing
+  slash; `next.config.js` concatenates `${base}/api/:path*` → `host//api/...`,
+  which matches no route under the `api` global prefix.
+- **Fix:** rewrite destination now uses
+  `(process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001').replace(/\/+$/, '')`.
+  Env-var hygiene still recommended (no trailing slash), but the build no longer
+  breaks on it. Note rewrites are evaluated at **build time** — changing the env
+  var or config requires a redeploy.
+
+---
+
 ## 2026-07-16 — Allow NODE_ENV=staging (deployed-for-testing mode)
 
 **Commit:** _pending_ · **Migration:** none
