@@ -1,15 +1,9 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Controller, Get, Param, Post } from '@nestjs/common';
 import { AdminLevel, UserRole } from '@prisma/client';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { PayoutService } from './payout.service';
-import { IsString } from 'class-validator';
-
-class MarkBatchPaidDto {
-  @IsString()
-  batchId!: string;
-}
 
 @Controller()
 export class PayoutController {

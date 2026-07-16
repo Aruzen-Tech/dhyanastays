@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, createHmac, randomUUID } from 'crypto';
 import * as path from 'path';
 
 export interface UploadResult {
@@ -210,12 +210,10 @@ export class StorageService {
   }
 
   private hmacHex(key: Buffer | string, data: string): string {
-    const { createHmac } = require('crypto') as typeof import('crypto');
     return createHmac('sha256', key).update(data).digest('hex');
   }
 
   private hmacBuffer(key: Buffer | string, data: string): Buffer {
-    const { createHmac } = require('crypto') as typeof import('crypto');
     return createHmac('sha256', key).update(data).digest();
   }
 

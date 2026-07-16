@@ -16,6 +16,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-12 — CI green: fix all 273 lint errors + the last failing unit test
+
+### Fixed
+- **ESLint config** (`eslint.config.mjs`): spec files may use `any` (mocks need
+  it — kills ~230 noise errors); `no-unused-vars` now honors the `^_` convention
+  (BullMQ `_job` params etc.).
+- **~40 real lint errors fixed properly across 17 src files**: dead imports
+  removed (payout/referral/feature-flag controllers, mfa, investor, trip-group,
+  add-on, DTOs); `where: any` → typed `Prisma.BookingWhereInput`/
+  `AuditLogWhereInput` (admin, booking, host-analytics); JSON casts →
+  `Prisma.InputJsonValue`; `priceSnapshot as any` → narrow snapshot types;
+  `(line.host as any)` → typed host-user shape (payout); `require('crypto')` →
+  top-level import (storage); dead `TxClient` alias removed (payment);
+  20 stale eslint-disable directives auto-removed.
+- **`listing.service.spec.ts` — the long-standing pre-existing failure**: the
+  mock returned the ownership-check row for every `findUnique`, but
+  `updateHostListing` re-fetches after update and returns that row. Mock now
+  models both reads. Unit suite fully green for the first time: **260/260**.
+
+---
+
 ## 2026-07-12 — Deployment kit: live staging on Render + Vercel
 
 ### Added

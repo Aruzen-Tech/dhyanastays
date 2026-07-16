@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -34,7 +35,7 @@ export class HostAnalyticsService {
     const confirmedStatuses = ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT', 'COMPLETED', 'BALANCE_DUE'];
     const confirmedBookings = bookings.filter((b) => confirmedStatuses.includes(b.status));
     const totalRevenue = confirmedBookings.reduce((sum, b) => {
-      const snap = b.priceSnapshot as any;
+      const snap = b.priceSnapshot as { total?: number } | null;
       return sum + (snap?.total ?? 0);
     }, 0);
 
@@ -136,7 +137,7 @@ export class HostAnalyticsService {
 
     return listings.map((l) => {
       const totalRevenue = l.bookings.reduce((sum, b) => {
-        const snap = b.priceSnapshot as any;
+        const snap = b.priceSnapshot as { total?: number } | null;
         return sum + (snap?.total ?? 0);
       }, 0);
 
@@ -193,7 +194,7 @@ export class HostAnalyticsService {
 
     for (const b of futureBookings) {
       const daysAway = Math.ceil((new Date(b.startsAt).getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
-      const snap = b.priceSnapshot as any;
+      const snap = b.priceSnapshot as { total?: number } | null;
       const total = snap?.total ?? 0;
       // Platform fee is 10%, host gets 90%
       const hostShare = Math.round(total * 0.9);
@@ -224,7 +225,7 @@ export class HostAnalyticsService {
     const start = new Date(year, mon - 1, 1);
     const end = new Date(year, mon, 0, 23, 59, 59);
 
-    const where: any = {
+    const where: Prisma.BookingWhereInput = {
       listing: { hostId: host.id },
       startsAt: { lte: end },
       endsAt: { gte: start },
@@ -249,8 +250,8 @@ export class HostAnalyticsService {
     const host = await this.prisma.host.findUnique({ where: { userId } });
     if (!host) return { bookings: [], total: 0, page, limit };
 
-    const where: any = { listing: { hostId: host.id } };
-    if (status) where.status = status;
+    const where: Prisma.BookingWhereInput = { listing: { hostId: host.id } };
+    if (status) where.status = status as BookingStatus;
 
     const [bookings, total] = await Promise.all([
       this.prisma.booking.findMany({
@@ -280,7 +281,7 @@ export class HostAnalyticsService {
     metadata: Record<string, unknown> = {},
   ) {
     return this.prisma.hostNotification.create({
-      data: { hostId, type, title, message, metadata: metadata as any },
+      data: { hostId, type, title, message, metadata: metadata as Prisma.InputJsonValue },
     });
   }
 

@@ -1,12 +1,11 @@
 import { BookingService } from './booking.service';
-import { PricingService } from '../pricing/pricing.service';
 
 /**
  * Unit tests for BookingService.
  * All dependencies are mocked — no DB or external services required.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type AnyMock = jest.MockedFunction<(...args: any[]) => any>;
 
 function makeAuditMock() {

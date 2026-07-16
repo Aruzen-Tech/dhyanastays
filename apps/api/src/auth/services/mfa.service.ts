@@ -4,7 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { generate, generateSecret, generateURI, verify } from 'otplib';
+import { generateSecret, generateURI, verify } from 'otplib';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UserRole } from '@prisma/client';
 import { AuthService } from '../auth.service';

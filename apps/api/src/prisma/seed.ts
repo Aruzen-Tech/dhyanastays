@@ -4,7 +4,7 @@ import * as argon2 from 'argon2';
 const prisma = new PrismaClient();
 
 async function main() {
-  // eslint-disable-next-line no-console
+   
   console.log('🌱 Seeding Dhyana Stays database…');
 
   // ── 1. Admin user ──────────────────────────────────────────────────────────
@@ -12,9 +12,9 @@ async function main() {
   const adminPassword = process.env.ADMIN_PASSWORD;
 
   if (!adminEmail || !adminPassword) {
-    // eslint-disable-next-line no-console
+     
     console.log('  [!] ADMIN_EMAIL and ADMIN_PASSWORD env vars not set - skipping admin seed.');
-    // eslint-disable-next-line no-console
+     
     console.log('    Set them in .env to seed the admin user.');
   } else {
     const admin = await prisma.user.findUnique({ where: { email: adminEmail } });
@@ -30,7 +30,7 @@ async function main() {
           isActive: true,
         },
       });
-      // eslint-disable-next-line no-console
+       
       console.log('  ✓ Admin user created:', adminEmail);
     } else {
       await prisma.user.update({
@@ -41,7 +41,7 @@ async function main() {
           role: UserRole.ADMIN,
         },
       });
-      // eslint-disable-next-line no-console
+       
       console.log('  ✓ Admin user updated:', adminEmail);
     }
   }
@@ -63,7 +63,7 @@ async function main() {
           isActive: true,
         },
       });
-      // eslint-disable-next-line no-console
+       
       console.log('  ✓ Host user created:', hostEmail);
     }
 
@@ -76,7 +76,7 @@ async function main() {
           payoutEnabled: false,
         },
       });
-      // eslint-disable-next-line no-console
+       
       console.log('  ✓ Host profile created with PENDING verification.');
     }
   }
@@ -151,16 +151,16 @@ async function main() {
     });
     tagsCreated++;
   }
-  // eslint-disable-next-line no-console
+   
   console.log(`  ✓ Tags upserted: ${tagsCreated} tags across 6 categories.`);
 
-  // eslint-disable-next-line no-console
+   
   console.log('\n🎉 Seed complete.');
 }
 
 main()
   .catch((error) => {
-    // eslint-disable-next-line no-console
+     
     console.error(error);
     process.exit(1);
   })

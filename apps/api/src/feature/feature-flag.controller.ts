@@ -1,8 +1,7 @@
 import { Body, Controller, Get, Param, Patch } from '@nestjs/common';
-import { AdminLevel, UserRole } from '@prisma/client';
+import { AdminLevel } from '@prisma/client';
 import { IsArray, IsBoolean, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Roles } from '../common/decorators/roles.decorator';
 import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';

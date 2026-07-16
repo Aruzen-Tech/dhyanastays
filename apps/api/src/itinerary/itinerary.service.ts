@@ -56,7 +56,7 @@ interface ChatPatch {
 }
 
 interface AnthropicResponse {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   content?: Array<{ type?: string; text?: string }>;
   usage?: {
     input_tokens?: number;

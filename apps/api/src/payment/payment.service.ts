@@ -20,9 +20,6 @@ import { PayLaterService } from '../pay-later/pay-later.service';
 import { BookingStateMachine } from '../booking/state-machine';
 import { withSerializableRetry } from '../common/services/serializable-retry';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type TxClient = any;
-
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
@@ -498,7 +495,7 @@ export class PaymentService {
 
         if (capturedAttempt) {
           // Replay the same webhook handler to keep state-transition logic in one place.
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           await this.handlePaymentCaptured({
             payload: {
               payment: {
