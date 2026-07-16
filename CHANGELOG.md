@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-16 — Docs: discovery/map handoff brief
+
+### Added
+- **[`docs/HANDOFF-discovery-map.md`](docs/HANDOFF-discovery-map.md)** — brief
+  for the developer taking over discovery/search + map work: setup pointer,
+  scope, file map (both apps), project conventions (paise, Meili-fallback,
+  design tokens, changelog), guardrails (booking/payment engine off-limits),
+  definition of done. Work happens on `feature/discovery-map`, PRs to `dev`.
+
+---
+
 ## 2026-07-16 — CORS: graceful denial + wildcard origins (fixes login 500)
 
 ### Fixed
