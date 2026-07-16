@@ -13,6 +13,86 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-12 — Deployment kit: live staging on Render + Vercel
+
+**Commit:** _pending_ · **Migration:** none
+
+### Architecture
+Browser → **Vercel** (Next.js, free Hobby; `/api/*` rewrite proxies to the API →
+no CORS) → **Render** free tier: NestJS API via the existing
+`apps/api/Dockerfile`, managed PostgreSQL 16, Key Value (Redis) for BullMQ.
+API runs `NODE_ENV=staging` — production-mode validation (real Razorpay,
+non-stub email/SMS/storage, Anthropic key, SOS contacts) stays off while the
+platform is live for testing; Razorpay test keys exercise the real checkout +
+webhook path.
+
+### Files
+- **`render.yaml`** (new): `databases:` dhyana-postgres (free, PG16);
+  `keyvalue` dhyana-redis (free, `maxmemoryPolicy: noeviction` — BullMQ
+  requirement, `ipAllowList: []`); `web` dhyana-api (runtime docker,
+  `dockerContext: .`, healthcheck `/api/listings`). Env: DATABASE_URL/REDIS_HOST/
+  REDIS_PORT wired via `fromDatabase`/`fromService`; JWT + price-snapshot
+  secrets `generateValue: true`; WEB_URL/ALLOWED_ORIGINS/Razorpay/ADMIN_*
+  `sync: false` (dashboard prompts). Free tier lacks pre-deploy hooks →
+  migrations run from a dev machine against the external DB URL (documented).
+- **`.dockerignore`** (new): excludes all `.env*` (keeps `*.example`) — before
+  this, `COPY . .` in both Dockerfiles would have copied real local secrets
+  into images — plus node_modules/dist/.next/.git/docs/dump.rdb.
+- **`apps/api/Dockerfile`**: `RUN pnpm --filter @dhyana/api prisma:generate` →
+  `RUN pnpm --filter @dhyana/api exec prisma generate` (package script wraps
+  dotenv `-e .env`; that file is no longer in the build context).
+- **`docs/DEPLOYMENT.md`** (new): required-for-testing services (GitHub, Render,
+  Vercel, Razorpay test mode) vs required-for-production (live Razorpay,
+  Resend/SendGrid/SMTP, MSG91/Twilio, R2/S3, Anthropic, managed Redis, SOS
+  contacts — mirroring `env.validation.ts` production block); Render blueprint
+  walkthrough; migrate + GiST post-migrate + seed against the cloud DB
+  (PowerShell + bash); Vercel import (`apps/web` root, `NEXT_PUBLIC_API_URL`);
+  Razorpay webhook (`/api/payments/webhook`, events payment.captured/
+  payment.failed/refund.processed); smoke-test checklist; free-tier caveats
+  (API idle sleep, 30-day free Postgres); production upgrade path.
+
+---
+
+## 2026-07-12 — Docs: clone & setup guide
+
+**Commit:** _pending_ · **Migration:** none (documentation only)
+
+- **`docs/SETUP.md`** (new) — everything to stand the platform up on a fresh
+  device. Facts sourced from the repo, not memory: pnpm `10.2.0` from the root
+  `packageManager` field; Node 22 from CI; `postgres:16` / `redis:6.2.0` /
+  `getmeili/meilisearch:v1.12` from `docker-compose.yml`; required env vars from
+  `env.validation.ts` (DATABASE_URL, JWT secrets ≥16 chars dev / ≥32 prod;
+  `PRICE_SNAPSHOT_SECRET` has a dev default; `ADMIN_EMAIL`/`ADMIN_PASSWORD`
+  gate the seed's admin creation); command sequence from `package.json` scripts
+  (`prisma:generate` → `prisma:deploy` → `post-migrate` GiST index → `seed`).
+  Covers Docker and native-Windows (Memurai) paths, graceful degradation
+  without Redis/Meilisearch, test commands with expected results, production
+  build (`prod:*` scripts) with the Windows symlink caveat, and a
+  quick-reference block of the full sequence.
+
+---
+
+## 2026-07-12 — Fix IDE "Cannot find name 'jest'" in API spec files
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Symptom:** VS Code flagged ~100 `Cannot find name 'jest'/'describe'/'it'/
+  'expect'` (TS2304/TS2593) errors in `payment.service.spec.ts` and other specs.
+- **Diagnosis:** `@types/jest` was correctly declared, linked at
+  `apps/api/node_modules/@types/jest`, and `tsc --noEmit -p tsconfig.json`
+  reported **zero** such errors — so code, deps, and config were sound. Only the
+  IDE's TS server failed, in its *automatic* @types visibility scan (flaky with
+  pnpm symlinked node_modules on Windows).
+- **Fix:** `apps/api/tsconfig.json` — added `"types": ["node", "jest"]` to make
+  global-type inclusion explicit. Safety check: `types` only restricts *global*
+  ambient inclusions; module-based types (`@types/express`, etc.) still resolve
+  via imports, and a grep confirmed no `Express.Multer`/`declare global`
+  ambient-global usage in `src/`.
+- **Verified:** `tsc --noEmit` → 0 errors; `payment.service.spec.ts` → 15/15
+  pass. Requires a one-time "TypeScript: Restart TS Server" in VS Code.
+
+---
+
 ## 2026-07-08 — Dev performance: Turbopack + Redis recovery
 
 **Commit:** _pending_ · **Migration:** none

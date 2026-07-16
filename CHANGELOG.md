@@ -16,6 +16,54 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-12 — Deployment kit: live staging on Render + Vercel
+
+### Added
+- **[`render.yaml`](render.yaml)** — Render Blueprint provisioning the API
+  (Docker), PostgreSQL 16, and a Redis-compatible Key Value store
+  (`noeviction` for BullMQ) in one click; `NODE_ENV=staging` so stub providers
+  stay legal while live; auto-generated JWT/price-snapshot secrets.
+- **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** — step-by-step live-for-testing
+  guide (Render + Vercel + Razorpay test mode), the third-party services list
+  split into required-for-testing vs required-for-production (mirroring
+  `env.validation.ts`), migrate/seed-from-local commands, webhook setup, smoke-test
+  checklist, and the production upgrade path.
+- **[`.dockerignore`](.dockerignore)** — critical: Docker builds previously had
+  no ignore file, so `COPY . .` would have baked local `.env` secrets (and
+  node_modules/build outputs) into images.
+
+### Changed
+- `apps/api/Dockerfile`: prisma client generation now calls
+  `pnpm --filter @dhyana/api exec prisma generate` directly — the package script
+  wraps it in `dotenv -e .env`, which is absent (correctly) from the build context.
+
+---
+
+## 2026-07-12 — Docs: clone & setup guide
+
+### Added
+- **[`docs/SETUP.md`](docs/SETUP.md)** — complete new-machine setup guide:
+  prerequisites table (Node 22, pnpm 10.2.0, Postgres 16, Redis/Memurai,
+  Meilisearch optional), key dependency versions, env-file walkthrough with the
+  minimum required edits, Docker and native (Windows) infra paths, DB
+  migrate → GiST post-migrate → seed sequence, dev/test/production commands,
+  and a copy-paste quick-reference block.
+
+---
+
+## 2026-07-12 — Fix IDE "Cannot find name 'jest'" in API spec files
+
+### Fixed
+- `apps/api/tsconfig.json`: added explicit `"types": ["node", "jest"]`. The real
+  compiler always resolved Jest globals (0 errors, tests green), but VS Code's
+  TS server intermittently failed the automatic `@types` visibility scan under
+  pnpm-on-Windows symlinks, flooding spec files with false `Cannot find name
+  'jest'/'describe'/'it'/'expect'` diagnostics. Explicit types make resolution
+  deterministic. No ambient globals from other `@types` packages are in use, so
+  nothing else is affected.
+
+---
+
 ## 2026-07-08 — Dev performance: Turbopack + Redis recovery
 
 ### Changed

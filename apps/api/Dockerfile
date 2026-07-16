@@ -17,7 +17,9 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY . .
 
-RUN pnpm --filter @dhyana/api prisma:generate
+# Call prisma directly — the package's prisma:generate script wraps it in
+# `dotenv -e .env`, and .env is (correctly) excluded from the build context.
+RUN pnpm --filter @dhyana/api exec prisma generate
 RUN pnpm --filter @dhyana/api build
 
 # ── Stage 3: Production runtime ──────────────────────────────────────
