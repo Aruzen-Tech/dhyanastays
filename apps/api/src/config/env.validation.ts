@@ -2,8 +2,12 @@ import * as Joi from 'joi';
 
 export const envValidationSchema = Joi.object({
   // ── App ──────────────────────────────────────────────────────────────────
+  // 'staging' = deployed-for-testing: behaves like development everywhere the
+  // code branches (every check is `=== 'production'`), so stub providers stay
+  // legal while the app runs live. Production-only strictness below is
+  // unaffected — it triggers solely on NODE_ENV === 'production'.
   NODE_ENV: Joi.string()
-    .valid('development', 'test', 'production')
+    .valid('development', 'test', 'staging', 'production')
     .default('development'),
   PORT: Joi.number().port().default(3001),
   TZ: Joi.string().default('Asia/Kolkata'),
