@@ -2,10 +2,13 @@
 const nextConfig = {
   output: 'standalone',
   async rewrites() {
+    // Strip any trailing slash — NEXT_PUBLIC_API_URL set as "https://host/"
+    // would otherwise produce "https://host//api/..." (404 on the API).
+    const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001').replace(/\/+$/, '');
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'}/api/:path*`,
+        destination: `${apiBase}/api/:path*`,
       },
     ];
   },
