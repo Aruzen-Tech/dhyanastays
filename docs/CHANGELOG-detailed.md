@@ -13,6 +13,31 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-12 — Fix Render deploy crash: pnpm layout in API runtime image
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Symptom:** first Render deploy built fine, then crashed at boot:
+  `Error: Cannot find module '@nestjs/common'` from `/app/dist/main.js`.
+- **Root cause:** pnpm's virtual-store layout. Direct deps of `@dhyana/api`
+  exist only as relative symlinks at `apps/api/node_modules/<pkg>` →
+  `../../node_modules/.pnpm/<pkg>@<ver>/…`. The runtime stage copied `dist` to
+  `/app/dist` and the root `node_modules` only — Node's resolver walking up
+  from `/app/dist` finds no `@nestjs/common` (the root `node_modules` holds
+  only the `.pnpm` store + root-level deps, not the API's links).
+- **Fix:** runtime stage now mirrors the build layout —
+  `/app/node_modules` (store) + `/app/apps/api/node_modules` (symlinks) +
+  `/app/apps/api/{dist,prisma,package.json}` — and sets
+  `WORKDIR /app/apps/api` before `CMD ["node", "dist/main.js"]`. Relative
+  symlinks resolve identically to the build stage. Prisma engines + generated
+  client ride along inside the store. Container migrate commands
+  (`npx prisma migrate deploy --schema prisma/schema.prisma`) keep working from
+  the new workdir.
+- **Note:** Render builds from `main` (merged from `dev` on GitHub) — fixes must
+  be merged to `main` to trigger a rebuild.
+
+---
+
 ## 2026-07-12 — CI green: fix all 273 lint errors + the last failing unit test
 
 **Commit:** _pending_ · **Migration:** none
