@@ -13,6 +13,25 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-16 — Allow NODE_ENV=staging (deployed-for-testing mode)
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Symptom:** after the pnpm-layout fix, the Render container reached config
+  validation and crashed: `Config validation error: "NODE_ENV" must be one of
+  [development, test, production]` — the blueprint sets `NODE_ENV=staging`.
+- **Fix:** `src/config/env.validation.ts` — `staging` added to the `NODE_ENV`
+  enum. Audited every `NODE_ENV` branch in `src/` (app.module Redis warning,
+  logger, itinerary, main.ts docs gate, notification, razorpay, sos-broadcast,
+  storage): all compare `=== 'production'` (or `!==`), so staging inherits
+  development behavior — stub providers legal, production runtime guards off.
+  The production-only Joi strictness block keys on `NODE_ENV === 'production'`
+  and is unaffected.
+- **Verified:** `tsc` 0 errors; schema check — `staging` accepted, unknown
+  values still rejected.
+
+---
+
 ## 2026-07-12 — Fix Render deploy crash: pnpm layout in API runtime image
 
 **Commit:** _pending_ · **Migration:** none

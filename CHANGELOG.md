@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-16 — Allow NODE_ENV=staging (deployed-for-testing mode)
+
+### Fixed
+- `env.validation.ts`: `NODE_ENV` enum now includes **`staging`** — the mode the
+  Render blueprint uses. The API crashed at boot (`"NODE_ENV" must be one of
+  [development, test, production]`). Every code branch checks `=== 'production'`,
+  so staging behaves like development (stub providers legal) while running live;
+  production-only strictness is unchanged.
+
+---
+
 ## 2026-07-12 — Fix Render deploy crash: pnpm layout in API runtime image
 
 ### Fixed
