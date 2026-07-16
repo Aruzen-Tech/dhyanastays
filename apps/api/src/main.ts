@@ -52,16 +52,40 @@ async function bootstrap() {
   );
 
   // ── CORS — tighten in production via ALLOWED_ORIGINS env var ──────
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()) ?? [
-    'http://localhost:3000',
-  ];
+  // Entries may contain `*` wildcards (e.g. https://myapp-*.vercel.app) to
+  // cover per-deployment preview URLs.
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',')
+    .map((o) => o.trim())
+    .filter(Boolean) ?? ['http://localhost:3000'];
+  const originMatchers = allowedOrigins.map((entry) =>
+    entry.includes('*')
+      ? new RegExp(
+          '^' +
+            entry
+              .split('*')
+              .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+              .join('.*') +
+            '$',
+        )
+      : entry,
+  );
+  const isAllowedOrigin = (origin: string) =>
+    originMatchers.some((m) =>
+      typeof m === 'string' ? m === origin : m.test(origin),
+    );
+
   app.enableCors({
     origin: (origin, callback) => {
       // Allow requests with no origin (server-to-server, curl, mobile)
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || isAllowedOrigin(origin)) {
         callback(null, true);
       } else {
-        callback(new Error(`Origin ${origin} not allowed by CORS`));
+        // Deny GRACEFULLY: respond without CORS headers so the browser blocks
+        // cross-origin reads. Throwing here becomes an unhandled 500 on every
+        // request — it even broke same-origin traffic proxied through the web
+        // app's /api rewrite (the proxy forwards the browser's Origin header).
+        console.warn(`CORS: origin not in ALLOWED_ORIGINS: ${origin}`);
+        callback(null, false);
       }
     },
     credentials: true,

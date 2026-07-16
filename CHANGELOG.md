@@ -16,6 +16,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-16 — CORS: graceful denial + wildcard origins (fixes login 500)
+
+### Fixed
+- `apps/api/src/main.ts`: a disallowed `Origin` header made the CORS callback
+  **throw** → unhandled 500 on every request — including same-origin traffic
+  proxied through the web app's `/api` rewrite (the proxy forwards the browser's
+  Origin). Now denies gracefully (`callback(null, false)` + warn log): the
+  request proceeds, the browser enforces cross-origin blocking, and rewrite
+  traffic just works.
+- `ALLOWED_ORIGINS` entries now support `*` wildcards
+  (e.g. `https://myapp-*.vercel.app`) to cover Vercel's per-deployment URLs.
+
+---
+
 ## 2026-07-16 — Web: tolerate trailing slash in NEXT_PUBLIC_API_URL
 
 ### Fixed

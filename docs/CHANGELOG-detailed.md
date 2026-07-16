@@ -13,6 +13,36 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-16 — CORS: graceful denial + wildcard origins (fixes login 500)
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Symptom:** login on the deployed site → 500; Render log:
+  `Unhandled exception [unknown]: Error: Origin https://dhyanastays-<hash>-….vercel.app
+  not allowed by CORS`.
+- **Root causes (two):**
+  1. The CORS `origin` callback invoked `callback(new Error(...))` for
+     disallowed origins — the cors middleware surfaces that as an unhandled
+     exception → 500. Crucially this also killed **same-origin** traffic: the
+     web app calls `/api/*` on its own domain and Next's rewrite proxies to the
+     API **forwarding the browser's Origin header**, so any origin not in the
+     allowlist 500'd even though no cross-origin request ever happens
+     browser-side.
+  2. The user was browsing a Vercel **deployment-hash URL**
+     (`dhyanastays-<hash>-<team>.vercel.app`) — a new one exists per deploy, so
+     exact-match allowlisting can never keep up.
+- **Fix (`main.ts`):** deny gracefully — `callback(null, false)` + a `CORS:`
+  warn log. The request proceeds without CORS headers; browsers enforce
+  cross-origin blocking (auth is Authorization-header based, not cookies, so no
+  CSRF exposure from processing the request). `ALLOWED_ORIGINS` entries may now
+  contain `*` wildcards, compiled to escaped regexes
+  (`https://myapp-*.vercel.app` → `^https://myapp\-.*\.vercel\.app$`).
+- **Verified:** tsc 0 errors, lint clean. Probes against the live API had
+  already proven auth healthy when called with no Origin (register + login 201s
+  direct to Render) — pinpointing the Origin header as the differentiator.
+
+---
+
 ## 2026-07-16 — Web: tolerate trailing slash in NEXT_PUBLIC_API_URL
 
 **Commit:** _pending_ · **Migration:** none
