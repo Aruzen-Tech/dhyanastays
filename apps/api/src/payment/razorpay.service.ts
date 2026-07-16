@@ -36,7 +36,7 @@ export class RazorpayService {
         );
       }
       this.logger.warn(
-        'Razorpay credentials not configured — running in STUB mode. ' +
+        'Razorpay credentials not configured - running in STUB mode. ' +
           'Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET in .env',
       );
     }
@@ -96,7 +96,7 @@ export class RazorpayService {
       return true;
     }
     if (!this.webhookSecret) {
-      this.logger.error('RAZORPAY_WEBHOOK_SECRET not set — rejecting webhook');
+      this.logger.error('RAZORPAY_WEBHOOK_SECRET not set - rejecting webhook');
       return false;
     }
     const expected = crypto
@@ -107,6 +107,39 @@ export class RazorpayService {
       Buffer.from(expected, 'hex'),
       Buffer.from(signature, 'hex'),
     );
+  }
+
+  /**
+   * Fetch all payments associated with a Razorpay order.
+   * Used by the reconciliation cron to recover from missed webhooks.
+   * Returns an empty list in stub mode.
+   */
+  async getPaymentsForOrder(
+    orderId: string,
+  ): Promise<Array<{ id: string; status: string; amount: number; order_id: string }>> {
+    if (this.stubMode) {
+      return [];
+    }
+
+    const auth = Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64');
+    const response = await fetch(
+      `https://api.razorpay.com/v1/orders/${orderId}/payments`,
+      {
+        headers: { Authorization: `Basic ${auth}` },
+      },
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(
+        `Razorpay getPaymentsForOrder failed: ${response.status} ${text}`,
+      );
+    }
+
+    const json = (await response.json()) as {
+      items: Array<{ id: string; status: string; amount: number; order_id: string }>;
+    };
+    return json.items ?? [];
   }
 
   /**

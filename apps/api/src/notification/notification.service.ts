@@ -4,11 +4,19 @@ import * as nodemailer from 'nodemailer';
 
 // ─── Email payload ────────────────────────────────────────────────────────────
 
+export interface EmailAttachment {
+  filename: string;
+  /** Base64-encoded content (so it survives outbox JSON serialization). */
+  contentBase64: string;
+  contentType: string;
+}
+
 export interface EmailPayload {
   to: string;
   subject: string;
   html: string;
   text?: string;
+  attachments?: EmailAttachment[];
 }
 
 // ─── SMS payload ──────────────────────────────────────────────────────────────
@@ -26,8 +34,16 @@ export interface BookingConfirmedPayload {
   guestPhone?: string;
   bookingId: string;
   listingTitle: string;
+  /** Human-readable check-in date (e.g. "11 May 2026") — for the email body. */
   checkIn: string;
+  /** Human-readable check-out date. */
   checkOut: string;
+  /** ISO 8601 check-in datetime — for the ICS calendar attachment. */
+  checkInISO?: string;
+  /** ISO 8601 check-out datetime — for the ICS calendar attachment. */
+  checkOutISO?: string;
+  /** Optional property location string for the ICS LOCATION field. */
+  locationDescription?: string;
   totalAmount: number;
   plan: 'FULL' | 'DEPOSIT_50';
   depositAmount?: number;
@@ -63,6 +79,18 @@ export interface BookingCancelledPayload {
   bookingId: string;
   listingTitle: string;
   refundAmount: number;
+}
+
+export interface PayLaterReminderPayload {
+  guestName: string;
+  guestEmail: string;
+  guestPhone?: string;
+  bookingId: string;
+  listingTitle: string;
+  seq: number;
+  amountMinor: number;
+  dueAt: string;
+  hoursUntilDue: number;
 }
 
 export interface HostNewBookingPayload {
@@ -117,13 +145,63 @@ export class NotificationService {
 
   // ── Public notification methods ─────────────────────────────────────────────
 
-  async sendBookingConfirmed(payload: BookingConfirmedPayload): Promise<void> {
+  /**
+   * Build an RFC 5545 ICS file for a booking — guests can click "Add to Calendar"
+   * in supported email clients (Gmail, Outlook, Apple Mail).
+   * Returns null if check-in/check-out ISO timestamps aren't provided.
+   */
+  private buildIcsForBooking(payload: BookingConfirmedPayload): EmailAttachment | null {
+    if (!payload.checkInISO || !payload.checkOutISO) return null;
+
+    const fmt = (iso: string): string => {
+      // ICS DATE-TIME format: YYYYMMDDTHHMMSSZ (UTC)
+      return new Date(iso)
+        .toISOString()
+        .replace(/[-:]/g, '')
+        .replace(/\.\d{3}/, '');
+    };
+    const dtStart = fmt(payload.checkInISO);
+    const dtEnd = fmt(payload.checkOutISO);
+    const dtStamp = fmt(new Date().toISOString());
+    const uid = `booking-${payload.bookingId}@dhyanastays.com`;
+    const location = (payload.locationDescription ?? payload.listingTitle).replace(/[\r\n]+/g, ' ');
+    const summary = `Stay at ${payload.listingTitle}`;
+    const description = `Booking ID: ${payload.bookingId.slice(0, 12)} — View at ${this.webUrl}/bookings/${payload.bookingId}`;
+
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Dhyana Stays//Booking Confirmation//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      `UID:${uid}`,
+      `DTSTAMP:${dtStamp}`,
+      `DTSTART:${dtStart}`,
+      `DTEND:${dtEnd}`,
+      `SUMMARY:${summary}`,
+      `LOCATION:${location}`,
+      `DESCRIPTION:${description}`,
+      'STATUS:CONFIRMED',
+      'TRANSP:OPAQUE',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n'); // RFC 5545 requires CRLF line endings
+
+    return {
+      filename: 'booking.ics',
+      contentBase64: Buffer.from(ics, 'utf-8').toString('base64'),
+      contentType: 'text/calendar; charset=utf-8; method=PUBLISH',
+    };
+  }
+
+  buildBookingConfirmedEmail(payload: BookingConfirmedPayload): EmailPayload {
     const depositNote =
       payload.plan === 'DEPOSIT_50'
         ? `<p style="color:#b45309">Balance of ₹${this.formatINR(payload.totalAmount - (payload.depositAmount ?? 0))} is due before check-in.</p>`
         : '';
-
-    await this.sendEmail({
+    const ics = this.buildIcsForBooking(payload);
+    return {
       to: payload.guestEmail,
       subject: `Booking Confirmed — ${payload.listingTitle}`,
       html: `
@@ -151,14 +229,22 @@ export class NotificationService {
         </div>
       `,
       text: `Booking confirmed for ${payload.listingTitle}. Check-in: ${payload.checkIn}. Check-out: ${payload.checkOut}. Total: ₹${this.formatINR(payload.totalAmount)}.`,
-    });
+      ...(ics ? { attachments: [ics] } : {}),
+    };
+  }
 
-    if (payload.guestPhone) {
-      await this.sendSms({
-        to: payload.guestPhone,
-        body: `Dhyana Stays: Your booking for ${payload.listingTitle} (${payload.checkIn} → ${payload.checkOut}) is confirmed. Total: ₹${this.formatINR(payload.totalAmount)}. View: ${this.webUrl}/dashboard`,
-      });
-    }
+  buildBookingConfirmedSms(payload: BookingConfirmedPayload): SmsPayload | null {
+    if (!payload.guestPhone) return null;
+    return {
+      to: payload.guestPhone,
+      body: `Dhyana Stays: Your booking for ${payload.listingTitle} (${payload.checkIn} → ${payload.checkOut}) is confirmed. Total: ₹${this.formatINR(payload.totalAmount)}. View: ${this.webUrl}/dashboard`,
+    };
+  }
+
+  async sendBookingConfirmed(payload: BookingConfirmedPayload): Promise<void> {
+    await this.sendEmail(this.buildBookingConfirmedEmail(payload));
+    const sms = this.buildBookingConfirmedSms(payload);
+    if (sms) await this.sendSms(sms);
   }
 
   async sendHostListingApproved(payload: HostListingApprovedPayload): Promise<void> {
@@ -221,6 +307,35 @@ export class NotificationService {
       await this.sendSms({
         to: payload.guestPhone,
         body: `Dhyana Stays: Balance of ₹${this.formatINR(payload.balanceAmount)} due by ${payload.dueDate} for ${payload.listingTitle}. Pay: ${this.webUrl}/dashboard`,
+      });
+    }
+  }
+
+  async sendPayLaterReminder(payload: PayLaterReminderPayload): Promise<void> {
+    const amountInr = this.formatINR(payload.amountMinor);
+    const urgency = payload.hoursUntilDue <= 24 ? '⚠️ Due tomorrow' : '📅 Due in 3 days';
+    await this.sendEmail({
+      to: payload.guestEmail,
+      subject: `${urgency} — Instalment ${payload.seq} for ${payload.listingTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+          <h2 style="color:#b45309">${urgency}: Pay Later instalment</h2>
+          <p>Hi ${payload.guestName},</p>
+          <p>Instalment <strong>${payload.seq}</strong> of <strong>₹${amountInr}</strong> for your booking of <strong>${payload.listingTitle}</strong> is due on <strong>${payload.dueAt}</strong>.</p>
+          <p>Pay on time to keep your booking active. If an instalment is missed beyond the grace period, your booking may be cancelled.</p>
+          <a href="${this.webUrl}/bookings/${payload.bookingId}" style="display:inline-block;background:#b45309;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;margin-top:8px">
+            Pay instalment
+          </a>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">Dhyana Stays · support@dhyanastays.com</p>
+        </div>
+      `,
+      text: `Instalment ${payload.seq} of ₹${amountInr} due ${payload.dueAt}. Pay: ${this.webUrl}/bookings/${payload.bookingId}`,
+    });
+
+    if (payload.guestPhone) {
+      await this.sendSms({
+        to: payload.guestPhone,
+        body: `Dhyana Stays: Instalment ${payload.seq} of ₹${amountInr} due ${payload.dueAt}. Pay: ${this.webUrl}/bookings/${payload.bookingId}`,
       });
     }
   }
@@ -347,7 +462,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('RESEND_API_KEY is required when EMAIL_PROVIDER=resend in production');
       }
-      this.logger.warn('RESEND_API_KEY not set — falling back to stub');
+      this.logger.warn('RESEND_API_KEY not set - falling back to stub');
       this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
       return;
     }
@@ -364,6 +479,14 @@ export class NotificationService {
         subject: payload.subject,
         html: payload.html,
         text: payload.text,
+        ...(payload.attachments && payload.attachments.length > 0
+          ? {
+              attachments: payload.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.contentBase64,
+              })),
+            }
+          : {}),
       }),
     });
 
@@ -380,7 +503,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('SENDGRID_API_KEY is required when EMAIL_PROVIDER=sendgrid in production');
       }
-      this.logger.warn('SENDGRID_API_KEY not set — falling back to stub');
+      this.logger.warn('SENDGRID_API_KEY not set - falling back to stub');
       this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
       return;
     }
@@ -399,6 +522,16 @@ export class NotificationService {
           { type: 'text/html', value: payload.html },
           ...(payload.text ? [{ type: 'text/plain', value: payload.text }] : []),
         ],
+        ...(payload.attachments && payload.attachments.length > 0
+          ? {
+              attachments: payload.attachments.map((a) => ({
+                filename: a.filename,
+                content: a.contentBase64,
+                type: a.contentType,
+                disposition: 'attachment',
+              })),
+            }
+          : {}),
       }),
     });
 
@@ -415,7 +548,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('SMTP_HOST is required when EMAIL_PROVIDER=smtp in production');
       }
-      this.logger.warn('SMTP_HOST not set — falling back to stub');
+      this.logger.warn('SMTP_HOST not set - falling back to stub');
       this.logger.log(`[EMAIL STUB] To: ${payload.to} | Subject: ${payload.subject}`);
       return;
     }
@@ -436,6 +569,15 @@ export class NotificationService {
       subject: payload.subject,
       html: payload.html,
       text: payload.text,
+      ...(payload.attachments && payload.attachments.length > 0
+        ? {
+            attachments: payload.attachments.map((a) => ({
+              filename: a.filename,
+              content: Buffer.from(a.contentBase64, 'base64'),
+              contentType: a.contentType,
+            })),
+          }
+        : {}),
     });
     this.logger.log(`Email sent via SMTP to ${payload.to}`);
   }
@@ -451,7 +593,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('MSG91_AUTH_KEY is required when SMS_PROVIDER=msg91 in production');
       }
-      this.logger.warn('MSG91_AUTH_KEY not set — falling back to stub');
+      this.logger.warn('MSG91_AUTH_KEY not set - falling back to stub');
       this.logger.log(`[SMS STUB] To: ${payload.to} | Body: ${payload.body}`);
       return;
     }
@@ -490,7 +632,7 @@ export class NotificationService {
       if (this.isProduction) {
         throw new Error('TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are required when SMS_PROVIDER=twilio in production');
       }
-      this.logger.warn('Twilio credentials not set — falling back to stub');
+      this.logger.warn('Twilio credentials not set - falling back to stub');
       this.logger.log(`[SMS STUB] To: ${payload.to} | Body: ${payload.body}`);
       return;
     }

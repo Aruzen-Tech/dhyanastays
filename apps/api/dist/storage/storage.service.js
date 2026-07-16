@@ -59,6 +59,9 @@ let StorageService = StorageService_1 = class StorageService {
         this.accessKeyId = config.get('S3_ACCESS_KEY_ID', '');
         this.secretAccessKey = config.get('S3_SECRET_ACCESS_KEY', '');
         this.cdnUrl = config.get('CDN_URL', '');
+        if (this.provider === 'stub' && config.get('NODE_ENV') === 'production') {
+            throw new Error('STORAGE_PROVIDER must be s3 or r2 in production (not stub)');
+        }
     }
     async getPresignedUploadUrl(folder, filename, mimeType, expiresIn = 300) {
         const ext = path.extname(filename) || this.mimeToExt(mimeType);

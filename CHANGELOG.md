@@ -1,5 +1,332 @@
 # Changelog
 
+All notable changes to **Dhyana Stays** are recorded here. Newest first.
+Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
+`0000_name`; commits as short SHAs.
+
+**Two-tier changelog:**
+- **This file** — concise, scannable summary (one line per item).
+- **[`docs/CHANGELOG-detailed.md`](docs/CHANGELOG-detailed.md)** — granular record
+  (files, method/endpoint signatures, migration DDL, rationale, test results).
+
+> **Convention:** every change is recorded in *both* files — a one-line entry here
+> under the current dated section (right category: Added / Changed / Fixed /
+> Security / Infrastructure / Migration), and a full breakdown in the detailed file.
+> Cite the migration and/or commit.
+
+---
+
+## 2026-07-12 — Deployment kit: live staging on Render + Vercel
+
+### Added
+- **[`render.yaml`](render.yaml)** — Render Blueprint provisioning the API
+  (Docker), PostgreSQL 16, and a Redis-compatible Key Value store
+  (`noeviction` for BullMQ) in one click; `NODE_ENV=staging` so stub providers
+  stay legal while live; auto-generated JWT/price-snapshot secrets.
+- **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** — step-by-step live-for-testing
+  guide (Render + Vercel + Razorpay test mode), the third-party services list
+  split into required-for-testing vs required-for-production (mirroring
+  `env.validation.ts`), migrate/seed-from-local commands, webhook setup, smoke-test
+  checklist, and the production upgrade path.
+- **[`.dockerignore`](.dockerignore)** — critical: Docker builds previously had
+  no ignore file, so `COPY . .` would have baked local `.env` secrets (and
+  node_modules/build outputs) into images.
+
+### Changed
+- `apps/api/Dockerfile`: prisma client generation now calls
+  `pnpm --filter @dhyana/api exec prisma generate` directly — the package script
+  wraps it in `dotenv -e .env`, which is absent (correctly) from the build context.
+
+---
+
+## 2026-07-12 — Docs: clone & setup guide
+
+### Added
+- **[`docs/SETUP.md`](docs/SETUP.md)** — complete new-machine setup guide:
+  prerequisites table (Node 22, pnpm 10.2.0, Postgres 16, Redis/Memurai,
+  Meilisearch optional), key dependency versions, env-file walkthrough with the
+  minimum required edits, Docker and native (Windows) infra paths, DB
+  migrate → GiST post-migrate → seed sequence, dev/test/production commands,
+  and a copy-paste quick-reference block.
+
+---
+
+## 2026-07-12 — Fix IDE "Cannot find name 'jest'" in API spec files
+
+### Fixed
+- `apps/api/tsconfig.json`: added explicit `"types": ["node", "jest"]`. The real
+  compiler always resolved Jest globals (0 errors, tests green), but VS Code's
+  TS server intermittently failed the automatic `@types` visibility scan under
+  pnpm-on-Windows symlinks, flooding spec files with false `Cannot find name
+  'jest'/'describe'/'it'/'expect'` diagnostics. Explicit types make resolution
+  deterministic. No ambient globals from other `@types` packages are in use, so
+  nothing else is affected.
+
+---
+
+## 2026-07-08 — Dev performance: Turbopack + Redis recovery
+
+### Changed
+- **Web dev server now uses Turbopack** (`next dev --turbopack`) — page-to-page
+  clicks in dev were slow because webpack compiled each of the 80+ routes
+  on-demand (measured 3.5s first visit vs 0.5s after); Turbopack compiles
+  drastically faster. Production builds unchanged.
+
+### Infrastructure (local dev, no code change)
+- Diagnosed "slow clicks": API was healthy (~60 ms); Redis (Memurai Windows
+  service) was stopped, silently disabling all 12 background queues (hold
+  expiry, balance due, outbox, SOS…). Started Memurai, restarted the API —
+  all queues re-registered. Meilisearch remains down (no Docker on this
+  machine); listing search gracefully falls back to Postgres.
+
+---
+
+## 2026-07-08 — Nature-luxury visual theme (all pages)
+
+### Changed
+- **Design system re-skinned to a nature-luxury palette** — because every page
+  reads colors from CSS variables, redefining the tokens in `globals.css`
+  restyled all 76 pages at once: deep-evergreen brand scale (light) / soft sage
+  (dark), warm ivory & stone neutrals replacing cool grays, forest-night dark
+  surfaces, warm glass/nav tints, forest-tinted shadows, and an ambient evergreen
+  wash behind every page.
+- **Antique-gold accent** (`--gold`, Tailwind `gold`, `.text-gold`, `.eyebrow`):
+  gold-tinted button shimmer, evergreen→gold `.text-gradient` and
+  `.gradient-border`.
+- **Listing photo placeholders** now use deterministic forest/moss gradients
+  instead of monochrome blacks.
+
+### Fixed
+- Production build: wrapped `useSearchParams()` in Suspense boundaries on
+  `/auth/register` and `/sos` (pre-existing prerender failures that blocked
+  `next build`). All 76 pages now prerender.
+
+---
+
+## 2026-07-08 — Docs: Word test report + roadmap
+
+### Added
+- **[`docs/booking-engine-test-report.docx`](docs/booking-engine-test-report.docx)** —
+  native Word version of the test report (converted with the `docx` lib; headings,
+  8 tables, code blocks preserved).
+- **[`docs/TODO.md`](docs/TODO.md)** — prioritized P0–P3 roadmap after the
+  hardening pass: housekeeping (push, untrack `dist/`, listing-spec triage),
+  engine follow-ups (integration tests in CI, pay-later 2+, balance notification),
+  product gaps (PAY_LATER in booking UI), launch readiness.
+
+---
+
+## 2026-07-06 — Booking-engine hardening: top-standard test suite + 4 reliability fixes
+
+Comprehensive real-service integration suite for the booking engine
+(`test/integration/booking-lifecycle.int-spec.ts`, 17 tests) exercising the full
+lifecycle through the *actual* production services. It exposed four genuine
+defects — all fixed; engine now green across 260 unit + 34 integration tests and
+the concurrency proofs at 50 iterations.
+
+### Fixed
+- **Payment confirmation was broken for every capture.** The overlap backstop
+  query in `BookingService.confirmPayment` used `tsrange(...)` with JS `Date`
+  params, which Prisma binds as `timestamptz` — no matching `tsrange` overload,
+  so the query threw `42883` on *every* capture. Bound params now converted to
+  the UTC wall-clock the `timestamp` columns store (`AT TIME ZONE 'UTC'`). The
+  existing unit test had mocked `$queryRaw`, so it never caught this.
+- **DEPOSIT_50 balance never settled.** Paying the balance marked the payment
+  CAPTURED but left the booking at `BALANCE_DUE` forever (no `CONFIRMED_PAID`, no
+  balance ledger entry, no second payout). `BALANCE_PAID` was dead code with no
+  emitter. Added `BookingService.settleBalance` (lock → idempotency → HMAC →
+  amount vs `balanceAmount` → `BALANCE_PAID` → ledger → second payout line) and
+  routed balance captures to it in `handlePaymentCaptured` (by booking status).
+- **Auto-complete cron under-counted and logged false warnings.** It passed the
+  sentinel `'SYSTEM_AUTO_COMPLETE'` as `AuditLog.actorUserId` (a nullable FK to
+  User), so the post-commit audit write threw *after* the booking was already
+  COMPLETED. System completions now log `actorUserId = null` (sentinel kept in
+  metadata).
+- **PAY_LATER bookings could never be paid.** `initPayment` had no `PAY_LATER`
+  branch (rejected FULL/DEPOSIT/BALANCE), yet `confirmPayment` fully supported the
+  first capture — so a guest could create an un-payable booking that held
+  inventory. Wired the first (booking-time) instalment using
+  `snapshot.payLaterFirstInstalment`.
+
+### Changed
+- `BALANCE_PAID` state transition now also accepts `CONFIRMED_DEPOSIT` (balance
+  paid early, before the balance-due cron), not just `BALANCE_DUE`.
+
+### Tests / Infrastructure
+- New real-service harness (`test/integration/services-harness.ts`): wires every
+  real booking service against dev Postgres; only NotificationService (no-op) and
+  Razorpay (stub mode) are doubled.
+- New lifecycle suite covers quote (paise/GST/HMAC/TTL), FULL + DEPOSIT_50 +
+  PAY_LATER lifecycles, money math (ledger + host-payout sums), cancellation
+  refund tiers (100/50/0), webhook replay/amount-mismatch/tamper, idempotency
+  keys, crons, and overlap/expired-hold guards.
+- Unit tests added for `settleBalance` (6) and balance-capture routing (1).
+- `teardownFixtures` rewritten to clean rows minted with random cuIDs by the real
+  services (relationship-based; adds Refund / HostNotification / GuestNotification).
+- **Test report:** [`docs/booking-engine-test-report.md`](docs/booking-engine-test-report.md)
+  — full inventory (34 integration + new unit cases), methodology, the 4 defects,
+  money-correctness math, and results.
+
+---
+
+## 2026-07-02 — Hold lifecycle: release-on-abandon + shared visibility
+
+Commit `0f38f27`.
+
+### Added
+- **Release a hold when the guest abandons the flow.** `HoldService.releaseHold`
+  (owner-only, idempotent, refuses holds already converted to a booking) +
+  `DELETE /holds/:id`. Frees the dates immediately instead of holding them for the
+  full 15-minute TTL.
+- **Hold status for other guests.** `HoldService.getHoldStatus` →
+  `{ held, mine, heldUntil, remainingSeconds }` + `GET /holds/status`. The
+  hold-create conflict response is enriched with `heldUntil` + `remainingSeconds`.
+
+### Changed
+- **Booking panel** (`apps/web/app/listings/[id]`): releases the hold on tab close
+  (`pagehide` + `fetch(keepalive)`), SPA unmount, and an explicit "Back (release
+  hold)" button — guarded so a hold that became a booking is never released. Shows
+  a live **"on hold — MM:SS remaining"** banner to other guests at quote time and
+  on a lost race; disables the Hold button until the countdown expires, then
+  auto-rechecks. The hold-reaper cron remains the backstop.
+
+---
+
+## 2026-07-02 — Platform Control Panel + Feature Flags
+
+Commit `2b67128`. Migration `0032_feature_flags_host_settings`.
+
+### Added
+- **Feature-flag system.** Canonical code registry (`feature-flags.registry.ts`,
+  12 features / 7 categories) merged with admin DB overrides (`FeatureFlag`).
+  `FeatureFlagService` with a 15s hot-path cache.
+- **`@FeatureGate('key')` decorator + global `FeatureGuard`** — a disabled feature
+  returns **503** for everyone (admins included). Applied to 14 feature controllers
+  (experiences, trip-groups, itineraries, SOS, membership, referrals, pay-later,
+  investor, guest/host messaging, guest/host concierge).
+- **Endpoints:** `GET /admin/features`, `PATCH /admin/features/:key`,
+  `PATCH /admin/features/bulk` (L1+); public `GET /platform/features` (enabled map).
+- **Host control panel.** `HostSetting` model + `GET/PATCH /host/settings` —
+  `instantBook`, `allowGuestMessages`, `allowConciergeChat`, `emailOnNewBooking`,
+  `smsOnNewBooking`.
+- **Admin control panel UI** (`/admin/control-panel`) — grouped toggles,
+  critical-feature confirm, search, optimistic updates.
+- **Host control panel UI** (`/host/control-panel`) — own toggles + read-only
+  platform feature availability.
+- **`FeatureContext`** (web) for UI gating; navbar hides disabled features and
+  links to both control panels.
+
+### Changed
+- Messaging `startConversation` (guest→host) gated by host `allowGuestMessages`;
+  concierge access gated by `allowConciergeChat`.
+
+---
+
+## 2026-06 — Booking-engine production-correctness pass
+
+Migrations `0029_booking_status_history`, `0030_booking_gist_index`,
+`0031_booking_correctness_pass`. (Landed under commit `2b67128`.)
+
+### Added
+- **`BookingStateMachine`** — single chokepoint for every `Booking.status`
+  transition with an append-only `statusHistory` audit trail. Illegal transitions
+  rejected. All status writes route through it (grep-verified zero direct writes).
+- **`withSerializableRetry`** — SERIALIZABLE isolation + single retry on 40001/P2034,
+  emits `db.serialization_retry` metric log. Used only in `createHold` and confirm.
+- **Seven-step atomic confirm** (`confirmPayment`, tx-scoped): FOR UPDATE →
+  idempotency → HMAC re-verify → amount check → overlap check → state machine →
+  ledger append. Exceptions `TamperedSnapshotException`, `AmountMismatchException`.
+- **GiST partial index** `idx_booking_active_range` (mirrors the overlap trigger's
+  predicate), applied `CONCURRENTLY` via `prisma/post-migrate/` + `pnpm post-migrate`.
+- **`ProcessedRazorpayEvent`** — webhook event-ID dedup (INSERT after signature verify).
+- **`Booking.cancellationPolicySnapshot`** — refund tiers frozen at confirm; cancel
+  reads the snapshot, never the live policy.
+- **Idempotency** on `POST /bookings` via `IdempotencyInterceptor`.
+- **Integration suite** (`test/integration/`, real Postgres, `pnpm test:int`):
+  overlap-trigger double-booking prevention, GiST index usage, ledger immutability,
+  webhook dedup, **concurrency proofs at 50 iterations** (exactly-one-winner),
+  serializable retry, tampered-snapshot HMAC, state-machine persistence.
+
+### Fixed
+- **Nested-transaction split-brain** in the webhook confirm path — `confirmPayment`
+  is tx-scoped (inline steps) and `withSerializableRetry` wraps the whole webhook
+  handler, so payment-capture + confirm + ledger commit atomically.
+
+---
+
+## 2026-06 — Phase-1 production hardening (Parts I–IV)
+
+Migrations `0025_booking_terms_acceptance`, `0026_trusted_contact_email`,
+`0027_itinerary_chat_and_usage`, `0028_sos_chat`.
+
+### Fixed — Part I (critical booking bugs)
+- **Razorpay 100× overcharge** — snapshot amounts are paise; removed the erroneous
+  `× 100` at `createOrder`.
+- **Webhook unit mismatch** — stopped dividing captured paise by 100 (had broken
+  status transitions and under-recorded payouts).
+- **Host-share computation** — host receives `subtotal + cleaningFee` allocated
+  proportionally to the captured amount; platform keeps the markup.
+
+### Added / Changed — Part II (booking flow)
+- 30-min **quote/snapshot TTL** (HMAC-covered `expiresAt`; 410 on expired).
+- **GST 18%** line item on platform fee + add-on commission.
+- **Hold reaper** now deletes expired rows (was audit-only).
+- **Payment reconciliation cron** (recovers missed webhooks).
+- **Server-enforced terms acceptance** (`acceptedTermsAt` required).
+- **Distributed cron locks** via deterministic BullMQ job IDs.
+- **ICS calendar attachment** on the booking-confirmed email.
+- **Auto-complete cron** (stay ended 24h+ ago → COMPLETED).
+- Frontend **hold-expiry countdown**; add-ons **disabled in Phase 1 UI**.
+
+### Added / Changed — Part III (SOS)
+- Production env gates (`SOS_OPS_PHONE`/`SOS_OPS_EMAIL`), **SMS circuit breaker**,
+  ack-latency metrics, strict E.164 validation.
+- **Platform-level SOS**: trusted contacts support email + phone; broadcast fans
+  out to both.
+- **SOS console**: guest live incident page (status timeline + chat + call), admin
+  incident console, guest SOS history; trigger redirects to the live console.
+
+### Added / Changed — Part IV (AI Itinerary)
+- No silent stub in production; per-user rate limits; monthly cost cap
+  (`ItineraryUsage`); prompt caching; retry/backoff.
+- **3-step planner**: trip form → AI concept suggestions → full plan → chat
+  refinement (`ItineraryMessage`).
+
+### Infrastructure
+- Env validation requires `REDIS_URL`, `ANTHROPIC_API_KEY`, SOS ops contacts in
+  production; app fails fast if Redis is unreachable in prod.
+- Installed **Memurai** (Redis-compatible) for BullMQ locally.
+- Fixed geolocation `Permissions-Policy` (`geolocation=(self)`) for the SOS page.
+- `docs/PRODUCTION_LAUNCH_ROADMAP.md` — 7-part launch plan.
+
+---
+
+## 2026-04-23 — Remaining spec sections
+
+Commit `3c0f24e`. Migrations `0021`–`0024`.
+
+### Added
+- **§5.15 Experiences** — host/guest/public/admin, atomic seat allocation
+  (`0024_experiences_groups_itinerary`).
+- **§5.8 Trip Groups** + expense splitting (EQUAL/CUSTOM) + balances.
+- **§5.9 AI Itinerary** — generation via Anthropic Haiku.
+- **§5.10 Concierge Chat** (`0021_concierge_chat`) + host quick replies.
+- **§5.14 Investor Dashboard** (`0022_investor_dashboard`).
+- **§5.18 Discovery facets** (`0023_listing_discovery_facets`).
+
+---
+
+## 2026-04-19 — SOS service foundation
+
+Commit `de191fd`. Migration `0020_sos_support`.
+
+### Added
+- SOS incident service, trusted-contact register, BullMQ `sos-broadcast` queue
+  (priority 1, inline dispatch for the P99 < 5s SLA).
+
+---
+<!-- ── Historical entries below (Phase 1/2, Auth0, providers) ──────────────── -->
+
 ## [Unreleased] — Auth0 Integration (dual-mode)
 
 ### Added — `apps/api/`

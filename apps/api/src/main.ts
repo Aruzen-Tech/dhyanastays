@@ -85,7 +85,7 @@ async function bootstrap() {
   // Graceful shutdown — release port when nodemon restarts or process is terminated
   const shutdown = async (signal: string) => {
     // eslint-disable-next-line no-console
-    console.log(`\n${signal} received — shutting down gracefully…`);
+    console.log(`\n${signal} received - shutting down gracefully...`);
     await app.close();
     process.exit(0);
   };

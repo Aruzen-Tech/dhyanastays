@@ -1,15 +1,20 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { AdminLevel, ApplicationStatus, UserRole } from '@prisma/client';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
-import { Roles } from '../common/decorators/roles.decorator';
+import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
+import { Public } from '../common/decorators/public.decorator';
 import { AdminService } from './admin.service';
 import { AdminNotificationService } from './admin-notification.service';
 import { RateLimitService } from './rate-limit.service';
 import { CreateAdminRefundDto } from './dto/create-admin-refund.dto';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { BulkIdsDto } from './dto/bulk-ids.dto';
+import { ApplyStaffDto } from './dto/apply-staff.dto';
+import { ReviewApplicationDto } from './dto/review-application.dto';
+import { AssignStaffRoleDto } from './dto/assign-staff-role.dto';
+import { ChangeUserKindDto } from './dto/change-user-kind.dto';
 
-@Roles(UserRole.ADMIN)
+@AdminLevelGuard(AdminLevel.L2)
 @Controller('admin')
 export class AdminController {
   constructor(
@@ -38,6 +43,31 @@ export class AdminController {
       role as UserRole | undefined,
       search,
     );
+  }
+
+  /**
+   * POST /api/admin/users/:id/role
+   * L1 Super Admin — change a user's kind (GUEST/OWNER/INVESTOR/STAFF)
+   * with a required reason. Writes a RoleChangeAudit row.
+   */
+  @AdminLevelGuard(AdminLevel.L1)
+  @Post('users/:id/role')
+  changeUserKind(
+    @CurrentUser() actor: RequestUser,
+    @Param('id') id: string,
+    @Body() dto: ChangeUserKindDto,
+  ) {
+    return this.adminService.changeUserKind(id, actor.sub, dto);
+  }
+
+  /**
+   * GET /api/admin/users/:id/role-history
+   * L1 + L2 — returns the RoleChangeAudit timeline for a user.
+   */
+  @AdminLevelGuard(AdminLevel.L1, AdminLevel.L2)
+  @Get('users/:id/role-history')
+  getUserRoleHistory(@Param('id') id: string) {
+    return this.adminService.getUserRoleHistory(id);
   }
 
   /** POST /api/admin/users/:id/deactivate — deactivate a user account */
@@ -193,5 +223,102 @@ export class AdminController {
   @Get('analytics/forecast')
   getForecast() {
     return this.adminService.getRevenueForecast();
+  }
+
+  // ── Staff / Admin Registration ────────────────────────────────────────────
+
+  /**
+   * POST /api/admin/staff/apply
+   * Public endpoint — anyone can submit an application for a staff role.
+   * Authenticated users automatically have their applicantId attached.
+   */
+  @Public()
+  @Post('staff/apply')
+  submitStaffApplication(
+    @Body() dto: ApplyStaffDto,
+    @CurrentUser() actor?: RequestUser,
+  ) {
+    return this.adminService.submitApplication(dto, actor?.sub);
+  }
+
+  /**
+   * GET /api/admin/staff/applications?status=PENDING&page=1&limit=20
+   * L1 Super Admin only — lists all incoming applications.
+   */
+  @AdminLevelGuard(AdminLevel.L1)
+  @Get('staff/applications')
+  getApplications(
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const validStatuses = Object.values(ApplicationStatus);
+    const statusFilter = validStatuses.includes(status as ApplicationStatus)
+      ? (status as ApplicationStatus)
+      : undefined;
+    return this.adminService.getApplications(
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+      statusFilter,
+    );
+  }
+
+  /**
+   * PATCH /api/admin/staff/applications/:id/review
+   * L1 Super Admin only — approve or reject an application.
+   */
+  @AdminLevelGuard(AdminLevel.L1)
+  @Patch('staff/applications/:id/review')
+  reviewApplication(
+    @CurrentUser() actor: RequestUser,
+    @Param('id') id: string,
+    @Body() dto: ReviewApplicationDto,
+  ) {
+    return this.adminService.reviewApplication(id, actor.sub, dto);
+  }
+
+  /**
+   * GET /api/admin/staff?search=&page=1&limit=20
+   * L1 Super Admin only — lists all current staff members.
+   */
+  @AdminLevelGuard(AdminLevel.L1)
+  @Get('staff')
+  getStaff(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getStaff(
+      page ? parseInt(page, 10) : 1,
+      limit ? parseInt(limit, 10) : 20,
+      search,
+    );
+  }
+
+  /**
+   * POST /api/admin/staff/:userId/assign
+   * L1 Super Admin only — directly assign a staff role to an existing user.
+   */
+  @AdminLevelGuard(AdminLevel.L1)
+  @Post('staff/:userId/assign')
+  assignStaffRole(
+    @CurrentUser() actor: RequestUser,
+    @Param('userId') userId: string,
+    @Body() dto: AssignStaffRoleDto,
+  ) {
+    return this.adminService.assignStaffRole(userId, actor.sub, dto);
+  }
+
+  /**
+   * DELETE /api/admin/staff/:userId
+   * L1 Super Admin only — revoke a user's staff role (cannot revoke L1).
+   */
+  @AdminLevelGuard(AdminLevel.L1)
+  @Delete('staff/:userId')
+  revokeStaffRole(
+    @CurrentUser() actor: RequestUser,
+    @Param('userId') userId: string,
+  ) {
+    return this.adminService.revokeStaffRole(userId, actor.sub);
   }
 }

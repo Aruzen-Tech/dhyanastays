@@ -15,7 +15,21 @@ function makeAuditMock() {
 
 function makeBookingMock() {
   return {
-    confirmPayment: jest.fn().mockResolvedValue({ id: 'booking-1', status: 'CONFIRMED_PAID' }),
+    // confirmPayment is now tx-scoped and returns { booking, didConfirm }.
+    confirmPayment: jest
+      .fn()
+      .mockResolvedValue({ booking: { id: 'booking-1', status: 'CONFIRMED_PAID' }, didConfirm: true }),
+    // settleBalance handles the SECOND (balance) capture on a DEPOSIT_50 booking.
+    settleBalance: jest
+      .fn()
+      .mockResolvedValue({ booking: { id: 'booking-1', status: 'CONFIRMED_PAID' }, didSettle: true }),
+    sendBookingConfirmedNotificationPublic: jest.fn().mockResolvedValue(undefined),
+  };
+}
+
+function makePayLaterMock() {
+  return {
+    recordInstalmentCapture: jest.fn().mockResolvedValue({ completed: false }),
   };
 }
 
@@ -164,6 +178,8 @@ describe('PaymentService', () => {
         makeAuditMock() as any,
         makeRazorpayMock() as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -211,6 +227,8 @@ describe('PaymentService', () => {
         makeAuditMock() as any,
         makeRazorpayMock() as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       const result = await service.initPayment('guest-1', {
@@ -241,6 +259,8 @@ describe('PaymentService', () => {
         makeAuditMock() as any,
         makeRazorpayMock() as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       await expect(
@@ -271,6 +291,8 @@ describe('PaymentService', () => {
         makeAuditMock() as any,
         razorpayMock as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -280,10 +302,10 @@ describe('PaymentService', () => {
         idempotencyKey: 'idem-3',
       }) as any;
 
+      // snapshot.depositAmount is already in paise — pass through unchanged.
       expect(result.amount).toBe(8525);
-      // Razorpay createOrder called with paise = 8525 * 100
       expect(razorpayMock.createOrder).toHaveBeenCalledWith(
-        852500,
+        8525,
         expect.any(String),
       );
     });
@@ -302,6 +324,8 @@ describe('PaymentService', () => {
         makeAuditMock() as any,
         makeRazorpayMock() as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       await expect(
@@ -327,6 +351,8 @@ describe('PaymentService', () => {
         makeAuditMock() as any,
         razorpayMock as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       await expect(
@@ -352,16 +378,30 @@ describe('PaymentService', () => {
         id: 'payment-1',
         bookingId: 'booking-1',
         status: 'INITIATED',
+        type: 'FULL',
+        payLaterSeq: null,
         gatewayOrderRef: 'order_test_123',
       };
 
+      // tx mock — withSerializableRetry passes this into the callback.
+      // The handler re-reads payment INSIDE the tx, so tx.payment.findUnique
+      // must return the INITIATED payment.
       const txMock = {
-        payment: { update: jest.fn().mockResolvedValue({ ...existingPayment, status: 'CAPTURED' }) },
+        payment: {
+          findUnique: jest.fn().mockResolvedValue(existingPayment),
+          update: jest.fn().mockResolvedValue({ ...existingPayment, status: 'CAPTURED' }),
+        },
+        // handlePaymentCaptured routes by booking status: PAYMENT_PENDING → the
+        // initial confirmPayment path (this test); CONFIRMED_DEPOSIT/BALANCE_DUE
+        // would route to settleBalance instead.
+        booking: {
+          findUnique: jest.fn().mockResolvedValue({ status: 'PAYMENT_PENDING' }),
+        },
       };
 
       const prismaMock = {
         payment: {
-          findFirst: jest.fn().mockResolvedValue(existingPayment),
+          findFirst: jest.fn().mockResolvedValue({ id: 'payment-1' }),
         },
         $transaction: jest.fn().mockImplementation(async (fn: any) => fn(txMock)),
       };
@@ -376,6 +416,8 @@ describe('PaymentService', () => {
         auditMock as any,
         razorpayMock as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       const result = await service.handleWebhook(capturedEvent, 'valid-sig');
@@ -387,12 +429,70 @@ describe('PaymentService', () => {
           data: expect.objectContaining({ status: 'CAPTURED' }),
         }),
       );
+      // confirmPayment is now called tx-first: (tx, bookingId, paymentId, amountPaise)
       expect(bookingMock.confirmPayment).toHaveBeenCalledWith(
+        txMock,
         'booking-1',
         'payment-1',
-        17050, // INR (paise / 100)
-        txMock,
+        1705000,
       );
+    });
+
+    it('routes a BALANCE capture (booking already CONFIRMED_DEPOSIT/BALANCE_DUE) to settleBalance, not confirmPayment', async () => {
+      const capturedEvent = JSON.stringify({
+        event: 'payment.captured',
+        payload: {
+          payment: {
+            entity: { id: 'pay_rzp_bal', order_id: 'order_bal_1', amount: 894400 },
+          },
+        },
+      });
+
+      const balancePayment = {
+        id: 'payment-bal',
+        bookingId: 'booking-1',
+        status: 'INITIATED',
+        type: 'FULL', // BALANCE payments are stored as type FULL — routing is by booking status
+        payLaterSeq: null,
+        gatewayOrderRef: 'order_bal_1',
+      };
+
+      const txMock = {
+        payment: {
+          findUnique: jest.fn().mockResolvedValue(balancePayment),
+          update: jest.fn().mockResolvedValue({ ...balancePayment, status: 'CAPTURED' }),
+        },
+        booking: {
+          findUnique: jest.fn().mockResolvedValue({ status: 'BALANCE_DUE' }),
+        },
+      };
+      const prismaMock = {
+        payment: { findFirst: jest.fn().mockResolvedValue({ id: 'payment-bal' }) },
+        $transaction: jest.fn().mockImplementation(async (fn: any) => fn(txMock)),
+      };
+      const bookingMock = makeBookingMock();
+
+      const service = new PaymentService(
+        prismaMock as any,
+        bookingMock as any,
+        makeAuditMock() as any,
+        makeRazorpayMock() as any,
+        makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
+      );
+
+      await service.handleWebhook(capturedEvent, 'valid-sig');
+
+      expect(bookingMock.settleBalance).toHaveBeenCalledWith(
+        txMock,
+        'booking-1',
+        'payment-bal',
+        894400,
+      );
+      expect(bookingMock.confirmPayment).not.toHaveBeenCalled();
+      // Balance settlement does not re-send the "booking confirmed" notification.
+      expect(bookingMock.sendBookingConfirmedNotificationPublic).not.toHaveBeenCalled();
     });
 
     it('skips payment.captured if payment already CAPTURED (idempotent)', async () => {
@@ -413,12 +513,23 @@ describe('PaymentService', () => {
         id: 'payment-1',
         bookingId: 'booking-1',
         status: 'CAPTURED', // already processed
+        type: 'FULL',
+        payLaterSeq: null,
         gatewayOrderRef: 'order_test_123',
       };
 
+      // Idempotency now re-reads payment INSIDE the serializable tx and
+      // short-circuits there. So $transaction IS entered, but confirmPayment
+      // and payment.update are NOT called.
+      const txMock = {
+        payment: {
+          findUnique: jest.fn().mockResolvedValue(alreadyCapturedPayment),
+          update: jest.fn(),
+        },
+      };
       const prismaMock = {
-        payment: { findFirst: jest.fn().mockResolvedValue(alreadyCapturedPayment) },
-        $transaction: jest.fn(),
+        payment: { findFirst: jest.fn().mockResolvedValue({ id: 'payment-1' }) },
+        $transaction: jest.fn().mockImplementation(async (fn: any) => fn(txMock)),
       };
 
       const bookingMock = makeBookingMock();
@@ -428,12 +539,14 @@ describe('PaymentService', () => {
         makeAuditMock() as any,
         makeRazorpayMock() as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       await service.handleWebhook(capturedEvent, 'valid-sig');
 
-      // Must NOT re-process
-      expect(prismaMock.$transaction).not.toHaveBeenCalled();
+      // Idempotent: payment NOT updated, booking NOT confirmed.
+      expect(txMock.payment.update).not.toHaveBeenCalled();
       expect(bookingMock.confirmPayment).not.toHaveBeenCalled();
     });
 
@@ -470,6 +583,8 @@ describe('PaymentService', () => {
         makeAuditMock() as any,
         makeRazorpayMock() as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       await service.handleWebhook(failedEvent, 'valid-sig');
@@ -493,6 +608,8 @@ describe('PaymentService', () => {
         makeAuditMock() as any,
         makeRazorpayMock() as any,
         makeSnapshotSignerMock() as any,
+        makePayLaterMock() as any,
+        { transition: jest.fn().mockResolvedValue({}) } as any,
       );
 
       const result = await service.handleWebhook(unknownEvent, 'valid-sig');

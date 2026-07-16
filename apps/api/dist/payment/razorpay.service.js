@@ -56,7 +56,11 @@ let RazorpayService = RazorpayService_1 = class RazorpayService {
         this.webhookSecret = this.config.get('RAZORPAY_WEBHOOK_SECRET', '');
         this.stubMode = !this.keyId || !this.keySecret;
         if (this.stubMode) {
-            this.logger.warn('Razorpay credentials not configured — running in STUB mode. ' +
+            const nodeEnv = this.config.get('NODE_ENV', 'development');
+            if (nodeEnv === 'production') {
+                throw new Error('Razorpay credentials (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET) are required in production');
+            }
+            this.logger.warn('Razorpay credentials not configured - running in STUB mode. ' +
                 'Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, RAZORPAY_WEBHOOK_SECRET in .env');
         }
     }
@@ -98,7 +102,7 @@ let RazorpayService = RazorpayService_1 = class RazorpayService {
             return true;
         }
         if (!this.webhookSecret) {
-            this.logger.error('RAZORPAY_WEBHOOK_SECRET not set — rejecting webhook');
+            this.logger.error('RAZORPAY_WEBHOOK_SECRET not set - rejecting webhook');
             return false;
         }
         const expected = crypto
@@ -106,6 +110,21 @@ let RazorpayService = RazorpayService_1 = class RazorpayService {
             .update(rawBody)
             .digest('hex');
         return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(signature, 'hex'));
+    }
+    async getPaymentsForOrder(orderId) {
+        if (this.stubMode) {
+            return [];
+        }
+        const auth = Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64');
+        const response = await fetch(`https://api.razorpay.com/v1/orders/${orderId}/payments`, {
+            headers: { Authorization: `Basic ${auth}` },
+        });
+        if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`Razorpay getPaymentsForOrder failed: ${response.status} ${text}`);
+        }
+        const json = (await response.json());
+        return json.items ?? [];
     }
     async createRefund(paymentId, amountPaise) {
         if (this.stubMode) {

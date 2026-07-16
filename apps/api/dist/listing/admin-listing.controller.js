@@ -16,7 +16,7 @@ exports.AdminListingController = void 0;
 const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
-const roles_decorator_1 = require("../common/decorators/roles.decorator");
+const admin_level_decorator_1 = require("../common/decorators/admin-level.decorator");
 const admin_review_dto_1 = require("./dto/admin-review.dto");
 const listing_service_1 = require("./listing.service");
 let AdminListingController = class AdminListingController {
@@ -102,7 +102,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], AdminListingController.prototype, "rejectHost", null);
 exports.AdminListingController = AdminListingController = __decorate([
-    (0, roles_decorator_1.Roles)(client_1.UserRole.ADMIN),
+    (0, admin_level_decorator_1.AdminLevelGuard)(client_1.AdminLevel.L3),
     (0, common_1.Controller)(),
     __metadata("design:paramtypes", [listing_service_1.ListingService])
 ], AdminListingController);

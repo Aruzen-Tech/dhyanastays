@@ -41,6 +41,9 @@ exports.envValidationSchema = Joi.object({
         .default('development'),
     PORT: Joi.number().port().default(3001),
     TZ: Joi.string().default('Asia/Kolkata'),
+    LOG_LEVEL: Joi.string()
+        .valid('fatal', 'error', 'warn', 'info', 'debug', 'trace')
+        .default('info'),
     API_URL: Joi.string().allow('').default('http://localhost:3001'),
     WEB_URL: Joi.string().allow('').default('http://localhost:3000'),
     DATABASE_URL: Joi.string().required(),
@@ -88,7 +91,55 @@ exports.envValidationSchema = Joi.object({
     CDN_URL: Joi.string().allow('').default(''),
     AUTH0_DOMAIN: Joi.string().allow('').default(''),
     AUTH0_AUDIENCE: Joi.string().allow('').default(''),
+    PRICE_SNAPSHOT_SECRET: Joi.string()
+        .min(32)
+        .default('dev-snapshot-secret-min-32-characters!'),
     MEILI_URL: Joi.string().allow('').default('http://localhost:7700'),
     MEILI_MASTER_KEY: Joi.string().allow('').default('meili_dev_key'),
-}).unknown(true);
+    SOS_OPS_PHONE: Joi.string().allow('').default(''),
+    SOS_OPS_EMAIL: Joi.string().allow('').default(''),
+    ANTHROPIC_API_KEY: Joi.string().allow('').default(''),
+    ITINERARY_USER_MONTHLY_CAP_PAISE: Joi.number().integer().min(0).default(5000),
+})
+    .unknown(true)
+    .when(Joi.object({ NODE_ENV: 'production' }).unknown(), {
+    then: Joi.object({
+        JWT_ACCESS_SECRET: Joi.string().min(32).required(),
+        JWT_REFRESH_SECRET: Joi.string().min(32).required(),
+        PRICE_SNAPSHOT_SECRET: Joi.string().min(32).invalid('dev-snapshot-secret-min-32-characters!').required(),
+        RAZORPAY_KEY_ID: Joi.string().min(1).required()
+            .messages({ 'string.empty': 'RAZORPAY_KEY_ID is required in production (no stub mode)' }),
+        RAZORPAY_KEY_SECRET: Joi.string().min(1).required(),
+        RAZORPAY_WEBHOOK_SECRET: Joi.string().min(1).required(),
+        ALLOWED_ORIGINS: Joi.string().invalid('http://localhost:3000').required()
+            .messages({ 'any.invalid': 'ALLOWED_ORIGINS must not be localhost in production' }),
+        STORAGE_PROVIDER: Joi.string().valid('s3', 'r2').required()
+            .messages({ 'any.only': 'STORAGE_PROVIDER must be s3 or r2 in production (not stub)' }),
+        EMAIL_PROVIDER: Joi.string().valid('resend', 'sendgrid', 'smtp').required()
+            .messages({ 'any.only': 'EMAIL_PROVIDER must not be stub in production' }),
+        SMS_PROVIDER: Joi.string().valid('msg91', 'twilio').required()
+            .messages({ 'any.only': 'SMS_PROVIDER must not be stub in production' }),
+        REDIS_HOST: Joi.string().min(1).invalid('localhost', '127.0.0.1').required()
+            .messages({ 'any.invalid': 'REDIS_HOST must not be localhost in production — point to a managed Redis >= 5.0' }),
+        SOS_OPS_PHONE: Joi.string()
+            .pattern(/^\+[1-9]\d{6,14}$/)
+            .required()
+            .messages({
+            'string.empty': 'SOS_OPS_PHONE is required in production — the first-responder ops phone in E.164 (e.g. +919876543210)',
+            'string.pattern.base': 'SOS_OPS_PHONE must be E.164 (e.g. +919876543210). No spaces, no dashes.',
+        }),
+        SOS_OPS_EMAIL: Joi.string()
+            .email()
+            .required()
+            .messages({
+            'string.empty': 'SOS_OPS_EMAIL is required in production — the first-responder ops mailbox',
+        }),
+        ANTHROPIC_API_KEY: Joi.string()
+            .min(10)
+            .required()
+            .messages({
+            'string.empty': 'ANTHROPIC_API_KEY is required in production — the AI itinerary planner refuses to fall back to a stub plan',
+        }),
+    }),
+});
 //# sourceMappingURL=env.validation.js.map

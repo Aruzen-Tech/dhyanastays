@@ -2,10 +2,19 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 
+// useSearchParams() requires a Suspense boundary for static prerender.
 export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
+  );
+}
+
+function RegisterForm() {
   const { register, loginWithAuth0, isAuth0Mode } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -83,6 +92,13 @@ export default function RegisterPage() {
               Already have an account?{' '}
               <Link href="/auth/login" className="text-brand-700 font-medium hover:underline">
                 Sign in
+              </Link>
+            </p>
+
+            <p className="text-center text-sm text-gray-400 mt-3">
+              Staff member?{' '}
+              <Link href="/auth/admin-register" className="text-brand-700 font-medium hover:underline">
+                Apply for admin access
               </Link>
             </p>
           </div>
@@ -295,6 +311,13 @@ export default function RegisterPage() {
             Already have an account?{' '}
             <Link href="/auth/login" className="text-brand-700 font-medium hover:underline">
               Sign in
+            </Link>
+          </p>
+
+          <p className="text-center text-sm text-gray-400 mt-3">
+            Staff member?{' '}
+            <Link href="/auth/admin-register" className="text-brand-700 font-medium hover:underline">
+              Apply for admin access
             </Link>
           </p>
         </div>

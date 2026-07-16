@@ -5,4 +5,6 @@ export declare class CreateListingDto {
     state: string;
     baseNightlyRate: number;
     maxGuests: number;
+    latitude?: number;
+    longitude?: number;
 }

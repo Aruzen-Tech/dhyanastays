@@ -1,6 +1,50 @@
 import { Transform } from 'class-transformer';
-import { IsInt, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import sanitizeHtml from 'sanitize-html';
+
+export const EXPERIENCE_TAGS = [
+  'yoga',
+  'meditation',
+  'ayurveda',
+  'sound-healing',
+  'detox',
+  'spa',
+  'silent-retreat',
+  'nature',
+  'hiking',
+  'cooking',
+] as const;
+
+export const PROPERTY_TYPES = [
+  'villa',
+  'cottage',
+  'ashram',
+  'homestay',
+  'resort',
+  'farmstay',
+  'boutique-hotel',
+] as const;
+
+export const DIETARY_OPTIONS = [
+  'vegetarian',
+  'vegan',
+  'gluten-free',
+  'ayurvedic',
+  'jain',
+  'sattvic',
+  'non-veg-available',
+] as const;
 
 const ALLOWED_HTML: sanitizeHtml.IOptions = {
   allowedTags: ['p', 'br', 'strong', 'em', 'ul', 'ol', 'li'],
@@ -66,4 +110,20 @@ export class UpdateListingDto {
   @Min(-180)
   @Max(180)
   longitude?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsIn(EXPERIENCE_TAGS, { each: true })
+  experienceTags?: string[];
+
+  @IsOptional()
+  @IsIn(PROPERTY_TYPES)
+  propertyType?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsIn(DIETARY_OPTIONS, { each: true })
+  dietaryOptions?: string[];
 }

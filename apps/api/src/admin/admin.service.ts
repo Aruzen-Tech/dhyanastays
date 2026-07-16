@@ -1,13 +1,24 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { AdminLevel, ApplicationStatus, UserKind, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/services/audit.service';
+import { ApplyStaffDto } from './dto/apply-staff.dto';
+import { ReviewApplicationDto } from './dto/review-application.dto';
+import { AssignStaffRoleDto } from './dto/assign-staff-role.dto';
+import { ChangeUserKindDto } from './dto/change-user-kind.dto';
+import { BookingStateMachine, BookingLike } from '../booking/state-machine';
 
 @Injectable()
 export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly stateMachine: BookingStateMachine,
   ) {}
 
   // ── Setting defaults (used by getSettings) ──
@@ -400,12 +411,26 @@ export class AdminService {
         },
       });
 
-      // If fully refunded, update booking status
+      // If cumulative refunds == totalPaid, flip the booking to REFUNDED via
+      // the state machine. Use ADMIN_FULL_REFUND_ISSUED so statusHistory
+      // distinguishes this from a cancellation.
       if (dto.amount + totalRefunded >= totalPaid) {
-        await tx.booking.update({
-          where: { id: dto.bookingId },
-          data: { status: 'REFUNDED' },
-        });
+        const fresh = await tx.booking.findUnique({ where: { id: dto.bookingId } });
+        if (fresh) {
+          await this.stateMachine.transition(
+            tx,
+            fresh as BookingLike,
+            'ADMIN_FULL_REFUND_ISSUED',
+            {
+              actorId,
+              metadata: {
+                refundId: r.id,
+                totalRefundedPaise: dto.amount + totalRefunded,
+                totalPaidPaise: totalPaid,
+              },
+            },
+          );
+        }
       }
 
       await tx.ledgerEvent.create({
@@ -571,17 +596,31 @@ export class AdminService {
   }
 
   async bulkCompleteBookings(actorId: string, ids: string[]) {
-    const result = await this.prisma.booking.updateMany({
-      where: {
-        id: { in: ids },
-        status: { in: ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'] },
-      },
-      data: { status: 'COMPLETED' },
-    });
+    // Per-row through the state machine so each booking gets its own
+    // statusHistory entry. Skips rows not in a completable state.
+    let count = 0;
     for (const id of ids) {
-      await this.auditService.log(actorId, 'BOOKING_COMPLETED', 'Booking', id, { bulk: true });
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const fresh = await tx.booking.findUnique({ where: { id } });
+          if (!fresh) return;
+          if (!['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'].includes(fresh.status)) return;
+          await this.stateMachine.transition(
+            tx,
+            fresh as BookingLike,
+            'STAY_COMPLETED',
+            { actorId, metadata: { bulk: true } },
+          );
+          count++;
+        });
+        await this.auditService.log(actorId, 'BOOKING_COMPLETED', 'Booking', id, { bulk: true });
+      } catch (err) {
+        console.warn(
+          `Bulk complete skipped ${id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
-    return { count: result.count };
+    return { count };
   }
 
   // ── Feature 10: Global Search ──
@@ -687,6 +726,456 @@ export class AdminService {
     ]);
 
     return { entries, total, page, limit };
+  }
+
+  // ── Staff Application Management ─────────────────────────────────────────
+
+  /** Submit a staff/admin role application (public — no auth required) */
+  async submitApplication(dto: ApplyStaffDto, applicantId?: string) {
+    const existing = await this.prisma.staffApplication.findFirst({
+      where: { email: dto.email, status: ApplicationStatus.PENDING },
+    });
+    if (existing) {
+      throw new ConflictException('A pending application already exists for this email address');
+    }
+
+    return this.prisma.staffApplication.create({
+      data: {
+        applicantId: applicantId ?? null,
+        email: dto.email,
+        fullName: dto.fullName,
+        requestedLevel: dto.requestedLevel,
+        requestedService: dto.requestedService ?? null,
+        clusterId: dto.clusterId ?? null,
+        propertyId: dto.propertyId ?? null,
+        justification: dto.justification,
+      },
+    });
+  }
+
+  /** Paginated list of staff applications (L1 only) */
+  async getApplications(page: number, limit: number, status?: ApplicationStatus) {
+    const where: Record<string, unknown> = {};
+    if (status) where.status = status;
+
+    const [applications, total] = await Promise.all([
+      this.prisma.staffApplication.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.staffApplication.count({ where }),
+    ]);
+
+    return { applications, total, page, limit };
+  }
+
+  /** Approve or reject a staff application (L1 only) */
+  async reviewApplication(id: string, actorId: string, dto: ReviewApplicationDto) {
+    const app = await this.prisma.staffApplication.findUnique({ where: { id } });
+    if (!app) throw new NotFoundException('Application not found');
+    if (app.status !== ApplicationStatus.PENDING) {
+      throw new BadRequestException('Application is no longer pending');
+    }
+
+    if (dto.decision === 'APPROVED') {
+      return this.prisma.$transaction(async (tx) => {
+        const updated = await tx.staffApplication.update({
+          where: { id },
+          data: {
+            status: ApplicationStatus.APPROVED,
+            reviewedBy: actorId,
+            reviewNotes: dto.reviewNotes ?? null,
+            reviewedAt: new Date(),
+          },
+        });
+
+        // If applicant has an account, promote them immediately
+        if (app.applicantId) {
+          await tx.user.update({
+            where: { id: app.applicantId },
+            data: { role: UserRole.ADMIN, kind: UserKind.STAFF },
+          });
+
+          await tx.staffRole.upsert({
+            where: { userId: app.applicantId },
+            create: {
+              userId: app.applicantId,
+              level: app.requestedLevel,
+              serviceType: app.requestedService ?? undefined,
+              clusterId: app.clusterId ?? undefined,
+              propertyId: app.propertyId ?? undefined,
+              createdBy: actorId,
+            },
+            update: {
+              level: app.requestedLevel,
+              serviceType: app.requestedService ?? undefined,
+              clusterId: app.clusterId ?? undefined,
+              propertyId: app.propertyId ?? undefined,
+              createdBy: actorId,
+              revokedAt: null,
+            },
+          });
+        }
+
+        await this.auditService.log(
+          actorId,
+          'STAFF_APPLICATION_APPROVED',
+          'StaffApplication',
+          id,
+          { applicantId: app.applicantId, level: app.requestedLevel, email: app.email },
+          tx,
+        );
+
+        return updated;
+      });
+    }
+
+    // REJECTED path
+    const updated = await this.prisma.staffApplication.update({
+      where: { id },
+      data: {
+        status: ApplicationStatus.REJECTED,
+        reviewedBy: actorId,
+        reviewNotes: dto.reviewNotes ?? null,
+        reviewedAt: new Date(),
+      },
+    });
+
+    await this.auditService.log(
+      actorId,
+      'STAFF_APPLICATION_REJECTED',
+      'StaffApplication',
+      id,
+      { email: app.email, level: app.requestedLevel, notes: dto.reviewNotes },
+    );
+
+    return updated;
+  }
+
+  /** Paginated list of current staff members (L1 only) */
+  async getStaff(page: number, limit: number, search?: string) {
+    const where: Record<string, unknown> = { role: UserRole.ADMIN };
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { fullName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [staff, total] = await Promise.all([
+      this.prisma.user.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          role: true,
+          kind: true,
+          isActive: true,
+          createdAt: true,
+          staffRole: {
+            select: {
+              level: true,
+              serviceType: true,
+              clusterId: true,
+              propertyId: true,
+              createdAt: true,
+              revokedAt: true,
+            },
+          },
+        },
+      }),
+      this.prisma.user.count({ where }),
+    ]);
+
+    return { staff, total, page, limit };
+  }
+
+  /** Directly assign a staff role to an existing user (L1 only) */
+  async assignStaffRole(userId: string, actorId: string, dto: AssignStaffRoleDto) {
+    if (userId === actorId) {
+      throw new BadRequestException('Cannot modify your own role');
+    }
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { role: UserRole.ADMIN, kind: UserKind.STAFF },
+      });
+
+      const staffRole = await tx.staffRole.upsert({
+        where: { userId },
+        create: {
+          userId,
+          level: dto.level,
+          serviceType: dto.serviceType ?? undefined,
+          clusterId: dto.clusterId ?? undefined,
+          propertyId: dto.propertyId ?? undefined,
+          createdBy: actorId,
+        },
+        update: {
+          level: dto.level,
+          serviceType: dto.serviceType ?? undefined,
+          clusterId: dto.clusterId ?? undefined,
+          propertyId: dto.propertyId ?? undefined,
+          createdBy: actorId,
+          revokedAt: null,
+        },
+      });
+
+      await this.auditService.log(
+        actorId,
+        'STAFF_ROLE_ASSIGNED',
+        'User',
+        userId,
+        { level: dto.level, email: user.email },
+        tx,
+      );
+
+      return staffRole;
+    });
+  }
+
+  /** Revoke staff role — demote user back to GUEST (L1 only, cannot self-revoke or revoke other L1) */
+  async revokeStaffRole(userId: string, actorId: string) {
+    if (userId === actorId) {
+      throw new BadRequestException('Cannot revoke your own role');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { staffRole: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (user.role !== UserRole.ADMIN) {
+      throw new BadRequestException('User does not have a staff role');
+    }
+    if (user.staffRole?.level === AdminLevel.L1) {
+      throw new BadRequestException(
+        'Cannot revoke another L1 Super Admin. Contact your infrastructure team.',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { role: UserRole.GUEST, kind: UserKind.GUEST },
+      });
+
+      if (user.staffRole) {
+        await tx.staffRole.update({
+          where: { userId },
+          data: { revokedAt: new Date() },
+        });
+      }
+
+      await this.auditService.log(
+        actorId,
+        'STAFF_ROLE_REVOKED',
+        'User',
+        userId,
+        { email: user.email, previousLevel: user.staffRole?.level },
+        tx,
+      );
+
+      return { revoked: true };
+    });
+  }
+
+  // ── Phase 1 T5: Unified role change (GUEST/OWNER/INVESTOR/STAFF) + history ──
+
+  /**
+   * POST /admin/users/:id/role — L1 only.
+   * Changes a user's UserKind (and legacy UserRole for backward-compat)
+   * in a single transaction, writes a RoleChangeAudit row, and manages
+   * the dependent StaffRole / OwnerProfile / InvestorProfile rows.
+   */
+  async changeUserKind(userId: string, actorId: string, dto: ChangeUserKindDto) {
+    if (userId === actorId) {
+      throw new BadRequestException('Cannot change your own role');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        staffRole: true,
+        ownerProfile: true,
+        investorProfile: true,
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    // Guard: cannot demote another L1 super admin
+    if (user.staffRole?.level === AdminLevel.L1 && dto.kind !== UserKind.STAFF) {
+      throw new BadRequestException(
+        'Cannot demote another L1 Super Admin. Contact your infrastructure team.',
+      );
+    }
+
+    // STAFF requires level
+    if (dto.kind === UserKind.STAFF && !dto.level) {
+      throw new BadRequestException('level is required when kind = STAFF');
+    }
+
+    const before = {
+      role: user.role,
+      kind: user.kind,
+      staffLevel: user.staffRole?.level ?? null,
+      hasOwnerProfile: !!user.ownerProfile,
+      hasInvestorProfile: !!user.investorProfile,
+    };
+
+    const legacyRole =
+      dto.kind === UserKind.STAFF
+        ? UserRole.ADMIN
+        : dto.kind === UserKind.OWNER
+          ? UserRole.HOST
+          : UserRole.GUEST;
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Update User.kind + legacy role
+      await tx.user.update({
+        where: { id: userId },
+        data: { kind: dto.kind, role: legacyRole },
+      });
+
+      // 2. Manage StaffRole
+      if (dto.kind === UserKind.STAFF) {
+        await tx.staffRole.upsert({
+          where: { userId },
+          create: {
+            userId,
+            level: dto.level!,
+            serviceType: dto.serviceType ?? null,
+            clusterId: dto.clusterId ?? null,
+            propertyId: dto.propertyId ?? null,
+            createdBy: actorId,
+          },
+          update: {
+            level: dto.level!,
+            serviceType: dto.serviceType ?? null,
+            clusterId: dto.clusterId ?? null,
+            propertyId: dto.propertyId ?? null,
+            createdBy: actorId,
+            revokedAt: null,
+          },
+        });
+      } else if (user.staffRole && !user.staffRole.revokedAt) {
+        await tx.staffRole.update({
+          where: { userId },
+          data: { revokedAt: new Date() },
+        });
+      }
+
+      // 3. Manage OwnerProfile (auto-create on promote, leave on demote for history)
+      if (dto.kind === UserKind.OWNER && !user.ownerProfile) {
+        await tx.ownerProfile.create({
+          data: { userId, legalName: user.fullName },
+        });
+      }
+
+      // 4. Manage InvestorProfile
+      if (dto.kind === UserKind.INVESTOR && !user.investorProfile) {
+        await tx.investorProfile.create({
+          data: { userId, legalName: user.fullName },
+        });
+      }
+
+      const after = {
+        role: legacyRole,
+        kind: dto.kind,
+        staffLevel: dto.kind === UserKind.STAFF ? (dto.level ?? null) : null,
+        hasOwnerProfile: dto.kind === UserKind.OWNER || before.hasOwnerProfile,
+        hasInvestorProfile:
+          dto.kind === UserKind.INVESTOR || before.hasInvestorProfile,
+      };
+
+      // 5. Append to RoleChangeAudit (append-only, per blueprint §6.1)
+      await tx.roleChangeAudit.create({
+        data: {
+          targetUserId: userId,
+          actorUserId: actorId,
+          before,
+          after,
+          reason: dto.reason,
+        },
+      });
+
+      // 6. Append to generic AuditLog for admin activity feed
+      await this.auditService.log(
+        actorId,
+        'USER_KIND_CHANGED',
+        'User',
+        userId,
+        { email: user.email, before, after, reason: dto.reason },
+        tx,
+      );
+
+      return {
+        userId,
+        kind: dto.kind,
+        role: legacyRole,
+        staffLevel: after.staffLevel,
+      };
+    });
+  }
+
+  /**
+   * GET /admin/users/:id/role-history — L1, L2.
+   * Returns the full RoleChangeAudit timeline for a user, newest first.
+   */
+  async getUserRoleHistory(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        kind: true,
+        createdAt: true,
+        staffRole: { select: { level: true, revokedAt: true } },
+      },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const history = await this.prisma.roleChangeAudit.findMany({
+      where: { targetUserId: userId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    const actorIds = Array.from(new Set(history.map((h) => h.actorUserId)));
+    const actors = actorIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, email: true, fullName: true },
+        })
+      : [];
+    const actorMap = new Map(actors.map((a) => [a.id, a]));
+
+    return {
+      user,
+      history: history.map((h) => ({
+        id: h.id,
+        actor: actorMap.get(h.actorUserId) ?? {
+          id: h.actorUserId,
+          email: null,
+          fullName: null,
+        },
+        before: h.before,
+        after: h.after,
+        reason: h.reason,
+        createdAt: h.createdAt,
+      })),
+    };
   }
 
   // ── Feature 13: Revenue Forecast ──

@@ -3,87 +3,99 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   CSS Custom Properties — B&W monochrome theme
-   Light mode: dark accents, white surfaces
-   Dark mode:  light accents, near-black surfaces
+   CSS Custom Properties — Nature-luxury theme
+   Light mode: deep evergreen accents, warm ivory & stone surfaces, antique gold
+   Dark mode:  soft sage accents, forest-night surfaces, brightened gold
 ───────────────────────────────────────────────────────────────────────────── */
 
 @layer base {
   :root {
-    /* Brand scale — near-black in light mode */
-    --brand-50:  250 250 250;
-    --brand-100: 244 244 245;
-    --brand-200: 228 228 231;
-    --brand-300: 212 212 216;
-    --brand-400: 161 161 170;
-    --brand-500: 113 113 122;
-    --brand-600:  63  63  70;
-    --brand-700:  24  24  27;   /* primary — near-black */
-    --brand-800:   9   9  11;
-    --brand-900:   0   0   0;
+    /* Brand scale — deep evergreen in light mode */
+    --brand-50:  243 247 244;
+    --brand-100: 229 239 232;
+    --brand-200: 200 221 207;
+    --brand-300: 158 193 172;
+    --brand-400: 108 156 128;
+    --brand-500:  72 126  97;
+    --brand-600:  47  98  73;
+    --brand-700:  34  77  56;   /* primary — deep evergreen */
+    --brand-800:  24  58  42;
+    --brand-900:  15  40  28;
 
-    /* Page surface */
-    --surface: 248 248 248;
+    /* Luxury accent — antique gold (decorative use) */
+    --gold: 166 129 72;
 
-    /* Gray scale — standard Tailwind mapping */
+    /* Page surface — warm ivory */
+    --surface: 246 244 238;
+
+    /* Gray scale — warm stone/linen neutrals */
     --white:     255 255 255;
-    --gray-50:   249 250 251;
-    --gray-100:  243 244 246;
-    --gray-200:  229 231 235;
-    --gray-300:  209 213 219;
-    --gray-400:  156 163 175;
-    --gray-500:  107 114 128;
-    --gray-600:   75  85  99;
-    --gray-700:   55  65  81;
-    --gray-800:   31  41  55;
-    --gray-900:   17  24  39;
+    --gray-50:   250 249 246;
+    --gray-100:  244 242 236;
+    --gray-200:  232 228 219;
+    --gray-300:  214 208 196;
+    --gray-400:  163 155 140;
+    --gray-500:  120 112  98;
+    --gray-600:   92  85  72;
+    --gray-700:   68  63  53;
+    --gray-800:   45  42  35;
+    --gray-900:   28  26  21;
 
-    /* Glass tints */
-    --glass-bg: rgba(255, 255, 255, 0.72);
-    --glass-border: rgba(0, 0, 0, 0.08);
-    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+    /* Ambient wash — faint evergreen glow behind every page */
+    --ambient: radial-gradient(1200px 480px at 50% -8%, rgba(34, 77, 56, 0.06), transparent 62%);
+
+    /* Glass tints — warm ivory */
+    --glass-bg: rgba(252, 251, 247, 0.72);
+    --glass-border: rgba(31, 42, 35, 0.08);
+    --glass-shadow: 0 8px 32px 0 rgba(21, 32, 25, 0.08);
 
     /* Nav glass */
-    --nav-bg: rgba(248, 248, 248, 0.88);
-    --nav-border: rgba(0, 0, 0, 0.06);
+    --nav-bg: rgba(246, 244, 238, 0.88);
+    --nav-border: rgba(31, 42, 35, 0.06);
   }
 
   .dark {
-    /* Brand scale — near-white in dark mode */
-    --brand-50:   24  24  27;
-    --brand-100:  39  39  42;
-    --brand-200:  63  63  70;
-    --brand-300:  82  82  91;
-    --brand-400: 113 113 122;
-    --brand-500: 161 161 170;
-    --brand-600: 212 212 216;
-    --brand-700: 244 244 245;   /* primary — near-white */
-    --brand-800: 250 250 250;
-    --brand-900: 255 255 255;
+    /* Brand scale — soft sage in dark mode */
+    --brand-50:   22  30  25;
+    --brand-100:  30  40  33;
+    --brand-200:  45  61  51;
+    --brand-300:  63  85  71;
+    --brand-400:  94 124 105;
+    --brand-500: 137 168 148;
+    --brand-600: 183 205 190;
+    --brand-700: 220 233 224;   /* primary — near-white sage */
+    --brand-800: 235 243 237;
+    --brand-900: 247 250 248;
 
-    /* Page surface */
-    --surface:  10  10  10;
+    /* Luxury accent — brightened gold for dark surfaces */
+    --gold: 209 174 118;
 
-    /* Gray scale — inverted */
-    --white:     20  20  23;   /* card surfaces */
-    --gray-50:   10  10  12;   /* page background */
-    --gray-100:  20  20  23;   /* subtle bg */
-    --gray-200:  39  39  42;   /* borders */
-    --gray-300:  63  63  70;
-    --gray-400: 113 113 122;
-    --gray-500: 161 161 170;
-    --gray-600: 212 212 216;
-    --gray-700: 228 228 231;
-    --gray-800: 244 244 245;
-    --gray-900: 250 250 250;   /* primary text */
+    /* Page surface — forest night */
+    --surface:  10  13  11;
+
+    /* Gray scale — inverted, green-tinted */
+    --white:     19  24  20;   /* card surfaces */
+    --gray-50:   10  13  11;   /* page background */
+    --gray-100:  19  24  20;   /* subtle bg */
+    --gray-200:  38  46  40;   /* borders */
+    --gray-300:  60  70  63;
+    --gray-400: 108 121 111;
+    --gray-500: 152 165 155;
+    --gray-600: 197 208 200;
+    --gray-700: 222 230 224;
+    --gray-800: 238 243 239;
+    --gray-900: 248 250 248;   /* primary text */
+
+    /* Ambient wash — soft sage glow */
+    --ambient: radial-gradient(1200px 480px at 50% -8%, rgba(137, 168, 148, 0.05), transparent 62%);
 
     /* Glass tints */
-    --glass-bg: rgba(20, 20, 23, 0.72);
+    --glass-bg: rgba(19, 24, 20, 0.72);
     --glass-border: rgba(255, 255, 255, 0.07);
     --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
 
     /* Nav glass */
-    --nav-bg: rgba(10, 10, 12, 0.88);
+    --nav-bg: rgba(10, 13, 11, 0.88);
     --nav-border: rgba(255, 255, 255, 0.06);
   }
 
@@ -111,7 +123,8 @@
   body {
     @apply bg-surface text-gray-900 antialiased;
     font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    /* Ambient evergreen wash layered over organic grain */
+    background-image: var(--ambient), url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
     background-attachment: fixed;
   }
 
@@ -150,12 +163,12 @@
            shadow-sm hover:shadow-md relative overflow-hidden;
   }
 
-  /* Shimmer on hover */
+  /* Gold-tinted shimmer on hover */
   .btn-primary::after {
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 50%, transparent 100%);
+    background: linear-gradient(90deg, transparent 0%, rgba(var(--gold), 0.22) 50%, transparent 100%);
     transform: translateX(-100%);
     transition: transform 0.4s ease;
   }
@@ -207,7 +220,7 @@
 
   .card {
     @apply bg-white rounded-2xl border border-gray-200 overflow-hidden;
-    box-shadow: 0 1px 4px 0 rgba(0,0,0,0.05), 0 1px 2px -1px rgba(0,0,0,0.04);
+    box-shadow: 0 1px 4px 0 rgba(21,32,25,0.05), 0 1px 2px -1px rgba(21,32,25,0.04);
     transition: box-shadow 0.2s ease, transform 0.2s ease, background-color 0.25s ease, border-color 0.25s ease;
   }
 
@@ -216,7 +229,7 @@
   }
   .card-hover:hover {
     transform: translateY(-2px);
-    box-shadow: 0 12px 40px -8px rgba(0,0,0,0.12);
+    box-shadow: 0 12px 40px -8px rgba(21,32,25,0.14);
   }
 
   /* ── Glass Effects ─────────────────────────────────────────────────────── */
@@ -263,7 +276,7 @@
     position: absolute;
     inset: -1.5px;
     border-radius: inherit;
-    background: linear-gradient(135deg, rgba(var(--brand-700),0.35) 0%, rgba(var(--gray-300),0.15) 50%, rgba(var(--brand-700),0.35) 100%);
+    background: linear-gradient(135deg, rgba(var(--brand-700),0.4) 0%, rgba(var(--gold),0.35) 50%, rgba(var(--brand-700),0.4) 100%);
     background-size: 200% 200%;
     animation: border-spin 4s ease infinite;
     z-index: -1;
@@ -280,6 +293,13 @@
   .page-title {
     @apply text-2xl font-bold text-gray-900 tracking-tight;
     font-family: 'Playfair Display', Georgia, serif;
+  }
+
+  /* Eyebrow — small-caps gold kicker above serif headings */
+  .eyebrow {
+    @apply text-xs font-semibold uppercase;
+    letter-spacing: 0.18em;
+    color: rgb(var(--gold));
   }
 
   /* ── Alert / notice ────────────────────────────────────────────────────── */
@@ -377,10 +397,15 @@
    Utility overrides & enhancements
 ───────────────────────────────────────────────────────────────────────────── */
 @layer utilities {
-  /* Gradient text */
+  /* Gradient text — evergreen into gold */
   .text-gradient {
     @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, rgb(var(--brand-700)) 0%, rgb(var(--brand-500)) 100%);
+    background-image: linear-gradient(135deg, rgb(var(--brand-700)) 0%, rgb(var(--brand-500)) 55%, rgb(var(--gold)) 100%);
+  }
+
+  /* Gold accent text (decorative — headings, eyebrows, dividers) */
+  .text-gold {
+    color: rgb(var(--gold));
   }
 
   /* Glow on focus */

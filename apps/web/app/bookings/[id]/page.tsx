@@ -296,6 +296,12 @@ export default function BookingDetailPage() {
             <span className="text-gray-600">Platform fee ({Math.round((snapshot.platformFeeRate ?? 0.1) * 100)}%)</span>
             <span>{formatINR(snapshot.platformFee)}</span>
           </div>
+          {(snapshot.gstAmount ?? 0) > 0 && (
+            <div className="flex justify-between">
+              <span className="text-gray-600">GST ({Math.round((snapshot.gstRate ?? 0.18) * 100)}%)</span>
+              <span>{formatINR(snapshot.gstAmount)}</span>
+            </div>
+          )}
           <div className="border-t border-gray-100 pt-2 flex justify-between font-bold text-base">
             <span>Total</span>
             <span className="text-brand-700">{formatINR(snapshot.total)}</span>
@@ -312,11 +318,23 @@ export default function BookingDetailPage() {
               </div>
             </>
           )}
+          {booking.plan === 'PAY_LATER' && (
+            <div className="flex justify-between text-amber-700">
+              <span>Pay Later · {booking.payLaterMonths} months</span>
+              <Link href={`/bookings/${booking.id}/pay-later`} className="text-brand-700 hover:underline">
+                View schedule →
+              </Link>
+            </div>
+          )}
         </div>
         <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 text-sm text-gray-500">
           <span>Payment plan:</span>
           <span className="font-semibold text-gray-900">
-            {booking.plan === 'FULL' ? '💳 Full payment' : '🔀 50% deposit'}
+            {booking.plan === 'FULL'
+              ? '💳 Full payment'
+              : booking.plan === 'DEPOSIT_50'
+              ? '🔀 50% deposit'
+              : `📅 Pay Later (${booking.payLaterMonths}m)`}
           </span>
         </div>
       </div>
@@ -345,6 +363,17 @@ export default function BookingDetailPage() {
       {/* Guest assistance hub */}
       {showPreparation && user?.role === 'GUEST' && (
         <div className="space-y-3 mb-4">
+          <Link
+            href={`/bookings/${booking.id}/chat`}
+            className="card p-4 flex items-center gap-3 hover:bg-brand-50 transition-colors border border-brand-100"
+          >
+            <span className="text-2xl">💬</span>
+            <div>
+              <p className="font-semibold text-gray-900 text-sm">Concierge Chat</p>
+              <p className="text-xs text-gray-500">Direct line to your host — replies within 4h</p>
+            </div>
+            <span className="ml-auto text-gray-400">→</span>
+          </Link>
           <Link
             href={`/bookings/${booking.id}/preparation`}
             className="card p-4 flex items-center gap-3 hover:bg-brand-50 transition-colors"

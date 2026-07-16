@@ -14,6 +14,7 @@ const common_1 = require("@nestjs/common");
 const prisma_service_1 = require("../prisma/prisma.service");
 const pricing_service_1 = require("../pricing/pricing.service");
 const audit_service_1 = require("../common/services/audit.service");
+const serializable_retry_1 = require("../common/services/serializable-retry");
 const HOLD_TTL_MINUTES = 15;
 let HoldService = class HoldService {
     constructor(prisma, pricingService, auditService) {
@@ -41,9 +42,11 @@ let HoldService = class HoldService {
             checkIn: dto.checkIn,
             checkOut: dto.checkOut,
             guests: dto.guests,
+            addOns: dto.addOns,
+            userId: guestId,
         });
         const expiresAt = new Date(Date.now() + HOLD_TTL_MINUTES * 60 * 1000);
-        const hold = await this.prisma.$transaction(async (tx) => {
+        const hold = await (0, serializable_retry_1.withSerializableRetry)(this.prisma, async (tx) => {
             await tx.$executeRaw `
         SELECT id FROM "Listing" WHERE id = ${dto.listingId} FOR UPDATE
       `;
@@ -79,7 +82,14 @@ let HoldService = class HoldService {
                 },
             });
             if (overlappingHold) {
-                throw new common_1.ConflictException('Listing is temporarily held for the selected dates. Try again in a few minutes.');
+                const remainingSeconds = Math.max(0, Math.ceil((overlappingHold.expiresAt.getTime() - Date.now()) / 1000));
+                throw new common_1.ConflictException({
+                    statusCode: 409,
+                    error: 'DatesOnHold',
+                    message: 'These dates are currently held by another guest. They will free up if the hold expires.',
+                    heldUntil: overlappingHold.expiresAt.toISOString(),
+                    remainingSeconds,
+                });
             }
             const blocked = await tx.availabilityBlock.findFirst({
                 where: {
@@ -114,19 +124,77 @@ let HoldService = class HoldService {
         });
         return hold;
     }
+    async releaseHold(guestId, holdId) {
+        const hold = await this.prisma.hold.findUnique({
+            where: { id: holdId },
+            include: { booking: { select: { id: true } } },
+        });
+        if (!hold)
+            return { released: true, alreadyGone: true };
+        if (hold.guestId !== guestId) {
+            throw new common_1.ForbiddenException('Not your hold');
+        }
+        if (hold.booking) {
+            throw new common_1.BadRequestException('This hold has already become a booking — cancel the booking instead.');
+        }
+        await this.prisma.hold.delete({ where: { id: holdId } });
+        await this.auditService.log(guestId, 'HOLD_RELEASED', 'hold', holdId, {
+            listingId: hold.listingId,
+            reason: 'guest_abandoned',
+        });
+        return { released: true };
+    }
+    async getHoldStatus(guestId, listingId, checkIn, checkOut) {
+        const checkInDate = new Date(checkIn);
+        const checkOutDate = new Date(checkOut);
+        if (Number.isNaN(checkInDate.getTime()) ||
+            Number.isNaN(checkOutDate.getTime()) ||
+            checkInDate >= checkOutDate) {
+            throw new common_1.BadRequestException('Invalid date range');
+        }
+        const hold = await this.prisma.hold.findFirst({
+            where: {
+                listingId,
+                expiresAt: { gt: new Date() },
+                booking: null,
+                AND: [
+                    { startsAt: { lt: checkOutDate } },
+                    { endsAt: { gt: checkInDate } },
+                ],
+            },
+            orderBy: { expiresAt: 'desc' },
+            select: { guestId: true, expiresAt: true },
+        });
+        if (!hold)
+            return { held: false };
+        const remainingSeconds = Math.max(0, Math.ceil((hold.expiresAt.getTime() - Date.now()) / 1000));
+        return {
+            held: true,
+            mine: hold.guestId === guestId,
+            heldUntil: hold.expiresAt.toISOString(),
+            remainingSeconds,
+        };
+    }
     async expireStaleHolds() {
+        const BATCH = 200;
         const stale = await this.prisma.hold.findMany({
             where: {
                 expiresAt: { lt: new Date() },
                 booking: null,
             },
-            select: { id: true },
+            select: { id: true, listingId: true },
+            take: BATCH,
         });
         if (stale.length === 0)
             return 0;
         for (const h of stale) {
-            await this.auditService.log(null, 'HOLD_EXPIRED', 'hold', h.id, {});
+            await this.auditService.log(null, 'HOLD_EXPIRED', 'hold', h.id, {
+                listingId: h.listingId,
+            });
         }
+        await this.prisma.hold.deleteMany({
+            where: { id: { in: stale.map((h) => h.id) } },
+        });
         return stale.length;
     }
 };

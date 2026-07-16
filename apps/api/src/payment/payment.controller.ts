@@ -45,9 +45,12 @@ export class PaymentController {
   webhook(
     @Req() req: RawBodyRequest<Request>,
     @Headers('x-razorpay-signature') signature: string,
+    @Headers('x-razorpay-event-id') eventId: string | undefined,
   ) {
     const rawBody = req.rawBody?.toString('utf-8') ?? '';
-    return this.paymentService.handleWebhook(rawBody, signature);
+    // eventId is used for at-least-once dedup AFTER signature verify — see
+    // PaymentService.handleWebhook.
+    return this.paymentService.handleWebhook(rawBody, signature, eventId);
   }
 
   /**

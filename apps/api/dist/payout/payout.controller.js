@@ -17,6 +17,7 @@ const common_1 = require("@nestjs/common");
 const client_1 = require("@prisma/client");
 const current_user_decorator_1 = require("../common/decorators/current-user.decorator");
 const roles_decorator_1 = require("../common/decorators/roles.decorator");
+const admin_level_decorator_1 = require("../common/decorators/admin-level.decorator");
 const payout_service_1 = require("./payout.service");
 const class_validator_1 = require("class-validator");
 class MarkBatchPaidDto {
@@ -31,6 +32,9 @@ let PayoutController = class PayoutController {
     }
     getEligible() {
         return this.payoutService.getEligibleLines();
+    }
+    dryRun() {
+        return this.payoutService.dryRunBatch();
     }
     runWeekly(user) {
         return this.payoutService.runWeeklyBatch(user.sub);
@@ -47,14 +51,21 @@ let PayoutController = class PayoutController {
 };
 exports.PayoutController = PayoutController;
 __decorate([
-    (0, roles_decorator_1.Roles)(client_1.UserRole.ADMIN),
+    (0, admin_level_decorator_1.AdminLevelGuard)(client_1.AdminLevel.L2),
     (0, common_1.Get)('admin/payouts/eligible'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", void 0)
 ], PayoutController.prototype, "getEligible", null);
 __decorate([
-    (0, roles_decorator_1.Roles)(client_1.UserRole.ADMIN),
+    (0, admin_level_decorator_1.AdminLevelGuard)(client_1.AdminLevel.L2),
+    (0, common_1.Get)('admin/payouts/dry-run'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], PayoutController.prototype, "dryRun", null);
+__decorate([
+    (0, admin_level_decorator_1.AdminLevelGuard)(client_1.AdminLevel.L2),
     (0, common_1.Post)('admin/payouts/run-weekly'),
     __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __metadata("design:type", Function),
@@ -62,7 +73,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], PayoutController.prototype, "runWeekly", null);
 __decorate([
-    (0, roles_decorator_1.Roles)(client_1.UserRole.ADMIN),
+    (0, admin_level_decorator_1.AdminLevelGuard)(client_1.AdminLevel.L2),
     (0, common_1.Post)('admin/payouts/batches/:id/mark-paid'),
     __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __param(1, (0, common_1.Param)('id')),
@@ -71,7 +82,7 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], PayoutController.prototype, "markPaid", null);
 __decorate([
-    (0, roles_decorator_1.Roles)(client_1.UserRole.ADMIN),
+    (0, admin_level_decorator_1.AdminLevelGuard)(client_1.AdminLevel.L2),
     (0, common_1.Get)('admin/payouts/batches'),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", []),

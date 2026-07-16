@@ -1,0 +1,90 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dhyana Stays — Render Blueprint (staging / test deployment)
+#
+# Provisions: API (Docker) + PostgreSQL 16 + Redis-compatible Key Value store.
+# The Next.js frontend deploys separately on Vercel (see docs/DEPLOYMENT.md).
+#
+# Usage: push this file to GitHub → Render Dashboard → New → Blueprint →
+# select the repo. Render creates everything below and prompts for the
+# `sync: false` values.
+#
+# NOTE (free plan): pre-deploy commands are not available on the free tier, so
+# run migrations from your machine against the DB's external connection string
+# — exact commands in docs/DEPLOYMENT.md §5.
+# ─────────────────────────────────────────────────────────────────────────────
+
+databases:
+  - name: dhyana-postgres
+    plan: free            # free instance expires after 30 days — fine for testing
+    databaseName: dhyana_stays
+    user: dhyana
+    postgresMajorVersion: "16"
+
+services:
+  # ── Redis-compatible store for BullMQ background jobs ──────────────────────
+  - type: keyvalue
+    name: dhyana-redis
+    plan: free
+    maxmemoryPolicy: noeviction   # BullMQ requirement — jobs must never be evicted
+    ipAllowList: []               # internal-only access
+
+  # ── NestJS API ──────────────────────────────────────────────────────────────
+  - type: web
+    name: dhyana-api
+    runtime: docker
+    plan: free                    # spins down when idle; first request ~30s cold start
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/listings
+    envVars:
+      # staging (NOT "production") → Razorpay stub allowed, stub email/SMS/storage
+      # allowed, no Anthropic key required. Flip to production only with real
+      # providers configured — see docs/DEPLOYMENT.md §8.
+      - key: NODE_ENV
+        value: staging
+      - key: TZ
+        value: Asia/Kolkata
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dhyana-postgres
+          property: connectionString
+      - key: REDIS_HOST
+        fromService:
+          type: keyvalue
+          name: dhyana-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: keyvalue
+          name: dhyana-redis
+          property: port
+      # Render generates strong random values on first deploy:
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: PRICE_SNAPSHOT_SECRET
+        generateValue: true
+      # Fill these in the Render dashboard when prompted:
+      - key: WEB_URL
+        sync: false               # https://<your-app>.vercel.app
+      - key: ALLOWED_ORIGINS
+        sync: false               # https://<your-app>.vercel.app
+      - key: RAZORPAY_KEY_ID
+        sync: false               # rzp_test_... (test mode) or leave empty for stub
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      # Providers stay in stub mode for testing (log instead of send):
+      - key: EMAIL_PROVIDER
+        value: stub
+      - key: SMS_PROVIDER
+        value: stub
+      - key: STORAGE_PROVIDER
+        value: stub
+      # Seed credentials for the first admin (used once by the seed script):
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

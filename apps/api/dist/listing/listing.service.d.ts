@@ -1,21 +1,37 @@
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
+import { AddMediaDto } from './dto/add-media.dto';
+import { AddSeasonalRateDto } from './dto/add-seasonal-rate.dto';
+import { AddAvailabilityBlockDto } from './dto/add-availability-block.dto';
+import { UpdatePreparationDto } from './dto/update-preparation.dto';
 export declare class ListingService {
     private readonly prisma;
     private readonly notificationService;
-    constructor(prisma: PrismaService, notificationService: NotificationService);
+    private readonly config;
+    private readonly logger;
+    constructor(prisma: PrismaService, notificationService: NotificationService, config: ConfigService);
     createHostListing(userId: string, dto: CreateListingDto): Promise<({
+        media: {
+            url: string;
+            id: string;
+            createdAt: Date;
+            listingId: string;
+            sortOrder: number;
+            mediaType: string;
+        }[];
         rateRules: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             listingId: string;
             baseNightlyRate: number;
-            maxGuests: number;
             cleaningFee: number;
             minNights: number;
+            maxGuests: number;
         }[];
     } & {
         id: string;
@@ -29,34 +45,35 @@ export declare class ListingService {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
     }) | null>;
-    updateHostListing(userId: string, listingId: string, dto: UpdateListingDto): Promise<{
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        status: import("@prisma/client").$Enums.ListingStatus;
-        hostId: string;
-        createdById: string;
-        title: string;
-        description: string;
-        city: string;
-        state: string;
-        country: string;
-        timezone: string;
-        needsReapproval: boolean;
-    }>;
-    getHostListings(userId: string): Promise<({
+    updateHostListing(userId: string, listingId: string, dto: UpdateListingDto): Promise<({
+        media: {
+            url: string;
+            id: string;
+            createdAt: Date;
+            listingId: string;
+            sortOrder: number;
+            mediaType: string;
+        }[];
         rateRules: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             listingId: string;
             baseNightlyRate: number;
-            maxGuests: number;
             cleaningFee: number;
             minNights: number;
+            maxGuests: number;
         }[];
     } & {
         id: string;
@@ -70,7 +87,57 @@ export declare class ListingService {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
+        needsReapproval: boolean;
+    }) | null>;
+    getHostListings(userId: string): Promise<({
+        media: {
+            url: string;
+            id: string;
+            createdAt: Date;
+            listingId: string;
+            sortOrder: number;
+            mediaType: string;
+        }[];
+        rateRules: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            listingId: string;
+            baseNightlyRate: number;
+            cleaningFee: number;
+            minNights: number;
+            maxGuests: number;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        status: import("@prisma/client").$Enums.ListingStatus;
+        hostId: string;
+        createdById: string;
+        title: string;
+        description: string;
+        city: string;
+        state: string;
+        country: string;
+        latitude: number | null;
+        longitude: number | null;
+        timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
     })[]>;
     getPendingListings(): Promise<({
@@ -80,9 +147,9 @@ export declare class ListingService {
             updatedAt: Date;
             listingId: string;
             baseNightlyRate: number;
-            maxGuests: number;
             cleaningFee: number;
             minNights: number;
+            maxGuests: number;
         }[];
     } & {
         id: string;
@@ -96,7 +163,15 @@ export declare class ListingService {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
     })[]>;
     reviewListing(actorUserId: string, listingId: string, action: 'approve' | 'reject' | 'request_changes', note?: string): Promise<{
@@ -111,7 +186,15 @@ export declare class ListingService {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
     }>;
     getHostProfile(userId: string): Promise<{
@@ -161,17 +244,35 @@ export declare class ListingService {
         payoutAccountRef: string | null;
         payoutEnabled: boolean;
     }>;
-    private sendListingReviewNotification;
     getPublicListings(): Promise<({
+        tags: ({
+            tag: {
+                name: string;
+                id: string;
+                createdAt: Date;
+                category: string;
+            };
+        } & {
+            listingId: string;
+            tagId: string;
+        })[];
+        media: {
+            url: string;
+            id: string;
+            createdAt: Date;
+            listingId: string;
+            sortOrder: number;
+            mediaType: string;
+        }[];
         rateRules: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             listingId: string;
             baseNightlyRate: number;
-            maxGuests: number;
             cleaningFee: number;
             minNights: number;
+            maxGuests: number;
         }[];
     } & {
         id: string;
@@ -185,19 +286,162 @@ export declare class ListingService {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
+        needsReapproval: boolean;
+    })[]>;
+    getDiscoveryListings(params: {
+        q?: string;
+        city?: string;
+        experienceTags?: string[];
+        propertyType?: string;
+        dietaryOptions?: string[];
+        sort?: 'newest' | 'price-asc' | 'price-desc';
+    }): Promise<({
+        tags: ({
+            tag: {
+                name: string;
+                id: string;
+                createdAt: Date;
+                category: string;
+            };
+        } & {
+            listingId: string;
+            tagId: string;
+        })[];
+        media: {
+            url: string;
+            id: string;
+            createdAt: Date;
+            listingId: string;
+            sortOrder: number;
+            mediaType: string;
+        }[];
+        rateRules: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            listingId: string;
+            baseNightlyRate: number;
+            cleaningFee: number;
+            minNights: number;
+            maxGuests: number;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        status: import("@prisma/client").$Enums.ListingStatus;
+        hostId: string;
+        createdById: string;
+        title: string;
+        description: string;
+        city: string;
+        state: string;
+        country: string;
+        latitude: number | null;
+        longitude: number | null;
+        timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
+        needsReapproval: boolean;
+    })[]>;
+    getListingsByBounds(swLat: number, swLng: number, neLat: number, neLng: number): Promise<({
+        media: {
+            url: string;
+            id: string;
+            createdAt: Date;
+            listingId: string;
+            sortOrder: number;
+            mediaType: string;
+        }[];
+        rateRules: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            listingId: string;
+            baseNightlyRate: number;
+            cleaningFee: number;
+            minNights: number;
+            maxGuests: number;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        status: import("@prisma/client").$Enums.ListingStatus;
+        hostId: string;
+        createdById: string;
+        title: string;
+        description: string;
+        city: string;
+        state: string;
+        country: string;
+        latitude: number | null;
+        longitude: number | null;
+        timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
     })[]>;
     getPublicListingById(id: string): Promise<{
+        host: {
+            user: {
+                fullName: string;
+            };
+            userId: string;
+        };
+        tags: ({
+            tag: {
+                name: string;
+                id: string;
+                createdAt: Date;
+                category: string;
+            };
+        } & {
+            listingId: string;
+            tagId: string;
+        })[];
+        media: {
+            url: string;
+            id: string;
+            createdAt: Date;
+            listingId: string;
+            sortOrder: number;
+            mediaType: string;
+        }[];
         rateRules: {
             id: string;
             createdAt: Date;
             updatedAt: Date;
             listingId: string;
             baseNightlyRate: number;
-            maxGuests: number;
             cleaningFee: number;
             minNights: number;
+            maxGuests: number;
+        }[];
+        seasonalRates: {
+            id: string;
+            createdAt: Date;
+            listingId: string;
+            startsAt: Date;
+            endsAt: Date;
+            nightlyRate: number;
         }[];
     } & {
         id: string;
@@ -211,9 +455,200 @@ export declare class ListingService {
         city: string;
         state: string;
         country: string;
+        latitude: number | null;
+        longitude: number | null;
         timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
         needsReapproval: boolean;
+    }>;
+    searchListings(q: string): Promise<({
+        media: {
+            url: string;
+            id: string;
+            createdAt: Date;
+            listingId: string;
+            sortOrder: number;
+            mediaType: string;
+        }[];
+        rateRules: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            listingId: string;
+            baseNightlyRate: number;
+            cleaningFee: number;
+            minNights: number;
+            maxGuests: number;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        status: import("@prisma/client").$Enums.ListingStatus;
+        hostId: string;
+        createdById: string;
+        title: string;
+        description: string;
+        city: string;
+        state: string;
+        country: string;
+        latitude: number | null;
+        longitude: number | null;
+        timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
+        needsReapproval: boolean;
+    })[]>;
+    addMedia(userId: string, listingId: string, dto: AddMediaDto): Promise<{
+        url: string;
+        id: string;
+        createdAt: Date;
+        listingId: string;
+        sortOrder: number;
+        mediaType: string;
+    }>;
+    deleteMedia(userId: string, listingId: string, mediaId: string): Promise<{
+        deleted: boolean;
+    }>;
+    addSeasonalRate(userId: string, listingId: string, dto: AddSeasonalRateDto): Promise<{
+        id: string;
+        createdAt: Date;
+        listingId: string;
+        startsAt: Date;
+        endsAt: Date;
+        nightlyRate: number;
+    }>;
+    getSeasonalRates(userId: string, listingId: string): Promise<{
+        id: string;
+        createdAt: Date;
+        listingId: string;
+        startsAt: Date;
+        endsAt: Date;
+        nightlyRate: number;
+    }[]>;
+    deleteSeasonalRate(userId: string, listingId: string, rateId: string): Promise<{
+        deleted: boolean;
+    }>;
+    addAvailabilityBlock(userId: string, listingId: string, dto: AddAvailabilityBlockDto): Promise<{
+        id: string;
+        createdAt: Date;
+        reason: string;
+        listingId: string;
+        startsAt: Date;
+        endsAt: Date;
+    }>;
+    getAvailabilityBlocks(userId: string, listingId: string): Promise<{
+        id: string;
+        createdAt: Date;
+        reason: string;
+        listingId: string;
+        startsAt: Date;
+        endsAt: Date;
+    }[]>;
+    deleteAvailabilityBlock(userId: string, listingId: string, blockId: string): Promise<{
+        deleted: boolean;
+    }>;
+    getAllTags(): Promise<{
+        name: string;
+        id: string;
+        createdAt: Date;
+        category: string;
+    }[]>;
+    setListingTags(userId: string, listingId: string, tagIds: string[]): Promise<({
+        tags: ({
+            tag: {
+                name: string;
+                id: string;
+                createdAt: Date;
+                category: string;
+            };
+        } & {
+            listingId: string;
+            tagId: string;
+        })[];
+        rateRules: {
+            id: string;
+            createdAt: Date;
+            updatedAt: Date;
+            listingId: string;
+            baseNightlyRate: number;
+            cleaningFee: number;
+            minNights: number;
+            maxGuests: number;
+        }[];
+    } & {
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        status: import("@prisma/client").$Enums.ListingStatus;
+        hostId: string;
+        createdById: string;
+        title: string;
+        description: string;
+        city: string;
+        state: string;
+        country: string;
+        latitude: number | null;
+        longitude: number | null;
+        timezone: string;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
+        experienceTags: string[];
+        propertyType: string | null;
+        dietaryOptions: string[];
+        needsReapproval: boolean;
+    }) | null>;
+    getListingTags(listingId: string): Promise<({
+        tag: {
+            name: string;
+            id: string;
+            createdAt: Date;
+            category: string;
+        };
+    } & {
+        listingId: string;
+        tagId: string;
+    })[]>;
+    private verifyOwnership;
+    private sendListingReviewNotification;
+    getPreparationGuide(userId: string, listingId: string): Promise<{
+        preparationGuide: string | number | boolean | Prisma.JsonObject | Prisma.JsonArray | null;
+    }>;
+    updatePreparationGuide(userId: string, listingId: string, dto: UpdatePreparationDto): Promise<{
+        id: string;
+        preparationGuide: Prisma.JsonValue;
+    }>;
+    getPreparationForBooking(userId: string, bookingId: string): Promise<{
+        bookingId: string;
+        listingTitle: string;
+        preparationGuide: string | number | boolean | Prisma.JsonObject | Prisma.JsonArray | null;
+    }>;
+    getDirections(userId: string, listingId: string): Promise<{
+        propertyDirections: string | number | boolean | Prisma.JsonObject | Prisma.JsonArray | null;
+    }>;
+    updateDirections(userId: string, listingId: string, dto: object): Promise<{
+        id: string;
+        propertyDirections: Prisma.JsonValue;
+    }>;
+    getManual(userId: string, listingId: string): Promise<{
+        propertyManual: string | number | boolean | Prisma.JsonObject | Prisma.JsonArray | null;
+    }>;
+    updateManual(userId: string, listingId: string, dto: object): Promise<{
+        id: string;
+        propertyManual: Prisma.JsonValue;
     }>;
     private isReapprovalTriggered;
     private writeAudit;
+    private meiliIndex;
+    private meiliDelete;
 }

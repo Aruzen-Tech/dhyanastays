@@ -15,5 +15,4 @@ export declare class StorageController {
         success: boolean;
         error?: undefined;
     }>;
-    stubGet(key: string): string;
 }

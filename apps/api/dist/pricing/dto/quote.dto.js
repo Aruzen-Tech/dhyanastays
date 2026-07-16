@@ -10,7 +10,9 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.QuoteDto = void 0;
+const class_transformer_1 = require("class-transformer");
 const class_validator_1 = require("class-validator");
+const add_on_selection_dto_1 = require("../../add-on/dto/add-on-selection.dto");
 class QuoteDto {
 }
 exports.QuoteDto = QuoteDto;
@@ -31,4 +33,16 @@ __decorate([
     (0, class_validator_1.Min)(1),
     __metadata("design:type", Number)
 ], QuoteDto.prototype, "guests", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsArray)(),
+    (0, class_validator_1.ValidateNested)({ each: true }),
+    (0, class_transformer_1.Type)(() => add_on_selection_dto_1.AddOnSelectionDto),
+    __metadata("design:type", Array)
+], QuoteDto.prototype, "addOns", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], QuoteDto.prototype, "userId", void 0);
 //# sourceMappingURL=quote.dto.js.map

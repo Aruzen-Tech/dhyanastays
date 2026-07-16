@@ -16,6 +16,12 @@ export declare class RazorpayService {
     isStubMode(): boolean;
     createOrder(amountPaise: number, receipt: string): Promise<RazorpayOrder>;
     verifyWebhookSignature(rawBody: string, signature: string): boolean;
+    getPaymentsForOrder(orderId: string): Promise<Array<{
+        id: string;
+        status: string;
+        amount: number;
+        order_id: string;
+    }>>;
     createRefund(paymentId: string, amountPaise: number): Promise<{
         id: string;
     }>;

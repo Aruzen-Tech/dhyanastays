@@ -4,7 +4,9 @@ import { CurrentUser, RequestUser } from '../common/decorators/current-user.deco
 import { Roles } from '../common/decorators/roles.decorator';
 import { ReferralService } from './referral.service';
 import { ApplyReferralDto } from './dto/apply-referral.dto';
+import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 
+@FeatureGate('referrals')
 @Controller('guest')
 @Roles(UserRole.GUEST)
 export class ReferralController {

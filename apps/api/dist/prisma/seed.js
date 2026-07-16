@@ -38,74 +38,132 @@ const argon2 = __importStar(require("argon2"));
 const prisma = new client_1.PrismaClient();
 async function main() {
     console.log('🌱 Seeding Dhyana Stays database…');
-    const legacyAdminEmail = 'admin@dhyanastays.local';
-    const adminEmail = 'admin@dhyanastays.com';
-    const adminPassword = 'Password@123!';
-    await prisma.user.updateMany({
-        where: { email: legacyAdminEmail, role: client_1.UserRole.ADMIN },
-        data: { isActive: false },
-    });
-    const admin = await prisma.user.findUnique({ where: { email: adminEmail } });
-    const adminPasswordHash = await argon2.hash(adminPassword);
-    if (!admin) {
-        await prisma.user.create({
-            data: {
-                email: adminEmail,
-                fullName: 'Dhyana Admin',
-                passwordHash: adminPasswordHash,
-                role: client_1.UserRole.ADMIN,
-                isActive: true,
-            },
-        });
-        console.log('  ✓ Admin user created:', adminEmail);
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+    if (!adminEmail || !adminPassword) {
+        console.log('  [!] ADMIN_EMAIL and ADMIN_PASSWORD env vars not set - skipping admin seed.');
+        console.log('    Set them in .env to seed the admin user.');
     }
     else {
-        await prisma.user.update({
-            where: { email: adminEmail },
-            data: {
-                passwordHash: adminPasswordHash,
-                isActive: true,
-                role: client_1.UserRole.ADMIN,
-            },
+        const admin = await prisma.user.findUnique({ where: { email: adminEmail } });
+        const adminPasswordHash = await argon2.hash(adminPassword);
+        if (!admin) {
+            await prisma.user.create({
+                data: {
+                    email: adminEmail,
+                    fullName: 'Dhyana Admin',
+                    passwordHash: adminPasswordHash,
+                    role: client_1.UserRole.ADMIN,
+                    isActive: true,
+                },
+            });
+            console.log('  ✓ Admin user created:', adminEmail);
+        }
+        else {
+            await prisma.user.update({
+                where: { email: adminEmail },
+                data: {
+                    passwordHash: adminPasswordHash,
+                    isActive: true,
+                    role: client_1.UserRole.ADMIN,
+                },
+            });
+            console.log('  ✓ Admin user updated:', adminEmail);
+        }
+    }
+    const hostEmail = process.env.HOST_EMAIL;
+    const hostPassword = process.env.HOST_PASSWORD;
+    if (hostEmail && hostPassword) {
+        let hostUser = await prisma.user.findUnique({ where: { email: hostEmail } });
+        if (!hostUser) {
+            const passwordHash = await argon2.hash(hostPassword);
+            hostUser = await prisma.user.create({
+                data: {
+                    email: hostEmail,
+                    fullName: 'Dhyana Host',
+                    passwordHash,
+                    role: client_1.UserRole.HOST,
+                    isActive: true,
+                },
+            });
+            console.log('  ✓ Host user created:', hostEmail);
+        }
+        const hostProfile = await prisma.host.findUnique({ where: { userId: hostUser.id } });
+        if (!hostProfile) {
+            await prisma.host.create({
+                data: {
+                    userId: hostUser.id,
+                    verificationStatus: client_1.HostVerificationStatus.PENDING,
+                    payoutEnabled: false,
+                },
+            });
+            console.log('  ✓ Host profile created with PENDING verification.');
+        }
+    }
+    const tagData = [
+        { category: 'wellness', name: 'Yoga Studio' },
+        { category: 'wellness', name: 'Meditation Hall' },
+        { category: 'wellness', name: 'Ayurveda Spa' },
+        { category: 'wellness', name: 'Naturopathy Centre' },
+        { category: 'wellness', name: 'Sound Healing' },
+        { category: 'wellness', name: 'Pranayama Classes' },
+        { category: 'wellness', name: 'Detox Programs' },
+        { category: 'wellness', name: 'Satsang Hall' },
+        { category: 'wellness', name: 'Healing Garden' },
+        { category: 'wellness', name: 'Massage Therapy' },
+        { category: 'diet', name: 'Sattvic Meals' },
+        { category: 'diet', name: 'Vegan Cuisine' },
+        { category: 'diet', name: 'Ayurvedic Cooking' },
+        { category: 'diet', name: 'Organic Farm-to-Table' },
+        { category: 'diet', name: 'Juice Cleanse' },
+        { category: 'diet', name: 'Silent Dining' },
+        { category: 'diet', name: 'Gluten-Free Options' },
+        { category: 'facilities', name: 'Swimming Pool' },
+        { category: 'facilities', name: 'Hot Tub' },
+        { category: 'facilities', name: 'Sauna' },
+        { category: 'facilities', name: 'Steam Room' },
+        { category: 'facilities', name: 'Wi-Fi' },
+        { category: 'facilities', name: 'Air Conditioning' },
+        { category: 'facilities', name: 'Library' },
+        { category: 'facilities', name: 'Bonfire Area' },
+        { category: 'facilities', name: 'Rooftop Terrace' },
+        { category: 'facilities', name: 'River Access' },
+        { category: 'facilities', name: 'Mountain View' },
+        { category: 'nature', name: 'Beachfront' },
+        { category: 'nature', name: 'Forest Retreat' },
+        { category: 'nature', name: 'Himalayan Foothills' },
+        { category: 'nature', name: 'Riverside' },
+        { category: 'nature', name: 'Eco-friendly' },
+        { category: 'nature', name: 'Off-grid' },
+        { category: 'nature', name: 'Organic Farm' },
+        { category: 'programs', name: 'Teacher Training (YTT)' },
+        { category: 'programs', name: 'Silent Retreat' },
+        { category: 'programs', name: 'Vipassana' },
+        { category: 'programs', name: 'Shamanic Healing' },
+        { category: 'programs', name: 'Breathwork' },
+        { category: 'programs', name: 'Reiki' },
+        { category: 'programs', name: 'Astrology Sessions' },
+        { category: 'programs', name: 'Trekking' },
+        { category: 'programs', name: 'Cultural Immersion' },
+        { category: 'practical', name: 'Airport Transfer' },
+        { category: 'practical', name: 'Parking' },
+        { category: 'practical', name: 'Pet Friendly' },
+        { category: 'practical', name: 'Solo Traveller Friendly' },
+        { category: 'practical', name: 'Couple Packages' },
+        { category: 'practical', name: 'Group Bookings' },
+        { category: 'practical', name: '24h Security' },
+    ];
+    let tagsCreated = 0;
+    for (const tag of tagData) {
+        await prisma.tag.upsert({
+            where: { category_name: { category: tag.category, name: tag.name } },
+            update: {},
+            create: tag,
         });
-        console.log('  ✓ Admin user updated:', adminEmail);
+        tagsCreated++;
     }
-    const hostEmail = 'host@dhyanastays.in';
-    let hostUser = await prisma.user.findUnique({ where: { email: hostEmail } });
-    if (!hostUser) {
-        const passwordHash = await argon2.hash('ChangeMe123!');
-        hostUser = await prisma.user.create({
-            data: {
-                email: hostEmail,
-                fullName: 'Dhyana Demo Host',
-                passwordHash,
-                role: client_1.UserRole.HOST,
-                isActive: true,
-            },
-        });
-        console.log('  ✓ Host user created:', hostEmail);
-    }
-    else {
-        console.log('  · Host user already exists, skipping.');
-    }
-    const hostProfile = await prisma.host.findUnique({ where: { userId: hostUser.id } });
-    if (!hostProfile) {
-        await prisma.host.create({
-            data: {
-                userId: hostUser.id,
-                verificationStatus: client_1.HostVerificationStatus.PENDING,
-                payoutEnabled: false,
-            },
-        });
-        console.log('  ✓ Host profile created with PENDING verification.');
-    }
-    else {
-        console.log('  · Host profile already exists, keeping current verification status.');
-    }
-    console.log('\n🎉 Seed complete — no demo listings were seeded.');
-    console.log('\nCredentials:');
-    console.log('  Admin  → admin@dhyanastays.com / Password@123!');
-    console.log('  Host   → host@dhyanastays.in    / ChangeMe123! (requires admin approval)');
+    console.log(`  ✓ Tags upserted: ${tagsCreated} tags across 6 categories.`);
+    console.log('\n🎉 Seed complete.');
 }
 main()
     .catch((error) => {

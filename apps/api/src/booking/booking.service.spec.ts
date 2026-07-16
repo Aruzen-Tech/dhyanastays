@@ -26,12 +26,74 @@ function makeNotificationMock() {
     sendHostListingRejected: jest.fn().mockResolvedValue(undefined),
     sendEmail: jest.fn().mockResolvedValue(undefined),
     sendSms: jest.fn().mockResolvedValue(undefined),
+    buildBookingConfirmedEmail: jest.fn().mockReturnValue({ to: '', subject: '', html: '' }),
+    buildBookingConfirmedSms: jest.fn().mockReturnValue(null),
+  };
+}
+
+function makeOutboxMock() {
+  return {
+    enqueue: jest.fn().mockResolvedValue(undefined),
+    claimPending: jest.fn().mockResolvedValue([]),
+    markSent: jest.fn().mockResolvedValue(undefined),
+    recordFailure: jest.fn().mockResolvedValue(undefined),
+    getPreference: jest.fn().mockResolvedValue({}),
+    upsertPreference: jest.fn().mockResolvedValue(undefined),
   };
 }
 
 function makePricingMock() {
   return {
     computeRefundAmount: jest.fn(),
+  };
+}
+
+function makeStateMachineMock() {
+  // The state machine's contract for these tests: route the transition
+  // through tx.booking.update with the to-state we'd expect, so the existing
+  // assertions against tx.booking.update.toHaveBeenCalledWith continue to work.
+  return {
+    transition: jest
+      .fn()
+      .mockImplementation(async (tx: any, booking: any, event: string) => {
+        const toMap: Record<string, string> = {
+          PAYMENT_CONFIRMED_FULL: 'CONFIRMED_PAID',
+          PAYMENT_CONFIRMED_DEPOSIT: 'CONFIRMED_DEPOSIT',
+          PAY_LATER_FIRST_CAPTURED: 'CONFIRMED_DEPOSIT',
+          PAY_LATER_INSTALMENT_CAPTURED: 'CONFIRMED_DEPOSIT',
+          PAY_LATER_FINAL_CAPTURED: 'CONFIRMED_PAID',
+          BALANCE_DUE_TRIGGERED: 'BALANCE_DUE',
+          BALANCE_PAID: 'CONFIRMED_PAID',
+          STAY_COMPLETED: 'COMPLETED',
+          AUTO_COMPLETED: 'COMPLETED',
+          ADMIN_FULL_REFUND_ISSUED: 'REFUNDED',
+        };
+        const to = toMap[event] ?? 'CANCELLED';
+        // Cancellation paths choose CANCELLED/REFUNDED via refund context.
+        const cancelEvents = new Set([
+          'GUEST_CANCELLED',
+          'ADMIN_CANCELLED',
+          'AUTO_CANCEL_UNPAID_BALANCE',
+          'AUTO_CANCEL_PAY_LATER_DEFAULT',
+        ]);
+        const status = cancelEvents.has(event)
+          ? ((tx?._refundAmount ?? 0) > 0 ? 'REFUNDED' : 'CANCELLED')
+          : to;
+        if (tx?.booking?.update) {
+          return tx.booking.update({
+            where: { id: booking.id },
+            data: { status, statusHistory: [] },
+          });
+        }
+        return { ...booking, status };
+      }),
+  };
+}
+
+function makePayLaterMock() {
+  return {
+    createPlanFromFirstCapture: jest.fn().mockResolvedValue(undefined),
+    cancelPlan: jest.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -96,7 +158,13 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       const result = await service.createBooking('guest-1', {
@@ -104,6 +172,7 @@ describe('BookingService', () => {
         plan: 'FULL' as any,
         idempotencyKey: 'idem-1',
         guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
+        acceptedTermsAt: new Date().toISOString(),
       });
 
       expect(result.status).toBe('PAYMENT_PENDING');
@@ -139,7 +208,13 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       await service.createBooking('guest-1', {
@@ -147,6 +222,7 @@ describe('BookingService', () => {
         plan: 'DEPOSIT_50' as any,
         idempotencyKey: 'idem-2',
         guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
+        acceptedTermsAt: new Date().toISOString(),
       });
 
       const createCall = txMock.booking.create.mock.calls[0][0];
@@ -180,7 +256,13 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       await expect(
@@ -189,6 +271,7 @@ describe('BookingService', () => {
           plan: 'FULL' as any,
           idempotencyKey: 'idem-3',
           guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
+          acceptedTermsAt: new Date().toISOString(),
         }),
       ).rejects.toThrow('Hold has expired');
     });
@@ -212,7 +295,13 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       await expect(
@@ -221,6 +310,7 @@ describe('BookingService', () => {
           plan: 'FULL' as any,
           idempotencyKey: 'idem-4',
           guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
+          acceptedTermsAt: new Date().toISOString(),
         }),
       ).rejects.toThrow('Hold belongs to another user');
     });
@@ -244,7 +334,13 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       const result = await service.createBooking('guest-1', {
@@ -252,6 +348,7 @@ describe('BookingService', () => {
         plan: 'FULL' as any,
         idempotencyKey: 'idem-5',
         guestDetails: { fullName: 'Test Guest', phone: '9999999999' } as any,
+        acceptedTermsAt: new Date().toISOString(),
       });
 
       expect(result).toBe(existingBooking);
@@ -260,32 +357,108 @@ describe('BookingService', () => {
   });
 
   describe('transitionToBalanceDue()', () => {
-    it('updates CONFIRMED_DEPOSIT bookings past balanceDueAt', async () => {
-      const prismaMock = {
-        booking: {
-          updateMany: jest.fn().mockResolvedValue({ count: 3 }),
-        },
-        auditLog: { create: jest.fn().mockResolvedValue({}) },
+    it('routes each due booking through the state machine', async () => {
+      const dueIds = [{ id: 'b1' }, { id: 'b2' }, { id: 'b3' }];
+
+      // Tracks per-id calls into the state machine.
+      const transitions: string[] = [];
+      const smMock = {
+        transition: jest
+          .fn()
+          .mockImplementation(
+            async (_tx: any, booking: any, event: string) => {
+              transitions.push(`${booking.id}:${event}`);
+              return { ...booking, status: 'BALANCE_DUE' };
+            },
+          ),
       };
 
-      const auditMock = makeAuditMock();
+      const txMock = {
+        booking: {
+          findUnique: jest.fn().mockImplementation(async (args: any) => ({
+            id: args.where.id,
+            status: 'CONFIRMED_DEPOSIT',
+            plan: 'DEPOSIT_50',
+            startsAt: new Date(),
+            endsAt: new Date(),
+            balanceDueAt: new Date(0),
+            payLaterMonths: null,
+            statusHistory: [],
+          })),
+        },
+      };
+      const prismaMock = {
+        booking: { findMany: jest.fn().mockResolvedValue(dueIds) },
+        $transaction: jest
+          .fn()
+          .mockImplementation(async (fn: AnyMock) => fn(txMock)),
+      };
+
       const service = new BookingService(
         prismaMock as any,
         makePricingMock() as any,
-        auditMock as any,
+        makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        smMock as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       const count = await service.transitionToBalanceDue();
       expect(count).toBe(3);
-      expect(prismaMock.booking.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ status: 'CONFIRMED_DEPOSIT' }),
-          data: { status: 'BALANCE_DUE' },
-        }),
+      expect(transitions).toEqual([
+        'b1:BALANCE_DUE_TRIGGERED',
+        'b2:BALANCE_DUE_TRIGGERED',
+        'b3:BALANCE_DUE_TRIGGERED',
+      ]);
+    });
+
+    it('skips bookings whose status changed concurrently', async () => {
+      const smMock = { transition: jest.fn() };
+      const txMock = {
+        booking: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'b1',
+            status: 'CANCELLED', // concurrent change — should skip
+            plan: 'DEPOSIT_50',
+            startsAt: new Date(),
+            endsAt: new Date(),
+            balanceDueAt: new Date(0),
+            payLaterMonths: null,
+            statusHistory: [],
+          }),
+        },
+      };
+      const prismaMock = {
+        booking: { findMany: jest.fn().mockResolvedValue([{ id: 'b1' }]) },
+        $transaction: jest
+          .fn()
+          .mockImplementation(async (fn: AnyMock) => fn(txMock)),
+      };
+
+      const service = new BookingService(
+        prismaMock as any,
+        makePricingMock() as any,
+        makeAuditMock() as any,
+        makeLedgerMock() as any,
+        makeNotificationMock() as any,
+        makeOutboxMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        smMock as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
+
+      const count = await service.transitionToBalanceDue();
+      expect(count).toBe(0);
+      expect(smMock.transition).not.toHaveBeenCalled();
     });
   });
 
@@ -297,12 +470,17 @@ describe('BookingService', () => {
         guestId: 'guest-1',
         listingId: 'listing-1',
         status: 'CONFIRMED_PAID',
+        plan: 'FULL',
         startsAt: checkIn,
         payments: [{ status: 'CAPTURED', amount: 17050 }],
+        priceSnapshot: { total: 17050, addOnsTotal: 0, subtotal: 15500, cleaningFee: 1000 } as any,
       };
 
       const txMock = {
-        booking: { update: jest.fn().mockResolvedValue({ ...booking, status: 'REFUNDED' }) },
+        booking: {
+          update: jest.fn().mockResolvedValue({ ...booking, status: 'REFUNDED' }),
+          findUnique: jest.fn().mockResolvedValue(booking),
+        },
         refund: { create: jest.fn().mockResolvedValue({}) },
       };
 
@@ -325,7 +503,13 @@ describe('BookingService', () => {
         auditMock as any,
         ledgerMock as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {
@@ -349,12 +533,17 @@ describe('BookingService', () => {
         guestId: 'guest-1',
         listingId: 'listing-1',
         status: 'CONFIRMED_PAID',
+        plan: 'FULL',
         startsAt: checkIn,
         payments: [{ status: 'CAPTURED', amount: 17050 }],
+        priceSnapshot: { total: 17050, addOnsTotal: 0, subtotal: 15500, cleaningFee: 1000 } as any,
       };
 
       const txMock = {
-        booking: { update: jest.fn().mockResolvedValue({ ...booking, status: 'CANCELLED' }) },
+        booking: {
+          update: jest.fn().mockResolvedValue({ ...booking, status: 'CANCELLED' }),
+          findUnique: jest.fn().mockResolvedValue(booking),
+        },
         refund: { create: jest.fn() },
       };
 
@@ -372,7 +561,13 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {});
@@ -381,9 +576,10 @@ describe('BookingService', () => {
       expect(result.status).toBe('CANCELLED');
       // No refund should be created for 0% refund
       expect(txMock.refund.create).not.toHaveBeenCalled();
+      // SM also writes statusHistory; assert on the data object as a superset.
       expect(txMock.booking.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: { status: 'CANCELLED' },
+          data: expect.objectContaining({ status: 'CANCELLED' }),
         }),
       );
     });
@@ -406,7 +602,13 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       await expect(
@@ -432,7 +634,13 @@ describe('BookingService', () => {
         makeAuditMock() as any,
         makeLedgerMock() as any,
         makeNotificationMock() as any,
+        makeOutboxMock() as any,
         { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn().mockResolvedValue(undefined), cancelBookingAddOns: jest.fn().mockResolvedValue(0) } as any,
+        { awardPoints: jest.fn().mockResolvedValue(undefined), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
       );
 
       await expect(

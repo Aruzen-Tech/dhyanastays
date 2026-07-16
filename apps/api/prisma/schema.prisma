@@ -8,10 +8,49 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// ─── Legacy role enum (kept for JWT backward-compat and Message.senderRole) ───
 enum UserRole {
   GUEST
   HOST
   ADMIN
+}
+
+// ─── Phase 1: expanded identity model ────────────────────────────────────────
+
+enum UserKind {
+  GUEST
+  OWNER      // property operator (maps from HOST)
+  INVESTOR   // capital provider
+  STAFF      // internal team (maps from ADMIN)
+}
+
+enum AdminLevel {
+  L1 // Super Admin
+  L2 // Operational Admin
+  L3 // Cluster / Regional Admin
+  L4 // Property-Level Admin
+  L5 // Service-Level Admin
+}
+
+enum ServiceType {
+  TRANSPORT
+  FOOD
+  WELLNESS
+  EXPERIENCE
+  CONCIERGE
+  HOUSEKEEPING
+}
+
+enum KycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MfaType {
+  TOTP
+  SMS
+  EMAIL
 }
 
 enum HostVerificationStatus {
@@ -42,6 +81,15 @@ enum BookingStatus {
 enum PaymentPlan {
   FULL
   DEPOSIT_50
+  PAY_LATER
+}
+
+enum PayLaterStatus {
+  SCHEDULED
+  OVERDUE
+  DEFAULTED
+  COMPLETED
+  CANCELLED
 }
 
 enum PaymentStatus {
@@ -96,17 +144,21 @@ model User {
   passwordHash   String?
   fullName       String
   role           UserRole
+  kind           UserKind?   // Phase 1: replaces role over time; null = not yet migrated
   isActive       Boolean     @default(true)
-  refreshToken   String?
   auth0Sub       String?     @unique
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
+  phone          String?
+  avatarUrl      String?
+  // ── Relations ──────────────────────────────────────────────────────────────
   hostProfile    Host?
+  staffRole      StaffRole?
+  ownerProfile   OwnerProfile?
+  investorProfile InvestorProfile?
   listings       Listing[]
   holds          Hold[]
   bookings       Booking[]
-  phone          String?
-  avatarUrl      String?
   auditLogs      AuditLog[]  @relation("AuditActor")
   wishlists      Wishlist[]
   reviews        Review[]
@@ -120,6 +172,37 @@ model User {
   referrals          Referral[]  @relation("ReferrerReferrals")
   referredBy         Referral?   @relation("ReferredUserReferral")
   creditLedger       CreditLedger[]
+  // ── Phase 0 security ───────────────────────────────────────────────────────
+  refreshFamilies RefreshTokenFamily[]
+  sessions        Session[]
+  mfaFactors      MfaFactor[]
+  // ── Phase 2 add-ons ────────────────────────────────────────────────────────
+  serviceProviders ServiceProvider[] @relation("ProviderOwner")
+  // ── Phase 2 §5.13 rewards ─────────────────────────────────────────────────
+  membership       Membership?
+  tripSips         TripSip[]
+  // ── Phase 2 §5.17 notifications ───────────────────────────────────────────
+  notificationPreference NotificationPreference?
+  notificationOutbox     NotificationOutbox[]
+  // ── Phase 3 §5.12 SOS ─────────────────────────────────────────────────────
+  trustedContacts  TrustedContact[]
+  sosIncidents     SosIncident[]
+  // ── Phase 3 §5.14 Investor dashboard ──────────────────────────────────────
+  investments       Investment[]        @relation("InvestorInvestments")
+  distributions     Distribution[]      @relation("InvestorDistributions")
+  investorDocuments InvestorDocument[]  @relation("InvestorDocuments")
+  investorDocsUploaded InvestorDocument[] @relation("InvestorDocUploader")
+  // ── Phase 3 §5.15 Experiences ────────────────────────────────────────────
+  experiencesCreated  Experience[]        @relation("ExperienceCreator")
+  experienceBookings  ExperienceBooking[] @relation("ExperienceGuestBookings")
+  // ── Phase 3 §5.8 Group Planning ──────────────────────────────────────────
+  ownedTripGroups     TripGroup[]         @relation("TripGroupOwner")
+  tripGroupMembers    TripGroupMember[]
+  expensePayments     ExpenseSplitShare[] @relation("ExpenseShareUser")
+  createdExpenses     ExpenseSplit[]      @relation("ExpenseCreator")
+  // ── Phase 3 §5.9 AI Itinerary ────────────────────────────────────────────
+  itineraries         Itinerary[]         @relation("ItineraryOwner")
+  itineraryUsage      ItineraryUsage[]    @relation("ItineraryUsageOwner")
 }
 
 model Host {
@@ -134,6 +217,9 @@ model Host {
   listings            Listing[]
   payoutLines         PayoutLine[]
   notifications       HostNotification[]
+  quickReplies        HostQuickReply[]
+  experiences         Experience[]
+  settings            HostSetting?
 }
 
 model Listing {
@@ -152,6 +238,9 @@ model Listing {
   preparationGuide    Json?
   propertyDirections  Json?
   propertyManual      Json?
+  experienceTags      String[]             @default([])
+  propertyType        String?
+  dietaryOptions      String[]             @default([])
   needsReapproval     Boolean              @default(false)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
@@ -169,6 +258,10 @@ model Listing {
   reviews             Review[]
   conversations       Conversation[]
   issues               GuestIssue[]
+  addOns              AddOn[]              @relation("ListingAddOns")
+  investments         Investment[]
+  capitalCalls        CapitalCall[]
+  experiences         Experience[]         @relation("ListingExperiences")
 
   @@index([hostId])
   @@index([status, createdAt])
@@ -272,6 +365,21 @@ model Booking {
   checkInData      Json?
   checkOutData     Json?
   balanceDueAt     DateTime?
+  payLaterMonths   Int?
+  /** Timestamp when the guest accepted the cancellation policy + terms. Required at booking creation. */
+  acceptedTermsAt  DateTime?
+  /**
+   * Append-only timeline of state transitions. Written by BookingStateMachine only.
+   * Each entry: { from, to, event, actorId, at: ISO-8601, metadata? }.
+   * Source of truth for dispute resolution and admin debugging.
+   */
+  statusHistory    Json         @default("[]")
+  /**
+   * Frozen cancellation-policy tiers, copied onto the booking at confirmation.
+   * cancelBookingInternal reads from here, never from a live policy source.
+   * Shape: { tiers: [{ minHoursBefore, refundPct }, ...] }.
+   */
+  cancellationPolicySnapshot Json?
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
   listing          Listing      @relation(fields: [listingId], references: [id])
@@ -282,6 +390,9 @@ model Booking {
   review           Review?
   conversations    Conversation[]
   issues           GuestIssue[]
+  addOns           BookingAddOn[]
+  payLaterPlan     PayLaterPlan?
+  sosIncidents     SosIncident[]
 
   @@index([listingId, status])
   @@index([guestId, status])
@@ -299,12 +410,70 @@ model Payment {
   gatewayPaymentRef  String?
   gatewayOrderRef    String?
   idempotencyKey     String        @unique
+  /** When type = PAY_LATER, the instalment sequence this payment is paying. */
+  payLaterSeq        Int?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   booking            Booking       @relation(fields: [bookingId], references: [id])
+  payLaterInstalment PayLaterInstalment?
 
   @@index([bookingId])
   @@index([status, createdAt])
+}
+
+/**
+ * Webhook event-ID dedup table for Razorpay.
+ *
+ * Razorpay delivers webhooks at-least-once (their own retry semantics + our
+ * non-2xx replays). The unique constraint on `eventId` makes the very first
+ * INSERT win and every subsequent INSERT fail — the handler exits clean on
+ * the duplicate-key error and we never run the side effects twice.
+ *
+ * Inserted INSIDE the signature-verify path so attackers can't poison the
+ * table with unsigned junk event IDs. The (signature → dedup-insert → handle)
+ * order is invariant; see payment.service.handleWebhook.
+ */
+model ProcessedRazorpayEvent {
+  eventId    String   @id
+  /** Razorpay event type (payment.captured, payment.failed, refund.processed). */
+  eventType  String
+  receivedAt DateTime @default(now())
+
+  @@index([receivedAt])
+}
+
+model PayLaterPlan {
+  id            String               @id @default(cuid())
+  bookingId     String               @unique
+  months        Int
+  totalMinor    Int
+  status        PayLaterStatus       @default(SCHEDULED)
+  currency      String               @default("INR")
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  booking       Booking              @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  instalments   PayLaterInstalment[]
+
+  @@index([status, createdAt])
+}
+
+model PayLaterInstalment {
+  id            String        @id @default(cuid())
+  planId        String
+  seq           Int
+  amountMinor   Int
+  dueAt         DateTime
+  paidAt        DateTime?
+  paymentId     String?       @unique
+  remindersSent Int           @default(0)
+  lastReminderAt DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  plan          PayLaterPlan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  payment       Payment?      @relation(fields: [paymentId], references: [id])
+
+  @@unique([planId, seq])
+  @@index([dueAt, paidAt])
 }
 
 model Refund {
@@ -381,6 +550,41 @@ model SystemConfig {
   updatedBy String?
 }
 
+/**
+ * Platform feature flag override. The canonical set of flags lives in code
+ * (feature-flags.registry.ts); this table holds only admin OVERRIDES of the
+ * code-defined default. A missing row means "use the registry default".
+ * Toggling a flag off makes the @FeatureGate guard reject the feature's API
+ * with 503 and hides it in the UI.
+ */
+model FeatureFlag {
+  key       String   @id
+  enabled   Boolean
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+/**
+ * Per-host control-panel settings. Host-owned toggles the host manages
+ * themselves (distinct from platform feature flags set by admins).
+ */
+model HostSetting {
+  hostId            String   @id
+  /** Auto-confirm bookings without manual host review (forward-looking). */
+  instantBook       Boolean  @default(false)
+  /** Allow guests to start a direct message thread with this host. */
+  allowGuestMessages Boolean @default(true)
+  /** Allow guests to open a concierge chat on their booking. */
+  allowConciergeChat Boolean @default(true)
+  /** Email this host when a new booking lands. */
+  emailOnNewBooking Boolean  @default(true)
+  /** SMS this host when a new booking lands. */
+  smsOnNewBooking   Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+
+  host              Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+}
+
 model AdminNotification {
   id        String   @id @default(cuid())
   type      String
@@ -450,26 +654,46 @@ model GuestNotification {
   @@index([userId, isRead, createdAt])
 }
 
+enum ConversationKind {
+  STANDARD
+  CONCIERGE
+}
+
+enum ConversationStatus {
+  OPEN
+  CLOSED
+}
+
 model Conversation {
-  id          String    @id @default(cuid())
-  type        String    // GUEST_HOST, HOST_ADMIN
-  userOneId   String    // guest (GUEST_HOST) or host (HOST_ADMIN)
-  userTwoId   String    // host (GUEST_HOST) or admin (HOST_ADMIN)
-  listingId   String?
-  bookingId   String?
-  subject     String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  userOne     User      @relation("ConversationsAsOne", fields: [userOneId], references: [id])
-  userTwo     User      @relation("ConversationsAsTwo", fields: [userTwoId], references: [id])
-  listing     Listing?  @relation(fields: [listingId], references: [id])
-  booking     Booking?  @relation(fields: [bookingId], references: [id])
-  messages    Message[]
+  id                 String             @id @default(cuid())
+  type               String             // GUEST_HOST, HOST_ADMIN
+  kind               ConversationKind   @default(STANDARD)
+  status             ConversationStatus @default(OPEN)
+  userOneId          String             // guest (GUEST_HOST) or host (HOST_ADMIN)
+  userTwoId          String             // host (GUEST_HOST) or admin (HOST_ADMIN)
+  listingId          String?
+  bookingId          String?
+  subject            String?
+  lastGuestMessageAt DateTime?
+  lastHostMessageAt  DateTime?
+  slaDueAt           DateTime?
+  slaBreachedAt      DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  userOne            User               @relation("ConversationsAsOne", fields: [userOneId], references: [id])
+  userTwo            User               @relation("ConversationsAsTwo", fields: [userTwoId], references: [id])
+  listing            Listing?           @relation(fields: [listingId], references: [id])
+  booking            Booking?           @relation(fields: [bookingId], references: [id])
+  messages           Message[]
 
   @@unique([userOneId, userTwoId, listingId])
   @@index([userOneId])
   @@index([userTwoId])
   @@index([type])
+  @@index([kind, status])
+  @@index([status, slaDueAt])
+  @@index([bookingId, kind])
 }
 
 model Message {
@@ -479,11 +703,25 @@ model Message {
   senderRole      UserRole
   body            String
   isRead          Boolean      @default(false)
+  isSystem        Boolean      @default(false)
   createdAt       DateTime     @default(now())
   conversation    Conversation @relation(fields: [conversationId], references: [id])
   sender          User         @relation(fields: [senderId], references: [id])
 
   @@index([conversationId, createdAt])
+}
+
+model HostQuickReply {
+  id        String   @id @default(cuid())
+  hostId    String
+  label     String
+  body      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  host      Host     @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  @@index([hostId, sortOrder])
 }
 
 model GuestPreference {
@@ -573,6 +811,805 @@ model CreditLedger {
   referenceId String?
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id])
+  sipContribution SipContribution?
 
   @@index([userId, createdAt])
+}
+
+// ─── Phase 2 §5.13: Rewards & Membership ─────────────────────────────────────
+
+enum MemberTier {
+  EXPLORER
+  WANDERER
+  SOJOURNER
+  PATRON
+  AMBASSADOR
+}
+
+enum SipStatus {
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+model Membership {
+  userId     String     @id
+  tier       MemberTier @default(EXPLORER)
+  points     Int        @default(0)
+  tierSince  DateTime   @default(now())
+  nextTierAt Int        @default(500)
+  updatedAt  DateTime   @updatedAt
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tier])
+}
+
+model TripSip {
+  id            String            @id @default(cuid())
+  userId        String
+  monthlyMinor  Int
+  anchorDay     Int               @default(1) // 1..28 day-of-month for autodebit
+  startedAt     DateTime          @default(now())
+  closedAt      DateTime?
+  status        SipStatus         @default(ACTIVE)
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributions SipContribution[]
+
+  @@index([userId, status])
+  @@index([status, anchorDay])
+}
+
+model SipContribution {
+  id              String       @id @default(cuid())
+  sipId           String
+  amountMinor     Int
+  depositedAt     DateTime     @default(now())
+  ledgerEventId   String       @unique // 1:1 with CreditLedger row
+  paymentRef      String?      // razorpay payment id for reconciliation
+  sip             TripSip      @relation(fields: [sipId], references: [id], onDelete: Cascade)
+  ledgerEvent     CreditLedger @relation(fields: [ledgerEventId], references: [id], onDelete: Restrict)
+
+  @@index([sipId, depositedAt])
+}
+
+model Perk {
+  id          String     @id @default(cuid())
+  tier        MemberTier
+  title       String
+  description String
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@index([tier, active])
+}
+
+// ─── Phase 0: Refresh token family tracking ───────────────────────────────────
+
+model RefreshTokenFamily {
+  id           String         @id @default(cuid())
+  userId       String
+  createdAt    DateTime       @default(now())
+  revokedAt    DateTime?
+  revokeReason String?
+  user         User           @relation(fields: [userId], references: [id])
+  tokens       RefreshToken[]
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id         String             @id @default(cuid())
+  familyId   String
+  tokenHash  String             // SHA-256 of raw JTI
+  issuedAt   DateTime           @default(now())
+  expiresAt  DateTime
+  rotatedTo  String?            // id of the next token in the chain
+  usedAt     DateTime?          // set on rotation; reuse after this = theft
+  ipAddress  String?
+  userAgent  String?
+  family     RefreshTokenFamily @relation(fields: [familyId], references: [id])
+
+  @@unique([tokenHash])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  familyId  String    // links to a RefreshTokenFamily
+  device    String
+  ipAddress String
+  lastSeen  DateTime  @default(now())
+  revokedAt DateTime?
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model MfaFactor {
+  id        String   @id @default(cuid())
+  userId    String
+  type      MfaType
+  secret    String   // TOTP: base32-encoded secret
+  confirmed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, type])
+  @@index([userId])
+}
+
+// ─── Phase 1: Extended identity models ───────────────────────────────────────
+
+model StaffRole {
+  userId      String       @id
+  level       AdminLevel
+  clusterId   String?
+  propertyId  String?
+  serviceType ServiceType?
+  createdAt   DateTime     @default(now())
+  revokedAt   DateTime?
+  createdBy   String       // promoter's userId
+  user        User         @relation(fields: [userId], references: [id])
+
+  @@index([level])
+}
+
+model OwnerProfile {
+  userId    String    @id
+  legalName String
+  gstin     String?
+  kycStatus KycStatus @default(PENDING)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id])
+}
+
+model InvestorProfile {
+  userId     String    @id
+  legalName  String
+  panMasked  String?
+  kycStatus  KycStatus @default(PENDING)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  user       User      @relation(fields: [userId], references: [id])
+}
+
+model RoleChangeAudit {
+  id           String   @id @default(cuid())
+  targetUserId String
+  actorUserId  String
+  before       Json
+  after        Json
+  reason       String
+  createdAt    DateTime @default(now())
+
+  @@index([targetUserId])
+  @@index([actorUserId])
+}
+
+// ─── Staff applications (admin registration) ──────────────────────────────────
+
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model StaffApplication {
+  id               String            @id @default(cuid())
+  applicantId      String?           // linked user if already registered
+  email            String
+  fullName         String
+  requestedLevel   AdminLevel
+  requestedService ServiceType?      // L5 only
+  clusterId        String?           // L3 context
+  propertyId       String?           // L4 context
+  justification    String
+  status           ApplicationStatus @default(PENDING)
+  reviewedBy       String?           // L1 userId who acted
+  reviewNotes      String?
+  reviewedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([status, createdAt])
+  @@index([applicantId])
+}
+
+// ─── Pre-booking add-ons (Phase 2 §5.7) ───────────────────────────────────────
+
+enum CancellationTier {
+  FLEXIBLE        // full refund up to 24h before check-in
+  MODERATE        // 50% refund 24-72h, 0% inside 24h
+  STRICT          // 50% refund up to 7d, 0% inside 7d
+  NON_REFUNDABLE  // no refund once confirmed
+}
+
+enum AddOnScope {
+  GLOBAL    // applies to all listings
+  CLUSTER   // applies within a cluster (future)
+  LISTING   // applies to a single listing
+}
+
+enum AddOnStatus {
+  PENDING   // awaiting admin approval
+  APPROVED  // visible to guests
+  REJECTED
+  RETIRED   // no longer bookable (historical)
+}
+
+enum AddOnState {
+  QUOTED
+  HELD
+  CONFIRMED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+model ServiceProvider {
+  id           String       @id @default(cuid())
+  name         String
+  kind         ServiceType
+  ownerUserId  String
+  contactEmail String?
+  contactPhone String?
+  payoutMethod Json?
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  owner        User         @relation("ProviderOwner", fields: [ownerUserId], references: [id])
+  addOns       AddOn[]
+
+  @@index([ownerUserId])
+  @@index([kind, active])
+}
+
+model AddOn {
+  id               String           @id @default(cuid())
+  providerId       String
+  title            String
+  description      String
+  priceMinor       Int              // paise — per unit
+  commissionRate   Float            @default(0.15) // platform cut (0–1)
+  currency         String           @default("INR")
+  cancellationTier CancellationTier @default(MODERATE)
+  minLeadHours     Int              @default(24)
+  maxPerBooking    Int              @default(1)
+  availability     Json?            // free-form rules (days of week, capacity, etc.)
+  scope            AddOnScope       @default(GLOBAL)
+  clusterId        String?
+  listingId        String?
+  status           AddOnStatus      @default(PENDING)
+  reviewedBy       String?
+  reviewNotes      String?
+  reviewedAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  provider         ServiceProvider  @relation(fields: [providerId], references: [id])
+  listing          Listing?         @relation("ListingAddOns", fields: [listingId], references: [id])
+  bookingAddOns    BookingAddOn[]
+
+  @@index([providerId])
+  @@index([status, scope])
+  @@index([listingId])
+}
+
+model BookingAddOn {
+  id            String     @id @default(cuid())
+  bookingId     String
+  addOnId       String
+  providerId    String
+  quantity      Int        @default(1)
+  unitPrice     Int        // paise — snapshot
+  totalPrice    Int        // paise — unitPrice * quantity, snapshot
+  commission    Int        // paise — platform cut, snapshot
+  providerShare Int        // paise — totalPrice - commission, snapshot
+  state         AddOnState @default(QUOTED)
+  snapshotHmac  String     // signed slice identifying this add-on in the price snapshot
+  cancelledAt   DateTime?
+  refundedAt    DateTime?
+  refundAmount  Int?       // paise — actual refund given, if any
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  booking       Booking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  addOn         AddOn      @relation(fields: [addOnId], references: [id])
+
+  @@index([bookingId])
+  @@index([addOnId, state])
+  @@index([providerId, state])
+}
+
+// ─── Phase 2 §5.17 — Notification outbox + preferences ──────────────────────
+
+enum OutboxStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  PUSH
+  IN_APP
+}
+
+model NotificationPreference {
+  userId     String   @id
+  channels   Json     @default("{}")
+  quietHours Json?
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model NotificationOutbox {
+  id            String              @id @default(cuid())
+  userId        String
+  kind          String
+  channel       NotificationChannel
+  payload       Json
+  status        OutboxStatus        @default(PENDING)
+  attempts      Int                 @default(0)
+  lastError     String?
+  nextAttemptAt DateTime            @default(now())
+  sentAt        DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([kind, createdAt(sort: Desc)])
+}
+
+// ── Phase 3 §5.12 SOS & support ────────────────────────────────────────────
+
+enum SosTier {
+  MEDICAL
+  SECURITY
+  TRANSPORT
+  OTHER
+}
+
+enum SosStatus {
+  OPEN
+  ACKNOWLEDGED
+  IN_PROGRESS
+  RESOLVED
+  FALSE_ALARM
+}
+
+model TrustedContact {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  /** E.164 phone, optional. At least one of phone or email must be set (enforced server-side). */
+  phone     String?
+  /** Email, optional. At least one of phone or email must be set (enforced server-side). */
+  email     String?
+  relation  String
+  primary   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model SosIncident {
+  id          String       @id @default(cuid())
+  userId      String
+  bookingId   String?
+  tier        SosTier
+  lat         Float
+  lng         Float
+  message     String?
+  status      SosStatus    @default(OPEN)
+  openedAt    DateTime     @default(now())
+  ackedAt     DateTime?
+  ackedBy     String?
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  user        User         @relation(fields: [userId], references: [id])
+  booking     Booking?     @relation(fields: [bookingId], references: [id])
+  broadcasts  SosBroadcast[]
+  messages    SosMessage[]
+
+  @@index([userId])
+  @@index([status, openedAt(sort: Desc)])
+  @@index([bookingId])
+}
+
+/**
+ * Per-incident chat thread between the guest and the responding admin.
+ * Polling-based real-time (3s on guest, 5s on admin) keeps the surface
+ * simple; SSE/WebSocket upgrade is a Phase 2 optimization.
+ */
+model SosMessage {
+  id          String      @id @default(cuid())
+  incidentId  String
+  senderId    String
+  /** 'GUEST' | 'ADMIN' — derived from the requesting controller, not from JWT role. */
+  senderRole  String
+  content     String
+  createdAt   DateTime    @default(now())
+
+  incident    SosIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId, createdAt])
+}
+
+model SosBroadcast {
+  id         String      @id @default(cuid())
+  incidentId String
+  channel    String
+  target     String
+  status     String      @default("QUEUED")
+  lastError  String?
+  sentAt     DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  incident   SosIncident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([incidentId])
+}
+
+// ─── Phase 3 §5.14 Investor dashboard ─────────────────────────────────────────
+
+enum DistributionStatus {
+  CALCULATED
+  PAID
+  FAILED
+}
+
+enum CapitalCallStatus {
+  OPEN
+  FUNDED
+  CLOSED
+  CANCELLED
+}
+
+enum InvestorDocumentKind {
+  AGREEMENT
+  KYC
+  TAX_FORM
+  STATEMENT
+  OTHER
+}
+
+model Investment {
+  id             String    @id @default(cuid())
+  investorUserId String
+  listingId      String
+  sharePct       Decimal   @db.Decimal(5, 4) // 0.0000 – 1.0000
+  effectiveAt    DateTime
+  endedAt        DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  investor       User      @relation("InvestorInvestments", fields: [investorUserId], references: [id])
+  listing        Listing   @relation(fields: [listingId], references: [id])
+
+  @@index([investorUserId])
+  @@index([listingId])
+  @@index([investorUserId, endedAt])
+}
+
+model Distribution {
+  id              String              @id @default(cuid())
+  investorUserId  String
+  period          String              // YYYY-MM
+  amountMinor     Int
+  currency        String              @default("INR")
+  status          DistributionStatus  @default(CALCULATED)
+  breakdown       Json?               // [{ listingId, listingTitle, sharePct, grossMinor, sharedMinor }]
+  ledgerEventId   String?
+  computedAt      DateTime            @default(now())
+  paidAt          DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  investor        User                @relation("InvestorDistributions", fields: [investorUserId], references: [id])
+
+  @@unique([investorUserId, period])
+  @@index([period])
+  @@index([status, computedAt])
+}
+
+model CapitalCall {
+  id          String            @id @default(cuid())
+  listingId   String
+  amountMinor Int
+  reason      String
+  dueAt       DateTime
+  status      CapitalCallStatus @default(OPEN)
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  listing     Listing           @relation(fields: [listingId], references: [id])
+
+  @@index([listingId, status])
+  @@index([status, dueAt])
+}
+
+model InvestorDocument {
+  id             String                @id @default(cuid())
+  investorUserId String
+  kind           InvestorDocumentKind
+  title          String
+  url            String
+  uploadedById   String
+  uploadedAt     DateTime              @default(now())
+
+  investor       User                  @relation("InvestorDocuments", fields: [investorUserId], references: [id])
+  uploadedBy     User                  @relation("InvestorDocUploader", fields: [uploadedById], references: [id])
+
+  @@index([investorUserId, kind])
+  @@index([investorUserId, uploadedAt(sort: Desc)])
+}
+
+// ── Phase 3 §5.15 Experiences & events ──────────────────────────────────────
+
+enum ExperienceStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CLOSED
+}
+
+enum ExperienceBookingStatus {
+  HELD
+  CONFIRMED
+  CANCELLED
+  REFUNDED
+  COMPLETED
+}
+
+model Experience {
+  id               String                 @id @default(cuid())
+  hostId           String
+  createdById      String
+  listingId        String?
+  title            String
+  description      String
+  category         String
+  city             String
+  state            String
+  country          String                 @default("India")
+  latitude         Float?
+  longitude        Float?
+  startsAt         DateTime
+  endsAt           DateTime
+  capacity         Int
+  priceMinor       Int
+  currency         String                 @default("INR")
+  status           ExperienceStatus       @default(PENDING_APPROVAL)
+  imageUrl         String?
+  reviewedBy       String?
+  reviewNotes      String?
+  reviewedAt       DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  host             Host                   @relation(fields: [hostId], references: [id])
+  createdBy        User                   @relation("ExperienceCreator", fields: [createdById], references: [id])
+  listing          Listing?               @relation("ListingExperiences", fields: [listingId], references: [id])
+  bookings         ExperienceBooking[]
+
+  @@index([status, startsAt])
+  @@index([hostId, startsAt])
+  @@index([city, state, startsAt])
+}
+
+model ExperienceBooking {
+  id               String                  @id @default(cuid())
+  experienceId     String
+  guestId          String
+  seats            Int
+  totalMinor       Int
+  currency         String                  @default("INR")
+  status           ExperienceBookingStatus @default(HELD)
+  paymentRef       String?
+  idempotencyKey   String                  @unique
+  cancelledAt      DateTime?
+  refundedAt       DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  experience       Experience              @relation(fields: [experienceId], references: [id])
+  guest            User                    @relation("ExperienceGuestBookings", fields: [guestId], references: [id])
+
+  @@index([experienceId, status])
+  @@index([guestId, createdAt(sort: Desc)])
+}
+
+// ── Phase 3 §5.8 Group planning & expense splitting ─────────────────────────
+
+enum TripGroupRole {
+  OWNER
+  MEMBER
+}
+
+enum TripGroupInviteStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+enum ExpenseSplitMethod {
+  EQUAL
+  CUSTOM
+}
+
+model TripGroup {
+  id          String            @id @default(cuid())
+  ownerId     String
+  name        String
+  destination String?
+  startsAt    DateTime?
+  endsAt      DateTime?
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  owner       User              @relation("TripGroupOwner", fields: [ownerId], references: [id])
+  members     TripGroupMember[]
+  expenses    ExpenseSplit[]
+
+  @@index([ownerId])
+}
+
+model TripGroupMember {
+  id         String                @id @default(cuid())
+  groupId    String
+  userId     String?
+  email      String
+  fullName   String
+  role       TripGroupRole         @default(MEMBER)
+  status     TripGroupInviteStatus @default(PENDING)
+  invitedAt  DateTime              @default(now())
+  acceptedAt DateTime?
+
+  group      TripGroup             @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user       User?                 @relation(fields: [userId], references: [id])
+  shares     ExpenseSplitShare[]
+
+  @@unique([groupId, email])
+  @@index([userId])
+}
+
+model ExpenseSplit {
+  id           String              @id @default(cuid())
+  groupId      String
+  createdById  String
+  title        String
+  totalMinor   Int
+  currency     String              @default("INR")
+  method       ExpenseSplitMethod  @default(EQUAL)
+  notes        String?
+  incurredAt   DateTime            @default(now())
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  group        TripGroup           @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy    User                @relation("ExpenseCreator", fields: [createdById], references: [id])
+  shares       ExpenseSplitShare[]
+
+  @@index([groupId, incurredAt(sort: Desc)])
+}
+
+model ExpenseSplitShare {
+  id            String          @id @default(cuid())
+  expenseId     String
+  memberId      String
+  userId        String?
+  amountMinor   Int
+  settledAt     DateTime?
+
+  expense       ExpenseSplit    @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  member        TripGroupMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  user          User?           @relation("ExpenseShareUser", fields: [userId], references: [id])
+
+  @@unique([expenseId, memberId])
+  @@index([userId])
+}
+
+// ── Phase 3 §5.9 AI Itinerary planner ───────────────────────────────────────
+
+enum ItineraryStatus {
+  DRAFT
+  GENERATED
+  FINALIZED
+}
+
+model Itinerary {
+  id              String              @id @default(cuid())
+  userId          String
+  listingId       String?
+  destination     String
+  startsAt        DateTime
+  endsAt          DateTime
+  travelers       Int                 @default(2)
+  interests       String[]            @default([])
+  budgetMinor     Int?
+  /** Optional theme/concept the user picked from suggestions, e.g. "Detox & Yoga". */
+  themeHint       String?
+  status          ItineraryStatus     @default(DRAFT)
+  summary         String?
+  days            Json?               // [{ day: 1, date, title, sessions: [{ time, title, description, category }] }]
+  model           String?
+  /** Cumulative input + output token counts for cost reporting. */
+  tokensInput     Int                 @default(0)
+  tokensOutput    Int                 @default(0)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  user            User                @relation("ItineraryOwner", fields: [userId], references: [id])
+  messages        ItineraryMessage[]
+
+  @@index([userId, createdAt(sort: Desc)])
+}
+
+/**
+ * Chat history for refining an existing itinerary. The assistant can either
+ * reply text-only OR include a structured patch that mutates `Itinerary.days`.
+ * `appliedPatch` records what was applied (audit trail for the mutation).
+ */
+model ItineraryMessage {
+  id           String    @id @default(cuid())
+  itineraryId  String
+  role         String    // 'user' | 'assistant'
+  content      String
+  /** When the assistant response included a structured change to the itinerary days. */
+  appliedPatch Json?
+  /** Per-message token counts (for cost tracking). */
+  tokensInput  Int       @default(0)
+  tokensOutput Int       @default(0)
+  createdAt    DateTime  @default(now())
+
+  itinerary    Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+
+  @@index([itineraryId, createdAt])
+}
+
+/**
+ * Per-user, per-month usage counter for the AI itinerary planner. Drives the
+ * cost cap (ITINERARY_USER_MONTHLY_CAP_PAISE). Idempotent via the (userId,
+ * monthBucket) unique index — the service uses an upsert on every call.
+ */
+model ItineraryUsage {
+  id            String   @id @default(cuid())
+  userId        String
+  /** YYYY-MM bucket — e.g. "2026-05". Resets monthly. */
+  monthBucket   String
+  generations   Int      @default(0)
+  chatMessages  Int      @default(0)
+  tokensInput   Int      @default(0)
+  tokensOutput  Int      @default(0)
+  /** Cumulative cost for the month in paise (computed from token totals at write time). */
+  costPaise     Int      @default(0)
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+
+  user          User     @relation("ItineraryUsageOwner", fields: [userId], references: [id])
+
+  @@unique([userId, monthBucket])
+  @@index([monthBucket])
 }

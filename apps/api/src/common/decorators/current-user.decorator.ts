@@ -1,9 +1,12 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { AdminLevel, UserKind } from '@prisma/client';
 
 export type RequestUser = {
   sub: string;
   role: string;
   email: string;
+  kind?: UserKind;
+  adminLevel?: AdminLevel;
 };
 
 export const CurrentUser = createParamDecorator(

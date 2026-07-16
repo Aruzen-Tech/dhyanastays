@@ -241,6 +241,65 @@ export class ListingService {
     });
   }
 
+  /**
+   * Faceted discovery endpoint (§5.18). Combines text query, experience tags,
+   * dietary options, property type, and sort. Returns APPROVED listings only.
+   */
+  async getDiscoveryListings(params: {
+    q?: string;
+    city?: string;
+    experienceTags?: string[];
+    propertyType?: string;
+    dietaryOptions?: string[];
+    sort?: 'newest' | 'price-asc' | 'price-desc';
+  }) {
+    const where: Prisma.ListingWhereInput = {
+      status: ListingStatus.APPROVED,
+    };
+
+    if (params.q?.trim()) {
+      where.OR = [
+        { title: { contains: params.q, mode: 'insensitive' } },
+        { description: { contains: params.q, mode: 'insensitive' } },
+        { city: { contains: params.q, mode: 'insensitive' } },
+        { state: { contains: params.q, mode: 'insensitive' } },
+      ];
+    }
+    if (params.city?.trim()) {
+      where.city = { contains: params.city, mode: 'insensitive' };
+    }
+    if (params.propertyType) {
+      where.propertyType = params.propertyType;
+    }
+    if (params.experienceTags && params.experienceTags.length > 0) {
+      where.experienceTags = { hasSome: params.experienceTags };
+    }
+    if (params.dietaryOptions && params.dietaryOptions.length > 0) {
+      where.dietaryOptions = { hasSome: params.dietaryOptions };
+    }
+
+    const listings = await this.prisma.listing.findMany({
+      where,
+      include: {
+        rateRules: true,
+        media: { orderBy: { sortOrder: 'asc' }, take: 1 },
+        tags: { include: { tag: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (params.sort === 'price-asc' || params.sort === 'price-desc') {
+      const asc = params.sort === 'price-asc';
+      listings.sort((a, b) => {
+        const pa = a.rateRules[0]?.baseNightlyRate ?? Number.MAX_SAFE_INTEGER;
+        const pb = b.rateRules[0]?.baseNightlyRate ?? Number.MAX_SAFE_INTEGER;
+        return asc ? pa - pb : pb - pa;
+      });
+    }
+
+    return listings;
+  }
+
   async getListingsByBounds(swLat: number, swLng: number, neLat: number, neLng: number) {
     return this.prisma.listing.findMany({
       where: {

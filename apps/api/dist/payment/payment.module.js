@@ -12,12 +12,13 @@ const payment_controller_1 = require("./payment.controller");
 const payment_service_1 = require("./payment.service");
 const razorpay_service_1 = require("./razorpay.service");
 const booking_module_1 = require("../booking/booking.module");
+const pay_later_module_1 = require("../pay-later/pay-later.module");
 let PaymentModule = class PaymentModule {
 };
 exports.PaymentModule = PaymentModule;
 exports.PaymentModule = PaymentModule = __decorate([
     (0, common_1.Module)({
-        imports: [booking_module_1.BookingModule],
+        imports: [(0, common_1.forwardRef)(() => booking_module_1.BookingModule), (0, common_1.forwardRef)(() => pay_later_module_1.PayLaterModule)],
         providers: [payment_service_1.PaymentService, razorpay_service_1.RazorpayService],
         controllers: [payment_controller_1.PaymentController],
         exports: [payment_service_1.PaymentService],

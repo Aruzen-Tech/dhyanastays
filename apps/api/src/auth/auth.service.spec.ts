@@ -8,12 +8,29 @@ const prismaMock = {
     findFirst: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   host: {
     create: jest.fn(),
   },
   auditLog: {
     create: jest.fn(),
+  },
+  refreshTokenFamily: {
+    create: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn(),
+  },
+  refreshToken: {
+    create: jest.fn(),
+    findUnique: jest.fn(),
+    update: jest.fn(),
+  },
+  session: {
+    upsert: jest.fn(),
+    updateMany: jest.fn(),
+    findMany: jest.fn(),
+    findFirst: jest.fn(),
   },
   $transaction: jest.fn(),
 };

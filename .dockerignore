@@ -1,0 +1,27 @@
+# ── Never bake into images ───────────────────────────────────────────
+# Secrets — env files must come from the host platform, not the image.
+.env
+.env.*
+**/.env
+**/.env.*
+# Keep the templates (harmless, documented placeholders only)
+!.env.example
+!**/.env.example
+!**/.env.*.example
+
+# ── Build outputs (rebuilt inside the image) ─────────────────────────
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/tsconfig.tsbuildinfo
+
+# ── Repo noise ───────────────────────────────────────────────────────
+.git
+.github
+docs
+**/coverage
+**/dump.rdb
+**/*.log
+.dockerignore
+render.yaml

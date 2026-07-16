@@ -13,7 +13,7 @@ async function main() {
 
   if (!adminEmail || !adminPassword) {
     // eslint-disable-next-line no-console
-    console.log('  ⚠ ADMIN_EMAIL and ADMIN_PASSWORD env vars not set — skipping admin seed.');
+    console.log('  [!] ADMIN_EMAIL and ADMIN_PASSWORD env vars not set - skipping admin seed.');
     // eslint-disable-next-line no-console
     console.log('    Set them in .env to seed the admin user.');
   } else {

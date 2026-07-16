@@ -37,7 +37,7 @@ let JwtStrategy = JwtStrategy_1 = class JwtStrategy extends (0, passport_1.Passp
             : {
                 jwtFromRequest: passport_jwt_1.ExtractJwt.fromAuthHeaderAsBearerToken(),
                 ignoreExpiration: false,
-                secretOrKey: process.env.JWT_ACCESS_SECRET ?? 'dev-access-secret',
+                secretOrKey: process.env.JWT_ACCESS_SECRET || (() => { throw new Error('JWT_ACCESS_SECRET is required'); })(),
                 algorithms: ['HS256'],
             };
         super(strategyOptions);
@@ -54,11 +54,13 @@ let JwtStrategy = JwtStrategy_1 = class JwtStrategy extends (0, passport_1.Passp
             payload.email ??
             payload.email ??
             '';
-        return {
-            sub: payload.sub,
-            email,
-            role,
-        };
+        const kind = payload['https://dhyanastays.in/kind'] ??
+            payload.kind ??
+            undefined;
+        const adminLevel = payload['https://dhyanastays.in/adminLevel'] ??
+            payload.adminLevel ??
+            undefined;
+        return { sub: payload.sub, email, role, kind, adminLevel };
     }
 };
 exports.JwtStrategy = JwtStrategy;

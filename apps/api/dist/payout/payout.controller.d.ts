@@ -25,14 +25,26 @@ export declare class PayoutController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        listingId: string;
         status: import("@prisma/client").$Enums.PayoutStatus;
+        amount: number;
+        listingId: string;
         hostId: string;
         bookingId: string;
-        amount: number;
         eligibleAt: Date;
         batchId: string | null;
     })[]>;
+    dryRun(): Promise<{
+        lineCount: number;
+        totalAmount: number;
+        hostCount: number;
+        breakdown: Array<{
+            hostId: string;
+            hostName: string;
+            hostEmail: string;
+            lineCount: number;
+            amount: number;
+        }>;
+    }>;
     runWeekly(user: RequestUser): Promise<{
         batchId: string;
         totalAmount: number;
@@ -52,8 +64,8 @@ export declare class PayoutController {
         id: string;
         createdAt: Date;
         status: import("@prisma/client").$Enums.PayoutStatus;
-        totalAmount: number;
         runDate: Date;
+        totalAmount: number;
     })[]>;
     getStatements(user: RequestUser): Promise<{
         hostId: string;
@@ -71,11 +83,11 @@ export declare class PayoutController {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            listingId: string;
             status: import("@prisma/client").$Enums.PayoutStatus;
+            amount: number;
+            listingId: string;
             hostId: string;
             bookingId: string;
-            amount: number;
             eligibleAt: Date;
             batchId: string | null;
         })[];

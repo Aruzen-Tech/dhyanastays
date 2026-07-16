@@ -87,6 +87,19 @@ export const envValidationSchema = Joi.object({
   // ── Meilisearch ───────────────────────────────────────────────────────────
   MEILI_URL: Joi.string().allow('').default('http://localhost:7700'),
   MEILI_MASTER_KEY: Joi.string().allow('').default('meili_dev_key'),
+
+  // ── SOS ops (§5.12) ───────────────────────────────────────────────────────
+  // First-responder ops phone (E.164) + email that every SOS incident fans out to.
+  // Required in production — see env.validation.ts production block.
+  SOS_OPS_PHONE: Joi.string().allow('').default(''),
+  SOS_OPS_EMAIL: Joi.string().allow('').default(''),
+
+  // ── Anthropic (AI itinerary planner §5.9) ─────────────────────────────────
+  // Required in production — see env.validation.ts production block. The
+  // itinerary service refuses to start without it (no silent stub fallback).
+  ANTHROPIC_API_KEY: Joi.string().allow('').default(''),
+  /** Per-user monthly cost ceiling in paise. Default ₹50 ≈ ~50 generations. */
+  ITINERARY_USER_MONTHLY_CAP_PAISE: Joi.number().integer().min(0).default(5000),
 })
   .unknown(true)
   // ── Production-only validations ──────────────────────────────────────────
@@ -107,5 +120,27 @@ export const envValidationSchema = Joi.object({
         .messages({ 'any.only': 'EMAIL_PROVIDER must not be stub in production' }),
       SMS_PROVIDER: Joi.string().valid('msg91', 'twilio').required()
         .messages({ 'any.only': 'SMS_PROVIDER must not be stub in production' }),
+      REDIS_HOST: Joi.string().min(1).invalid('localhost', '127.0.0.1').required()
+        .messages({ 'any.invalid': 'REDIS_HOST must not be localhost in production — point to a managed Redis >= 5.0' }),
+      SOS_OPS_PHONE: Joi.string()
+        .pattern(/^\+[1-9]\d{6,14}$/)
+        .required()
+        .messages({
+          'string.empty': 'SOS_OPS_PHONE is required in production — the first-responder ops phone in E.164 (e.g. +919876543210)',
+          'string.pattern.base': 'SOS_OPS_PHONE must be E.164 (e.g. +919876543210). No spaces, no dashes.',
+        }),
+      SOS_OPS_EMAIL: Joi.string()
+        .email()
+        .required()
+        .messages({
+          'string.empty': 'SOS_OPS_EMAIL is required in production — the first-responder ops mailbox',
+        }),
+      ANTHROPIC_API_KEY: Joi.string()
+        .min(10)
+        .required()
+        .messages({
+          'string.empty':
+            'ANTHROPIC_API_KEY is required in production — the AI itinerary planner refuses to fall back to a stub plan',
+        }),
     }),
   });
