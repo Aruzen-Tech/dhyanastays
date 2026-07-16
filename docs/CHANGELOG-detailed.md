@@ -13,6 +13,24 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-16 — Docs: discovery/map handoff brief
+
+**Commit:** `8bea415` · **Migration:** none (documentation + branch only)
+
+- **`docs/HANDOFF-discovery-map.md`** (new) — self-contained brief for an
+  external developer taking the discovery/search + map tracks: SETUP.md
+  pointer (no production secrets needed — stubs + own seeded admin), current
+  state of both tracks, per-file work map (api: listing.service /
+  public-listing.controller / spec / schema; web: page.tsx / ListingMap /
+  detail page / lib/api / types), conventions (integer paise, Postgres search
+  fallback is the production path, 4-place facet-field checklist, design
+  tokens, two-tier changelog, CI gates), guardrails (booking/payment/payout,
+  existing migrations, deploy/CI config, auth off-limits), definition of done.
+- Branch **`feature/discovery-map`** created from `dev` and pushed — external
+  work lands there and PRs into `dev`; `main` stays deploy-only.
+
+---
+
 ## 2026-07-16 — CORS: graceful denial + wildcard origins (fixes login 500)
 
 **Commit:** _pending_ · **Migration:** none
