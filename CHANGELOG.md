@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-17 — Discovery map bounds validation
+
+### Fixed
+- `GET /api/listings/map` now rejects missing, non-numeric, or out-of-range
+  coordinates with `400 Bad Request` instead of allowing invalid `NaN` values
+  to reach Prisma and return `500 Internal Server Error`. Added unit coverage
+  in `apps/api/src/listing/listing.service.spec.ts`.
+
+---
+
 ## 2026-07-16 — Docs: discovery/map handoff brief
 
 ### Added

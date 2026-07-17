@@ -13,6 +13,34 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-17 — Discovery map bounds validation
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Problem:** `GET /api/listings/map` accepted missing or invalid query
+  parameters. `parseFloat()` converted missing values into `NaN`, which was
+  passed into Prisma as latitude and longitude bounds and caused a
+  `500 Internal Server Error`.
+- **Fix (`apps/api/src/listing/listing.service.ts`):**
+  `getListingsByBounds()` now checks that all four bounds are finite numbers
+  before querying Prisma. It also rejects latitude values outside `-90..90`
+  and longitude values outside `-180..180`.
+- **New behaviour:**
+  - Missing or non-numeric bounds → `400 Bad Request`
+  - Out-of-range coordinates → `400 Bad Request`
+  - Valid bounds → existing map query continues normally
+- **Test (`apps/api/src/listing/listing.service.spec.ts`):**
+  added coverage confirming invalid bounds are rejected before
+  `prisma.listing.findMany()` is called.
+- **Verified:**
+  - `GET /api/listings/map` without bounds returns `400`
+  - Valid bounds return `200`
+  - Backend lint passes
+  - 12 test suites pass
+  - 261 tests pass
+
+---
+
 ## 2026-07-16 — CORS: graceful denial + wildcard origins (fixes login 500)
 
 **Commit:** _pending_ · **Migration:** none

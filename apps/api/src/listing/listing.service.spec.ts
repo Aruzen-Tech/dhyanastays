@@ -70,4 +70,12 @@ describe('ListingService', () => {
     );
     expect(result!.status).toBe(ListingStatus.PENDING_APPROVAL);
   });
+
+  it('rejects invalid map bounds before querying the database', async () => {
+    await expect(
+      service.getListingsByBounds(Number.NaN, 79.6, 12.2, 80),
+    ).rejects.toThrow('Map bounds must be valid numbers');
+
+    expect(prismaMock.listing.findMany).not.toHaveBeenCalled();
+  });
 });

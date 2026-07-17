@@ -300,7 +300,31 @@ export class ListingService {
     return listings;
   }
 
-  async getListingsByBounds(swLat: number, swLng: number, neLat: number, neLng: number) {
+  async getListingsByBounds(
+    swLat: number,
+    swLng: number,
+    neLat: number,
+    neLng: number,
+  ) {
+    const bounds = [swLat, swLng, neLat, neLng];
+
+    if (!bounds.every(Number.isFinite)) {
+      throw new BadRequestException('Map bounds must be valid numbers');
+    }
+
+    if (
+      swLat < -90 ||
+      swLat > 90 ||
+      neLat < -90 ||
+      neLat > 90 ||
+      swLng < -180 ||
+      swLng > 180 ||
+      neLng < -180 ||
+      neLng > 180
+    ) {
+      throw new BadRequestException('Map bounds are outside the valid coordinate range');
+    }
+
     return this.prisma.listing.findMany({
       where: {
         status: ListingStatus.APPROVED,
