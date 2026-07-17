@@ -16,6 +16,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-17 — Discovery map viewport loading
+
+### Changed
+- Map and split views now load approved listings for the current Leaflet
+  viewport through `GET /api/listings/map`, ignore stale responses, and keep
+  active search and filter results applied to visible markers and split cards.
+- Removed duplicate map requests by relying on Leaflet's `moveend` event, and
+  corrected coordinate checks so valid zero latitude or longitude values are
+  supported.
+
+---
+
 ## 2026-07-17 — Discovery map bounds validation
 
 ### Fixed

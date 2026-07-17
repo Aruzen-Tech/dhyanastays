@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { LatLngBounds } from 'leaflet';
 import dynamic from 'next/dynamic';
 import ListingCard from '../components/ListingCard';
 import { listingsApi } from '../lib/api';
@@ -34,6 +35,8 @@ type ViewMode = 'grid' | 'map' | 'split';
 export default function HomePage() {
   const [allListings, setAllListings] = useState<Listing[]>([]);
   const [results, setResults] = useState<Listing[]>([]);
+  const [mapListings, setMapListings] = useState<Listing[]>([]);
+  const mapRequestId = useRef(0);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -57,10 +60,11 @@ export default function HomePage() {
 
   const debouncedSearch = useDebounce(search, 350);
 
-  const hasMapListings = useMemo(
-    () => results.some((l) => l.latitude && l.longitude),
-    [results],
-  );
+  const visibleMapListings = useMemo(() => {
+    const resultIds = new Set(results.map((listing) => listing.id));
+
+    return mapListings.filter((listing) => resultIds.has(listing.id));
+  }, [mapListings, results]);
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
@@ -106,6 +110,7 @@ export default function HomePage() {
     ]).then(([listings, tags]) => {
       setAllListings(listings);
       setResults(listings);
+      setMapListings(listings);
       setAllTags(tags);
     }).catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -143,6 +148,33 @@ export default function HomePage() {
     }
     return out;
   }, [filterState, filterGuests, filterMaxPrice, filterTags]);
+
+  const handleMapBoundsChange = useCallback(async (bounds: LatLngBounds) => {
+    const requestId = ++mapRequestId.current;
+    const southWest = bounds.getSouthWest();
+    const northEast = bounds.getNorthEast();
+
+    try {
+      const listings = await listingsApi.getByBounds(
+        southWest.lat,
+        southWest.lng,
+        northEast.lat,
+        northEast.lng,
+      );
+
+      if (requestId === mapRequestId.current) {
+        setMapListings(listings);
+      }
+    } catch (error) {
+      if (requestId === mapRequestId.current) {
+        setError(
+          error instanceof Error
+            ? error.message
+            : 'Unable to load listings for this map area.',
+        );
+      }
+    }
+  }, []);
 
   // Search via API (Meilisearch with DB fallback) or facet-driven discovery
   const runSearch = useCallback(async (q: string) => {
@@ -199,7 +231,7 @@ export default function HomePage() {
     if (!debouncedSearch.trim() && !hasDiscoveryFacets) {
       setResults(applyFilters(allListings));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterState, filterGuests, filterMaxPrice, filterTags, allListings, hasDiscoveryFacets]);
 
   const clearFilters = () => {
@@ -297,11 +329,10 @@ export default function HomePage() {
             {/* Filter toggle */}
             <button
               onClick={() => setShowFilters((v) => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                showFilters || activeFilterCount > 0
-                  ? 'bg-brand-700 text-white border-brand-700'
-                  : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
-              }`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${showFilters || activeFilterCount > 0
+                ? 'bg-brand-700 text-white border-brand-700'
+                : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
+                }`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
@@ -318,9 +349,8 @@ export default function HomePage() {
             <div className="hidden md:flex items-center bg-gray-100 rounded-lg p-1">
               <button
                 onClick={() => setViewMode('grid')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
                 title="Grid view"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -329,9 +359,8 @@ export default function HomePage() {
               </button>
               <button
                 onClick={() => setViewMode('map')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  viewMode === 'map' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'map' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
                 title="Map view"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -340,9 +369,8 @@ export default function HomePage() {
               </button>
               <button
                 onClick={() => setViewMode('split')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                  viewMode === 'split' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'split' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
                 title="Split view"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -424,11 +452,10 @@ export default function HomePage() {
                   <button
                     key={tag}
                     onClick={() => toggleExperience(tag)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      filterExperienceTags.includes(tag)
-                        ? 'bg-brand-700 text-white border-brand-700'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                    }`}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterExperienceTags.includes(tag)
+                      ? 'bg-brand-700 text-white border-brand-700'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                      }`}
                   >
                     {formatFacet(tag)}
                   </button>
@@ -442,11 +469,10 @@ export default function HomePage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setFilterPropertyType('')}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                    !filterPropertyType
-                      ? 'bg-brand-700 text-white border-brand-700'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                  }`}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${!filterPropertyType
+                    ? 'bg-brand-700 text-white border-brand-700'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                    }`}
                 >
                   Any
                 </button>
@@ -454,11 +480,10 @@ export default function HomePage() {
                   <button
                     key={pt}
                     onClick={() => setFilterPropertyType(pt)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      filterPropertyType === pt
-                        ? 'bg-brand-700 text-white border-brand-700'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                    }`}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterPropertyType === pt
+                      ? 'bg-brand-700 text-white border-brand-700'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                      }`}
                   >
                     {formatFacet(pt)}
                   </button>
@@ -474,11 +499,10 @@ export default function HomePage() {
                   <button
                     key={option}
                     onClick={() => toggleDietary(option)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      filterDietary.includes(option)
-                        ? 'bg-brand-700 text-white border-brand-700'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                    }`}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterDietary.includes(option)
+                      ? 'bg-brand-700 text-white border-brand-700'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                      }`}
                   >
                     {formatFacet(option)}
                   </button>
@@ -499,11 +523,10 @@ export default function HomePage() {
                           <button
                             key={tag.id}
                             onClick={() => toggleTag(tag.id)}
-                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                              filterTags.includes(tag.id)
-                                ? 'bg-brand-700 text-white border-brand-700'
-                                : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                            }`}
+                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterTags.includes(tag.id)
+                              ? 'bg-brand-700 text-white border-brand-700'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
+                              }`}
                           >
                             {tag.name}
                           </button>
@@ -579,35 +602,26 @@ export default function HomePage() {
 
             {/* Map view */}
             {viewMode === 'map' && (
-              <div>
-                {hasMapListings ? (
-                  <ListingMap listings={results} height="600px" />
-                ) : (
-                  <div className="text-center py-20 bg-gray-50 rounded-xl">
-                    <div className="text-5xl mb-3">🗺️</div>
-                    <p className="text-gray-500">No listings with location data available for map view.</p>
-                    <button onClick={() => setViewMode('grid')} className="btn-primary mt-4 text-sm">
-                      Switch to grid view
-                    </button>
-                  </div>
-                )}
-              </div>
+              <ListingMap
+                listings={visibleMapListings}
+                height="600px"
+                onBoundsChange={handleMapBoundsChange}
+              />
             )}
 
             {/* Split view */}
             {viewMode === 'split' && (
               <div className="flex gap-6" style={{ minHeight: '600px' }}>
                 <div className="w-1/2 flex-shrink-0">
-                  {hasMapListings ? (
-                    <ListingMap listings={results} height="600px" selectedId={hoveredId} />
-                  ) : (
-                    <div className="h-full bg-gray-50 rounded-xl flex items-center justify-center">
-                      <p className="text-gray-400 text-sm">No location data available</p>
-                    </div>
-                  )}
+                  <ListingMap
+                    listings={visibleMapListings}
+                    height="600px"
+                    selectedId={hoveredId}
+                    onBoundsChange={handleMapBoundsChange}
+                  />
                 </div>
                 <div className="w-1/2 overflow-y-auto space-y-4 pr-1" style={{ maxHeight: '600px' }}>
-                  {results.map((listing) => (
+                  {visibleMapListings.map((listing) => (
                     <div
                       key={listing.id}
                       onMouseEnter={() => setHoveredId(listing.id)}

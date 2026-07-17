@@ -13,6 +13,40 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-17 — Discovery map viewport loading
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Problem:** the existing map rendered the complete search result set and did
+  not use the available `GET /api/listings/map` viewport endpoint when the user
+  moved or zoomed the map.
+- **Frontend integration (`apps/web/app/page.tsx`):**
+  - Added separate `mapListings` state for viewport results.
+  - Connected Leaflet bounds changes to `listingsApi.getByBounds()`.
+  - Added a request counter so slower outdated responses cannot overwrite the
+    newest viewport results.
+  - Intersects viewport listings with the active search and filter result IDs,
+    keeping map markers consistent with the current Discovery filters.
+  - Split-view cards now represent only listings visible inside the current map
+    viewport.
+  - The map remains visible when a viewport contains no listings, allowing the
+    user to continue dragging to another area.
+- **Map behaviour (`apps/web/components/ListingMap.tsx`):**
+  - Removed the separate `zoomend` listener because Leaflet also emits
+    `moveend` after zooming, preventing duplicate viewport requests.
+  - Replaced truthy coordinate checks with explicit null checks so valid
+    latitude or longitude values of `0` are not discarded.
+- **Verified:**
+  - Viewport requests return `200 OK`.
+  - Puducherry and Auroville bounds return the expected three local listings.
+  - Markers update after map movement.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+- **Tooling note:** web lint was not run because the web package currently has
+  no ESLint configuration and `next lint` opens the deprecated setup wizard.
+
+---
+
 ## 2026-07-17 — Discovery map bounds validation
 
 **Commit:** _pending_ · **Migration:** none

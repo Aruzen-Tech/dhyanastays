@@ -32,7 +32,6 @@ function formatINR(paise: number): string {
 function BoundsWatcher({ onBoundsChange }: { onBoundsChange: (bounds: L.LatLngBounds) => void }) {
   const map = useMapEvents({
     moveend: () => onBoundsChange(map.getBounds()),
-    zoomend: () => onBoundsChange(map.getBounds()),
   });
 
   useEffect(() => {
@@ -49,7 +48,7 @@ function FitBounds({ listings }: { listings: Listing[] }) {
 
   useEffect(() => {
     if (fitted.current) return;
-    const withCoords = listings.filter((l) => l.latitude && l.longitude);
+    const withCoords = listings.filter((l) => l.latitude != null && l.longitude != null);
     if (withCoords.length === 0) return;
 
     const bounds = L.latLngBounds(
@@ -83,7 +82,7 @@ export default function ListingMap({
   interactive = true,
 }: ListingMapProps) {
   const mappableListings = useMemo(
-    () => listings.filter((l) => l.latitude && l.longitude),
+    () => listings.filter((l) => l.latitude != null && l.longitude != null),
     [listings],
   );
 
