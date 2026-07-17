@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-17 — Discovery map loading and empty states
+
+### Added
+- Added non-blocking loading, error, and empty-area overlays for Map and Split
+  views while keeping the Leaflet map visible and interactive.
+- Map viewport errors are now handled separately from page-level Discovery
+  errors, and stale requests cannot incorrectly change the loading state.
+
+---
+
 ## 2026-07-17 — Discovery map price markers
 
 ### Changed

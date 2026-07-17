@@ -13,6 +13,34 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-17 — Discovery map loading and empty states
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Map request state (`apps/web/app/page.tsx`):**
+  - Added dedicated `mapLoading`, `mapError`, and `hasLoadedMapBounds` state.
+  - Kept map request errors separate from the main page error state.
+  - Existing request IDs continue to prevent stale viewport responses from
+    updating listings, errors, or loading state.
+- **Status overlay:**
+  - Added a reusable `MapStatusOverlay` for Map and Split views.
+  - Displays `Searching this map area...` while the viewport request runs.
+  - Displays an empty-area message when the current viewport has no matching
+    listings.
+  - Displays a map-specific error message when the viewport request fails.
+  - Uses `pointer-events-none`, allowing users to keep moving and zooming the
+    map while a status message is visible.
+- **Verified:**
+  - Loading state appears during viewport requests.
+  - Empty-area message appears when no listings are inside the map bounds.
+  - Markers and messages update correctly after returning to an area with
+    listings.
+  - Behaviour works in both Map and Split views.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-17 — Discovery map price markers
 
 **Commit:** _pending_ · **Migration:** none

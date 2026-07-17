@@ -32,10 +32,50 @@ function useDebounce<T>(value: T, delay: number): T {
 
 type ViewMode = 'grid' | 'map' | 'split';
 
+function MapStatusOverlay({
+  loading,
+  error,
+  empty,
+}: {
+  loading: boolean;
+  error: string;
+  empty: boolean;
+}) {
+  if (!loading && !error && !empty) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-4 z-[1000] flex justify-center px-4">
+      <div className="rounded-xl border border-gray-200 bg-white/95 px-4 py-3 text-sm shadow-lg backdrop-blur">
+        {loading && (
+          <div className="flex items-center gap-2 text-gray-700">
+            <span className="spinner h-4 w-4 text-brand-700" />
+            Searching this map area...
+          </div>
+        )}
+
+        {!loading && error && (
+          <div className="text-red-600">
+            Unable to load stays for this area.
+          </div>
+        )}
+
+        {!loading && !error && empty && (
+          <div className="text-gray-600">
+            No stays found in this map area. Move or zoom the map to explore.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [allListings, setAllListings] = useState<Listing[]>([]);
   const [results, setResults] = useState<Listing[]>([]);
   const [mapListings, setMapListings] = useState<Listing[]>([]);
+  const [mapLoading, setMapLoading] = useState(false);
+  const [mapError, setMapError] = useState('');
+  const [hasLoadedMapBounds, setHasLoadedMapBounds] = useState(false);
   const mapRequestId = useRef(0);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [search, setSearch] = useState('');
@@ -65,6 +105,12 @@ export default function HomePage() {
 
     return mapListings.filter((listing) => resultIds.has(listing.id));
   }, [mapListings, results]);
+
+  const showMapEmptyState =
+    hasLoadedMapBounds &&
+    !mapLoading &&
+    !mapError &&
+    visibleMapListings.length === 0;
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
@@ -154,6 +200,9 @@ export default function HomePage() {
     const southWest = bounds.getSouthWest();
     const northEast = bounds.getNorthEast();
 
+    setMapLoading(true);
+    setMapError('');
+
     try {
       const listings = await listingsApi.getByBounds(
         southWest.lat,
@@ -164,14 +213,20 @@ export default function HomePage() {
 
       if (requestId === mapRequestId.current) {
         setMapListings(listings);
+        setHasLoadedMapBounds(true);
       }
     } catch (error) {
       if (requestId === mapRequestId.current) {
-        setError(
+        setMapError(
           error instanceof Error
             ? error.message
             : 'Unable to load listings for this map area.',
         );
+        setHasLoadedMapBounds(true);
+      }
+    } finally {
+      if (requestId === mapRequestId.current) {
+        setMapLoading(false);
       }
     }
   }, []);
@@ -602,22 +657,36 @@ export default function HomePage() {
 
             {/* Map view */}
             {viewMode === 'map' && (
-              <ListingMap
-                listings={visibleMapListings}
-                height="600px"
-                onBoundsChange={handleMapBoundsChange}
-              />
+              <div className="relative">
+                <ListingMap
+                  listings={visibleMapListings}
+                  height="600px"
+                  onBoundsChange={handleMapBoundsChange}
+                />
+
+                <MapStatusOverlay
+                  loading={mapLoading}
+                  error={mapError}
+                  empty={showMapEmptyState}
+                />
+              </div>
             )}
 
             {/* Split view */}
             {viewMode === 'split' && (
               <div className="flex gap-6" style={{ minHeight: '600px' }}>
-                <div className="w-1/2 flex-shrink-0">
+                <div className="relative w-1/2 flex-shrink-0">
                   <ListingMap
                     listings={visibleMapListings}
                     height="600px"
                     selectedId={hoveredId}
                     onBoundsChange={handleMapBoundsChange}
+                  />
+
+                  <MapStatusOverlay
+                    loading={mapLoading}
+                    error={mapError}
+                    empty={showMapEmptyState}
                   />
                 </div>
                 <div className="w-1/2 overflow-y-auto space-y-4 pr-1" style={{ maxHeight: '600px' }}>
