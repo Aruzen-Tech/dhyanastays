@@ -689,16 +689,56 @@ export default function HomePage() {
                     empty={showMapEmptyState}
                   />
                 </div>
-                <div className="w-1/2 overflow-y-auto space-y-4 pr-1" style={{ maxHeight: '600px' }}>
-                  {visibleMapListings.map((listing) => (
-                    <div
-                      key={listing.id}
-                      onMouseEnter={() => setHoveredId(listing.id)}
-                      onMouseLeave={() => setHoveredId(null)}
-                    >
-                      <ListingCard listing={listing} />
+                <div
+                  className="w-1/2 overflow-y-auto pr-1"
+                  style={{ maxHeight: '600px' }}
+                >
+                  {mapLoading && visibleMapListings.length === 0 ? (
+                    <div className="flex min-h-[600px] items-center justify-center rounded-xl border border-gray-200 bg-white px-6 text-center">
+                      <div>
+                        <span className="spinner mb-3 h-5 w-5 text-brand-700" />
+                        <p className="text-sm font-medium text-gray-700">
+                          Searching this map area...
+                        </p>
+                      </div>
                     </div>
-                  ))}
+                  ) : mapError && visibleMapListings.length === 0 ? (
+                    <div className="flex min-h-[600px] items-center justify-center rounded-xl border border-red-200 bg-white px-6 text-center">
+                      <div>
+                        <div className="mb-3 text-3xl">⚠️</div>
+                        <p className="font-medium text-gray-900">
+                          Unable to load stays
+                        </p>
+                        <p className="mt-1 text-sm text-gray-500">
+                          Move the map or try again shortly.
+                        </p>
+                      </div>
+                    </div>
+                  ) : visibleMapListings.length === 0 ? (
+                    <div className="flex min-h-[600px] items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white px-6 text-center">
+                      <div>
+                        <div className="mb-3 text-4xl">🗺️</div>
+                        <p className="font-medium text-gray-900">
+                          No stays in this area
+                        </p>
+                        <p className="mt-1 text-sm text-gray-500">
+                          Move or zoom the map to explore another location.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {visibleMapListings.map((listing) => (
+                        <div
+                          key={listing.id}
+                          onMouseEnter={() => setHoveredId(listing.id)}
+                          onMouseLeave={() => setHoveredId(null)}
+                        >
+                          <ListingCard listing={listing} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

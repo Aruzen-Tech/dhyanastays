@@ -16,6 +16,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery split-view status panel
+
+### Added
+- Added dedicated loading, error, and empty-area states to the listing panel in
+  Split view, so it no longer appears blank when the current map viewport has
+  no matching stays.
+
+---
+
 ## 2026-07-17 — Discovery map loading and empty states
 
 ### Added

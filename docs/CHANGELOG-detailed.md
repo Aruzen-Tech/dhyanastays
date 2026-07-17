@@ -13,6 +13,26 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery split-view status panel
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Split-view listing panel (`apps/web/app/page.tsx`):**
+  - Added a loading state while the map viewport request is running.
+  - Added a map-specific error state when stays cannot be loaded.
+  - Added a clear empty-area message when no listings match the current
+    viewport.
+  - Existing listing cards return automatically when the map moves back to an
+    area containing matching stays.
+  - Card hover behaviour continues to highlight the corresponding price marker.
+- **Verified:**
+  - Empty, loading, and error layouts keep the Split view visually balanced.
+  - Listing cards return after moving back to a populated area.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-17 — Discovery map loading and empty states
 
 **Commit:** _pending_ · **Migration:** none
