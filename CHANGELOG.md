@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-17 — Discovery map price markers
+
+### Changed
+- Replaced standard Leaflet pins with theme-aware nightly-price markers and
+  improved listing popups with property type, location, guest capacity,
+  experience, price, and listing links.
+- Selected markers now receive a highlighted state when their matching card is
+  hovered in split view.
+
+---
+
 ## 2026-07-17 — Discovery map viewport loading
 
 ### Changed

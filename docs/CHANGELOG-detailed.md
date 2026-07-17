@@ -13,6 +13,32 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-17 — Discovery map price markers
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Map markers (`apps/web/components/ListingMap.tsx`):**
+  - Replaced Leaflet's default image pins with `L.divIcon()` price markers.
+  - Displays the base nightly rate in rupees while preserving paise-based data.
+  - Listings without a usable rate display `On request`.
+  - Selected markers receive a higher z-index and highlighted visual state.
+- **Popup improvements:**
+  - Added property type, title, city/state, maximum guests, first experience
+    tag, nightly rate, and a link to the listing details page.
+  - Added readable formatting for hyphenated property types and experience
+    names.
+- **Styles (`apps/web/app/globals.css`):**
+  - Added responsive price-pill marker styles using existing theme variables.
+  - Added hover, pointer, shadow, dark-mode-compatible, and selected states.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - Price markers render correctly in map and split views.
+  - Marker popups open correctly.
+  - Browser console remains free of errors.
+
+---
+
 ## 2026-07-17 — Discovery map viewport loading
 
 **Commit:** _pending_ · **Migration:** none
