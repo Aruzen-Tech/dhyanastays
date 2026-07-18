@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery URL state
+
+### Added
+- Search text and selected Discovery view are now synchronized with the browser
+  URL.
+- Search and Map/Split view selections survive page refreshes and can be shared
+  through links.
+- Default Grid view and empty search state keep the homepage URL clean.
+
+---
+
 ## 2026-07-18 — Discovery search autocomplete
 
 ### Added

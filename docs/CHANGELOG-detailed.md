@@ -13,6 +13,31 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery URL state
+
+**Commit:** _pending_ · **Migration:** none
+
+- **URL synchronization (`apps/web/app/page.tsx`):**
+  - Reads the `q` search parameter during initial page load.
+  - Reads the `view` parameter when its value is `grid`, `map`, or `split`.
+  - Updates the URL after the existing search debounce.
+  - Uses `history.replaceState`, so URL updates do not refresh the page.
+  - Removes `q` when the search box is cleared.
+  - Removes `view` when Grid view is selected.
+  - Preserves existing URL parameters and hash values.
+- **User experience:**
+  - Search text survives page refresh.
+  - Map and Split views survive page refresh.
+  - Discovery result URLs can be copied and shared.
+- **Verified:**
+  - Search and view parameters update correctly.
+  - Refresh restores the selected search and view.
+  - Clearing search and returning to Grid restores the clean homepage URL.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-18 — Discovery search autocomplete
 
 **Commit:** _pending_ · **Migration:** none

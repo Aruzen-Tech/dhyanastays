@@ -94,6 +94,7 @@ export default function HomePage() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [urlStateReady, setUrlStateReady] = useState(false);
 
   // Filter state
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
@@ -108,6 +109,59 @@ export default function HomePage() {
   const [filterSort, setFilterSort] = useState<DiscoverySort | ''>('');
 
   const debouncedSearch = useDebounce(search, 350);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+
+    const urlSearch = params.get('q')?.trim() ?? '';
+    const urlView = params.get('view');
+
+    if (urlSearch) {
+      setSearch(urlSearch);
+    }
+
+    if (
+      urlView === 'grid' ||
+      urlView === 'map' ||
+      urlView === 'split'
+    ) {
+      setViewMode(urlView);
+    }
+
+    setUrlStateReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!urlStateReady) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const normalizedSearch = debouncedSearch.trim();
+
+    if (normalizedSearch) {
+      params.set('q', normalizedSearch);
+    } else {
+      params.delete('q');
+    }
+
+    if (viewMode !== 'grid') {
+      params.set('view', viewMode);
+    } else {
+      params.delete('view');
+    }
+
+    const query = params.toString();
+
+    const nextUrl =
+      `${window.location.pathname}` +
+      `${query ? `?${query}` : ''}` +
+      `${window.location.hash}`;
+
+    window.history.replaceState(
+      window.history.state,
+      '',
+      nextUrl,
+    );
+  }, [debouncedSearch, viewMode, urlStateReady]);
 
   const visibleMapListings = useMemo(() => {
     const resultIds = new Set(results.map((listing) => listing.id));
