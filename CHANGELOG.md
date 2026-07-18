@@ -16,6 +16,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Dense map marker grouping
+
+### Improved
+- Grouped nearby map markers using deterministic client-side clustering.
+- Added cluster markers showing the number of stays in dense areas.
+- Added selectable, scrollable stay lists for exact-coordinate and
+  maximum-zoom clusters.
+- Preserved marker-to-card selection and added direct listing-detail links
+  inside cluster popups.
+- Added selected-cluster styling and keyboard-accessible cluster interactions.
+- Added the solution without introducing new dependencies or lockfile changes.
+
+---
+
 ## 2026-07-18 — Discovery map viewport result limit
 
 ### Improved

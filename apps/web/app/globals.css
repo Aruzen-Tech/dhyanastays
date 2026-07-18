@@ -460,6 +460,155 @@
   .price-map-marker--selected::after {
     border-color: rgb(var(--brand-700));
   }
+
+  .price-map-cluster-shell {
+    display: flex !important;
+    align-items: flex-start;
+    justify-content: center;
+    overflow: visible !important;
+    background: transparent !important;
+    border: 0 !important;
+  }
+
+  .price-map-cluster {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    min-width: 72px;
+    max-width: 96px;
+    padding: 0 12px;
+    border: 1px solid rgba(var(--gray-900), 0.14);
+    border-radius: 9999px;
+    background: rgb(var(--white));
+    color: rgb(var(--gray-900));
+    box-shadow:
+      0 4px 12px rgba(0, 0, 0, 0.16),
+      0 1px 3px rgba(0, 0, 0, 0.12);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+    transition:
+      transform 150ms ease,
+      box-shadow 150ms ease,
+      background-color 150ms ease;
+  }
+
+  .price-map-cluster::after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    width: 9px;
+    height: 9px;
+    background: inherit;
+    border-right: 1px solid rgba(var(--gray-900), 0.14);
+    border-bottom: 1px solid rgba(var(--gray-900), 0.14);
+    transform: translateX(-50%) rotate(45deg);
+  }
+
+  .price-map-cluster-shell:hover .price-map-cluster,
+  .price-map-cluster-shell:focus-visible .price-map-cluster {
+    transform: translateY(-2px);
+    box-shadow:
+      0 8px 18px rgba(0, 0, 0, 0.2),
+      0 2px 5px rgba(0, 0, 0, 0.14);
+  }
+
+  .price-map-cluster--selected {
+    background: rgb(var(--brand-700));
+    color: rgb(var(--surface));
+    border-color: rgb(var(--brand-700));
+    box-shadow:
+      0 0 0 3px rgba(var(--brand-700), 0.2),
+      0 8px 18px rgba(0, 0, 0, 0.22);
+  }
+
+  .price-map-cluster--selected::after {
+    border-color: rgb(var(--brand-700));
+  }
+
+  .price-map-cluster-popup {
+    width: min(280px, calc(100vw - 64px));
+  }
+
+  .price-map-cluster-popup-button {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    justify-content: space-between;
+    border: 1px solid rgba(var(--gray-900), 0.1);
+    border-radius: 0.75rem;
+    background: rgb(var(--white));
+    padding: 0.75rem;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease,
+      background-color 150ms ease,
+      transform 150ms ease;
+  }
+
+  .price-map-cluster-popup-button:hover {
+    transform: translateY(-1px);
+    border-color: rgba(var(--brand-700), 0.3);
+    background: rgba(var(--brand-50), 0.9);
+  }
+
+  .price-map-cluster-popup-button:focus-visible {
+    outline: none;
+    border-color: rgb(var(--brand-700));
+    box-shadow:
+      0 0 0 3px rgba(var(--brand-700), 0.18),
+      0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+
+  .price-map-cluster-popup-button--selected {
+    border-color: rgb(var(--brand-700));
+    background: rgba(var(--brand-50), 0.95);
+    box-shadow: 0 0 0 2px rgba(var(--brand-700), 0.14);
+  }
+
+  .price-map-cluster-popup-action,
+  .price-map-cluster-popup-link {
+    border-radius: 9999px;
+    padding: 0.35rem 0.75rem;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+    transition:
+      border-color 150ms ease,
+      box-shadow 150ms ease,
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+
+  .price-map-cluster-popup-action {
+    border: 1px solid rgba(var(--brand-700), 0.14);
+    background: rgb(var(--white));
+    color: rgb(var(--gray-900));
+  }
+
+  .price-map-cluster-popup-action:hover {
+    border-color: rgba(var(--brand-700), 0.3);
+    background: rgba(var(--brand-50), 0.9);
+  }
+
+  .price-map-cluster-popup-link {
+    color: rgb(var(--brand-700));
+  }
+
+  .price-map-cluster-popup-link:hover {
+    color: rgb(var(--brand-800));
+    background: rgba(var(--brand-50), 0.9);
+  }
+
+  .price-map-cluster-popup-action:focus-visible,
+  .price-map-cluster-popup-link:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(var(--brand-700), 0.18);
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

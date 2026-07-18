@@ -13,6 +13,45 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Dense map marker grouping
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Grouping helper (`apps/web/components/listing-map-grouping.ts`):**
+  - Added deterministic projected-pixel grouping with a 72-pixel threshold.
+  - Uses spatial buckets and neighbouring-cell checks to avoid unrestricted
+    pairwise comparisons.
+  - Uses deterministic union-find grouping with stable listing and group
+    ordering.
+  - Safely ignores missing or invalid coordinates.
+  - Handles nearby coordinates and exact duplicate coordinates.
+  - Exports grouping types and helpers for later frontend automated tests.
+- **Map rendering (`apps/web/components/ListingMap.tsx`):**
+  - Preserved existing price markers and listing popups for single stays.
+  - Added aggregate markers displaying the number of clustered stays.
+  - Nearby clusters zoom to their bounds when further separation is possible.
+  - Exact-coordinate and maximum-zoom clusters open a scrollable popup.
+  - Cluster popup entries support selecting the stay and opening its detail
+    page separately.
+  - Selected or hovered stays visually highlight their containing cluster.
+  - Existing marker-to-card scrolling and selection behavior remains intact.
+- **Styling (`apps/web/app/globals.css`):**
+  - Added scoped normal, selected, hover, and focus-visible cluster styles.
+  - Added mobile-safe, scrollable popup-list styling.
+  - Reused existing Dhyana Stays design tokens.
+- **Scope:**
+  - No dependency or lockfile changes.
+  - No backend, API, schema, migration, seed, or unrelated module changes.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no remaining actionable issues.
+  - Map, Split, selection, navigation, responsive, filtering, and rapid
+    pan/zoom behavior were manually verified.
+
+---
+
 ## 2026-07-18 — Discovery map viewport result limit
 
 **Commit:** _pending_ · **Migration:** none
