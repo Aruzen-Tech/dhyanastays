@@ -16,6 +16,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Docs: production feature checklist (vs. all-modules PDF)
+
+### Added
+- **[`docs/PRODUCTION-CHECKLIST.md`](docs/PRODUCTION-CHECKLIST.md)** — full audit
+  of the 34-module "Complete Module Breakdown (V1→V3)" PDF against the codebase
+  (grep-verified): per-module ✅/🟡/❌ tables, phase scorecard, and a prioritized
+  to-be-done list — P0 launch blockers (forgot-password, host bank details, GST
+  invoices, backups, live providers, monitoring), P1 core-journey polish (coupons,
+  modify booking, review upgrades, inspection module, discovery), P2 partner
+  operations, P3 platform maturity.
+
+---
+
 ## 2026-07-16 — Docs: discovery/map handoff brief
 
 ### Added
