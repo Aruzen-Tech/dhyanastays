@@ -740,7 +740,7 @@ export default function HomePage() {
 
       {/* Listings */}
       <section className="container-page py-12">
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-xl font-bold text-gray-900">
               {search ? `Results for "${search}"` : 'All Stays'}
@@ -749,7 +749,7 @@ export default function HomePage() {
               {loading || searching ? 'Searching...' : `${results.length} curated ${results.length === 1 ? 'stay' : 'stays'}`}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {(search || activeFilterCount > 0) && (
               <button
                 onClick={() => { setSearch(''); clearFilters(); }}
@@ -779,7 +779,7 @@ export default function HomePage() {
             </button>
 
             {/* View mode toggle */}
-            <div className="hidden md:flex items-center bg-gray-100 rounded-lg p-1">
+            <div className="flex items-center rounded-lg bg-gray-100 p-1">
               <button
                 onClick={() => setViewMode('grid')}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
@@ -802,8 +802,11 @@ export default function HomePage() {
               </button>
               <button
                 onClick={() => setViewMode('split')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'split' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  }`}
+                className={`hidden px-3 py-1.5 rounded-md text-sm font-medium transition-colors md:inline-flex ${
+                  viewMode === 'split'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
                 title="Split view"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1038,7 +1041,7 @@ export default function HomePage() {
               <div className="relative">
                 <ListingMap
                   listings={visibleMapListings}
-                  height="600px"
+                  height="clamp(380px, 65vh, 600px)"
                   onBoundsChange={handleMapBoundsChange}
                 />
 
@@ -1052,11 +1055,11 @@ export default function HomePage() {
 
             {/* Split view */}
             {viewMode === 'split' && (
-              <div className="flex gap-6" style={{ minHeight: '600px' }}>
-                <div className="relative w-1/2 flex-shrink-0">
+              <div className="flex flex-col gap-6 lg:min-h-[600px] lg:flex-row">
+                <div className="relative w-full lg:w-1/2 lg:flex-shrink-0">
                   <ListingMap
                     listings={visibleMapListings}
-                    height="600px"
+                    height="clamp(380px, 65vh, 600px)"
                     selectedId={hoveredId}
                     onBoundsChange={handleMapBoundsChange}
                   />
@@ -1067,12 +1070,9 @@ export default function HomePage() {
                     empty={showMapEmptyState}
                   />
                 </div>
-                <div
-                  className="w-1/2 overflow-y-auto pr-1"
-                  style={{ maxHeight: '600px' }}
-                >
+                  <div className="w-full lg:max-h-[600px] lg:w-1/2 lg:overflow-y-auto lg:pr-1">
                   {mapLoading && visibleMapListings.length === 0 ? (
-                    <div className="flex min-h-[600px] items-center justify-center rounded-xl border border-gray-200 bg-white px-6 text-center">
+                    <div className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-gray-200 bg-white px-6 text-center">
                       <div>
                         <span className="spinner mb-3 h-5 w-5 text-brand-700" />
                         <p className="text-sm font-medium text-gray-700">
@@ -1081,7 +1081,7 @@ export default function HomePage() {
                       </div>
                     </div>
                   ) : mapError && visibleMapListings.length === 0 ? (
-                    <div className="flex min-h-[600px] items-center justify-center rounded-xl border border-red-200 bg-white px-6 text-center">
+                    <div className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-red-200 bg-white px-6 text-center">
                       <div>
                         <div className="mb-3 text-3xl">⚠️</div>
                         <p className="font-medium text-gray-900">
@@ -1093,7 +1093,7 @@ export default function HomePage() {
                       </div>
                     </div>
                   ) : visibleMapListings.length === 0 ? (
-                    <div className="flex min-h-[600px] items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white px-6 text-center">
+                    <div className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white px-6 text-center">
                       <div>
                         <div className="mb-3 text-4xl">🗺️</div>
                         <p className="font-medium text-gray-900">

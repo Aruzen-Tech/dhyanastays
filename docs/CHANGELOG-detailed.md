@@ -13,6 +13,30 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Responsive Discovery map views
+
+**Commit:** _pending_ · **Migration:** none
+
+- **View controls (`apps/web/app/page.tsx`):**
+  - Made Grid and Map controls visible on mobile.
+  - Kept Split view hidden on smaller mobile screens.
+  - Allowed the listing header controls to wrap without overlapping.
+- **Map view:**
+  - Replaced the fixed map height with a responsive `clamp()` height.
+  - Improved map usability across mobile, tablet, and desktop widths.
+- **Split view:**
+  - Stacks the map and listings vertically below the desktop breakpoint.
+  - Uses the existing 50/50 side-by-side layout on desktop.
+  - Keeps independent listing-panel scrolling on desktop.
+  - Added responsive heights to loading, error, and empty states.
+- **Verified:**
+  - Grid and Map controls are usable on mobile.
+  - Split view is available on tablet and desktop.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-18 — Discovery autocomplete keyboard navigation
 
 **Commit:** _pending_ · **Migration:** none

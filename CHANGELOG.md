@@ -16,6 +16,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Responsive Discovery map views
+
+### Improved
+- Made the Discovery Grid and Map controls available on mobile devices.
+- Kept Split view available on tablet and desktop layouts.
+- Added responsive map heights for smaller screens.
+- Updated Split view to stack vertically on tablets and return to a
+  side-by-side layout on desktop.
+- Improved responsive loading, error, and empty-state panels.
+
+---
+
 ## 2026-07-18 — Discovery autocomplete keyboard navigation
 
 ### Improved
