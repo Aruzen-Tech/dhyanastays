@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery marker and card selection
+
+### Improved
+- Clicking a map marker now selects the matching listing.
+- In Split view, the matching listing card scrolls into view automatically.
+- Selected listing cards and markers remain visually highlighted.
+- Card hover continues to provide temporary marker highlighting.
+
+---
+
 ## 2026-07-18 — Discovery browser history support
 
 ### Improved

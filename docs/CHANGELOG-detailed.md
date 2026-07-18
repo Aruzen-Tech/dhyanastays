@@ -13,6 +13,31 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery marker and card selection
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Map interaction (`apps/web/components/ListingMap.tsx`):**
+  - Added an optional listing-selection callback.
+  - Marker clicks now report the selected listing ID.
+  - Selected markers continue to use the existing highlighted marker style.
+- **Split-view interaction (`apps/web/app/page.tsx`):**
+  - Added persistent selected-listing state.
+  - Added references for rendered listing cards.
+  - Clicking a marker scrolls the matching card into view.
+  - Selected cards receive a visible brand-coloured outline.
+  - Card hover temporarily takes priority over the persistent selection.
+- **Map view:**
+  - Marker selection also remains visible outside Split view.
+- **Verified:**
+  - Marker clicks select the correct listing.
+  - Split-view cards scroll smoothly into view.
+  - Hover highlighting returns to the selected marker after mouse leave.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-18 — Discovery browser history support
 
 **Commit:** _pending_ · **Migration:** none

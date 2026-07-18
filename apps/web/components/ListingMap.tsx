@@ -95,6 +95,7 @@ function FitBounds({ listings }: { listings: Listing[] }) {
 interface ListingMapProps {
   listings: Listing[];
   onBoundsChange?: (bounds: L.LatLngBounds) => void;
+  onListingSelect?: (listingId: string) => void;
   selectedId?: string | null;
   height?: string;
   center?: [number, number];
@@ -105,6 +106,7 @@ interface ListingMapProps {
 export default function ListingMap({
   listings,
   onBoundsChange,
+  onListingSelect,
   selectedId,
   height = '500px',
   center = [20.5937, 78.9629],
@@ -158,6 +160,9 @@ export default function ListingMap({
             position={[listing.latitude!, listing.longitude!]}
             icon={createPriceIcon(markerLabel, isSelected)}
             zIndexOffset={isSelected ? 1000 : 0}
+            eventHandlers={{
+              click: () => onListingSelect?.(listing.id),
+            }}
           >
             <Popup>
               <div className="min-w-[220px]">

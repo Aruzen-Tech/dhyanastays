@@ -101,6 +101,11 @@ export default function HomePage() {
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(
+    null,
+  );
+
+  const listingCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [showFilters, setShowFilters] = useState(false);
   const [urlStateReady, setUrlStateReady] = useState(false);
   const restoringUrlStateRef = useRef(false);
@@ -313,6 +318,17 @@ export default function HomePage() {
     filterSort,
     urlStateReady,
   ]);
+
+  const handleListingSelect = useCallback((listingId: string) => {
+    setSelectedListingId(listingId);
+
+    window.requestAnimationFrame(() => {
+      listingCardRefs.current[listingId]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    });
+  }, []);
 
   const visibleMapListings = useMemo(() => {
     const resultIds = new Set(results.map((listing) => listing.id));
@@ -1079,6 +1095,8 @@ export default function HomePage() {
                 <ListingMap
                   listings={visibleMapListings}
                   height="clamp(380px, 65vh, 600px)"
+                  selectedId={selectedListingId}
+                  onListingSelect={handleListingSelect}
                   onBoundsChange={handleMapBoundsChange}
                 />
 
@@ -1097,7 +1115,8 @@ export default function HomePage() {
                   <ListingMap
                     listings={visibleMapListings}
                     height="clamp(380px, 65vh, 600px)"
-                    selectedId={hoveredId}
+                    selectedId={hoveredId ?? selectedListingId}
+                    onListingSelect={handleListingSelect}
                     onBoundsChange={handleMapBoundsChange}
                   />
 
@@ -1143,15 +1162,27 @@ export default function HomePage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {visibleMapListings.map((listing) => (
-                        <div
-                          key={listing.id}
-                          onMouseEnter={() => setHoveredId(listing.id)}
-                          onMouseLeave={() => setHoveredId(null)}
-                        >
-                          <ListingCard listing={listing} />
-                        </div>
-                      ))}
+                      {visibleMapListings.map((listing) => {
+                        const isSelected = selectedListingId === listing.id;
+
+                        return (
+                          <div
+                            key={listing.id}
+                            ref={(element) => {
+                              listingCardRefs.current[listing.id] = element;
+                            }}
+                            onMouseEnter={() => setHoveredId(listing.id)}
+                            onMouseLeave={() => setHoveredId(null)}
+                            className={`scroll-m-3 rounded-2xl transition-shadow ${
+                              isSelected
+                                ? 'ring-2 ring-brand-700 ring-offset-2'
+                                : ''
+                            }`}
+                          >
+                            <ListingCard listing={listing} />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
