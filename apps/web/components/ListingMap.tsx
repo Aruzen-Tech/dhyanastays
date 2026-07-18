@@ -133,12 +133,16 @@ function ListingPopupContent({ listing }: { listing: Listing }) {
       </div>
 
       <div className="mb-2 text-xs text-gray-500">
-        📍 {listing.city}, {listing.state}
+        <span aria-hidden="true">📍</span>{' '}
+        {listing.city}, {listing.state}
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
         {rateRule?.maxGuests && (
-          <span>👥 Up to {rateRule.maxGuests}</span>
+          <span>
+            <span aria-hidden="true">👥</span>{' '}
+            Up to {rateRule.maxGuests}
+          </span>
         )}
 
         {firstExperience && (
@@ -185,11 +189,6 @@ function ClusterPopupContent({
   selectedId?: string | null;
   onListingSelect?: (listingId: string) => void;
 }) {
-  const initialFocusId =
-    selectedId && listings.some((listing) => listing.id === selectedId)
-      ? selectedId
-      : listings[0]?.id;
-
   return (
     <div className="price-map-cluster-popup">
       <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-brand-700">
@@ -225,7 +224,8 @@ function ClusterPopupContent({
                 <div className="ml-3 flex flex-shrink-0 flex-col items-end gap-2">
                   <button
                     type="button"
-                    autoFocus={listing.id === initialFocusId}
+                    aria-current={isSelected ? 'true' : undefined}
+                    aria-label={`Select ${listing.title}${isSelected ? ', currently selected' : ''}`}
                     onClick={() => onListingSelect?.(listing.id)}
                     className="price-map-cluster-popup-action"
                   >
@@ -252,22 +252,28 @@ function SingleListingMarker({
   listing,
   selectedId,
   onListingSelect,
+  interactive,
 }: {
   listing: Listing;
   selectedId?: string | null;
   onListingSelect?: (listingId: string) => void;
+  interactive: boolean;
 }) {
   const rateRule = listing.rateRules?.[0];
   const rate = rateRule?.baseNightlyRate;
   const hasPrice = typeof rate === 'number' && rate > 0;
   const markerLabel = hasPrice ? formatINR(rate) : 'On request';
   const isSelected = listing.id === selectedId;
+  const accessibleMarkerName = `${listing.title}, ${listing.city}, ${listing.state}`;
 
   return (
     <Marker
       position={[listing.latitude!, listing.longitude!]}
       icon={createPriceIcon(markerLabel, isSelected)}
       zIndexOffset={isSelected ? 1000 : 0}
+      keyboard={interactive}
+      title={accessibleMarkerName}
+      alt={accessibleMarkerName}
       eventHandlers={{
         click: () => onListingSelect?.(listing.id),
       }}
@@ -369,10 +375,12 @@ function ClusteredListingMarkers({
   listings,
   selectedId,
   onListingSelect,
+  interactive,
 }: {
   listings: Listing[];
   selectedId?: string | null;
   onListingSelect?: (listingId: string) => void;
+  interactive: boolean;
 }) {
   const map = useMap();
   const [currentZoom, setCurrentZoom] = useState(() => map.getZoom());
@@ -407,6 +415,7 @@ function ClusteredListingMarkers({
               listing={group.listings[0]}
               selectedId={selectedId}
               onListingSelect={onListingSelect}
+              interactive={interactive}
             />
           );
         }
@@ -482,6 +491,7 @@ export default function ListingMap({
         listings={mappableListings}
         selectedId={selectedId}
         onListingSelect={onListingSelect}
+        interactive={interactive}
       />
     </MapContainer>
   );

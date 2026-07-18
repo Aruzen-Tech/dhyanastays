@@ -50,10 +50,12 @@ function MapStatusOverlay({
   loading,
   error,
   empty,
+  announceState = true,
 }: {
   loading: boolean;
   error: string;
   empty: boolean;
+  announceState?: boolean;
 }) {
   if (!loading && !error && !empty) return null;
 
@@ -68,13 +70,21 @@ function MapStatusOverlay({
         )}
 
         {!loading && error && (
-          <div className="text-red-600">
+          <div
+            className="text-red-600"
+            role={announceState ? 'alert' : undefined}
+          >
             Unable to load stays for this area.
           </div>
         )}
 
         {!loading && !error && empty && (
-          <div className="text-gray-600">
+          <div
+            className="text-gray-600"
+            role={announceState ? 'status' : undefined}
+            aria-live={announceState ? 'polite' : undefined}
+            aria-atomic={announceState ? 'true' : undefined}
+          >
             No stays found in this map area. Move or zoom the map to explore.
           </div>
         )}
@@ -752,6 +762,10 @@ export default function HomePage() {
 
   const discoveryFocusRingClassName =
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/30 focus-visible:ring-offset-2';
+  const mapViewDescriptionId = 'discovery-map-description';
+  const splitMapDescriptionId = 'discovery-split-map-description';
+  const mapListingsSummary = `${visibleMapListings.length} curated ${visibleMapListings.length === 1 ? 'stay' : 'stays'}`;
+  const mapViewDescription = `Map showing ${visibleMapListings.length} ${visibleMapListings.length === 1 ? 'stay' : 'stays'} in the current area. Use Tab to move through markers and Enter to open a marker.`;
 
   return (
     <>
@@ -1196,7 +1210,16 @@ export default function HomePage() {
 
             {/* Map view */}
             {viewMode === 'map' && (
-              <div className="relative">
+              <div
+                className="relative"
+                role="region"
+                aria-label="Map of available stays"
+                aria-busy={mapLoading}
+                aria-describedby={mapViewDescriptionId}
+              >
+                <p id={mapViewDescriptionId} className="sr-only">
+                  {mapViewDescription}
+                </p>
                 <ListingMap
                   listings={visibleMapListings}
                   height="clamp(380px, 65vh, 600px)"
@@ -1216,7 +1239,16 @@ export default function HomePage() {
             {/* Split view */}
             {viewMode === 'split' && (
               <div className="flex flex-col gap-6 lg:min-h-[600px] lg:flex-row">
-                <div className="relative w-full lg:w-1/2 lg:flex-shrink-0">
+                <div
+                  className="relative w-full lg:w-1/2 lg:flex-shrink-0"
+                  role="region"
+                  aria-label="Map of available stays"
+                  aria-busy={mapLoading}
+                  aria-describedby={splitMapDescriptionId}
+                >
+                  <p id={splitMapDescriptionId} className="sr-only">
+                    {mapViewDescription}
+                  </p>
                   <ListingMap
                     listings={visibleMapListings}
                     height="clamp(380px, 65vh, 600px)"
@@ -1229,9 +1261,15 @@ export default function HomePage() {
                     loading={mapLoading}
                     error={mapError}
                     empty={showMapEmptyState}
+                    announceState={false}
                   />
                 </div>
-                  <div className="w-full lg:max-h-[600px] lg:w-1/2 lg:overflow-y-auto lg:pr-1">
+                <div
+                  className="w-full lg:max-h-[600px] lg:w-1/2 lg:overflow-y-auto lg:pr-1"
+                  role="region"
+                  aria-label="Stays in the current map area"
+                  aria-busy={mapLoading}
+                >
                   {mapLoading && visibleMapListings.length === 0 ? (
                     <div className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-gray-200 bg-white px-6 text-center">
                       <div>
@@ -1242,7 +1280,10 @@ export default function HomePage() {
                       </div>
                     </div>
                   ) : mapError && visibleMapListings.length === 0 ? (
-                    <div className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-red-200 bg-white px-6 text-center">
+                    <div
+                      className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-red-200 bg-white px-6 text-center"
+                      role="alert"
+                    >
                       <div>
                         <div className="mb-3 text-3xl">⚠️</div>
                         <p className="font-medium text-gray-900">
@@ -1254,7 +1295,12 @@ export default function HomePage() {
                       </div>
                     </div>
                   ) : visibleMapListings.length === 0 ? (
-                    <div className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white px-6 text-center">
+                    <div
+                      className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white px-6 text-center"
+                      role="status"
+                      aria-live="polite"
+                      aria-atomic="true"
+                    >
                       <div>
                         <div className="mb-3 text-4xl">🗺️</div>
                         <p className="font-medium text-gray-900">
@@ -1266,7 +1312,7 @@ export default function HomePage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-4" aria-label={mapListingsSummary}>
                       {visibleMapListings.map((listing) => {
                         const isSelected = selectedListingId === listing.id;
 

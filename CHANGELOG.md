@@ -16,6 +16,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery map accessibility
+
+### Improved
+- Added labelled and busy-state semantics to Map and Split map regions.
+- Improved map loading, error, and empty-state accessibility.
+- Added accessible names and keyboard metadata to individual stay markers.
+- Improved selected-state semantics inside clustered-stay popups.
+- Removed disruptive automatic focus from cluster popups.
+- Improved Split-view list-region and map-popup accessibility.
+
+---
+
 ## 2026-07-18 — Discovery controls accessibility
 
 ### Improved

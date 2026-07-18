@@ -13,6 +13,55 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery map accessibility
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Map regions (`apps/web/app/page.tsx`):**
+  - Added labelled regions for the Map view and the map half of Split view.
+  - Added `aria-busy` based on map loading state.
+  - Added screen-reader descriptions with the visible-stay count and marker
+    keyboard instructions.
+  - Kept map descriptions non-live to avoid announcements during every pan or
+    zoom operation.
+- **Map states:**
+  - Loading remains visually unchanged and non-live.
+  - Map errors use alert semantics.
+  - Empty map states use polite, atomic status semantics.
+  - Split view suppresses duplicate announcements between its map overlay and
+    listing panel.
+- **Split listing panel:**
+  - Added a labelled region for stays in the current map area.
+  - Added busy-state semantics.
+  - Added appropriate error and empty-panel semantics without changing card
+    rendering or scrolling.
+- **Markers and clusters (`apps/web/components/ListingMap.tsx`):**
+  - Added explicit keyboard support and accessible title/alt text to normal
+    listing markers.
+  - Preserved cluster naming, grouping, selection, click, and exact-coordinate
+    behavior.
+  - Added programmatic current-selection state and descriptive accessible names
+    to cluster-popup stay buttons.
+  - Preserved the separate stay-selection button and detail-page link.
+- **Popup behavior:**
+  - Removed automatic focus from cluster-popup buttons.
+  - Preserved normal keyboard traversal and popup opening behavior.
+  - Hid decorative location and guest emoji from assistive technology while
+    retaining readable text.
+- **Scope:**
+  - No ListingCard, WishlistButton, grouping algorithm, global CSS, API,
+    dependency, backend, schema, migration, seed, deployment, or CI changes.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no actionable regressions.
+  - Marker activation, cluster interaction, popup traversal, card/marker
+    synchronization, responsive layouts, rapid map movement, view switching,
+    and selection cleanup were manually verified.
+
+---
+
 ## 2026-07-18 — Discovery controls accessibility
 
 **Commit:** _pending_ · **Migration:** none
