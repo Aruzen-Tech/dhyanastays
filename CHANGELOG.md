@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery autocomplete keyboard navigation
+
+### Improved
+- Search autocomplete now supports Arrow Up and Arrow Down navigation.
+- Pressing Enter selects the active suggestion, while Escape closes the list.
+- Added visible active-suggestion styling and improved combobox accessibility
+  attributes.
+
+---
+
 ## 2026-07-18 — Discovery Meilisearch reindexing
 
 ### Added

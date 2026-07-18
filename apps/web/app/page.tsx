@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { LatLngBounds } from 'leaflet';
 import dynamic from 'next/dynamic';
 import ListingCard from '../components/ListingCard';
@@ -87,6 +94,7 @@ export default function HomePage() {
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [search, setSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -361,6 +369,72 @@ export default function HomePage() {
     return suggestions.slice(0, 6);
   }, [allListings, search]);
 
+  const selectSearchSuggestion = useCallback(
+    (suggestion: SearchSuggestion) => {
+      setSearch(suggestion.value);
+      setShowSuggestions(false);
+      setActiveSuggestionIndex(-1);
+    },
+    [],
+  );
+
+  const handleSearchKeyDown = (
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
+    const hasSuggestions = searchSuggestions.length > 0;
+    const suggestionsOpen = showSuggestions && hasSuggestions;
+
+    if (event.key === 'ArrowDown') {
+      if (!hasSuggestions) return;
+
+      event.preventDefault();
+      setShowSuggestions(true);
+
+      setActiveSuggestionIndex((current) =>
+        current >= searchSuggestions.length - 1
+          ? 0
+          : current + 1,
+      );
+
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      if (!hasSuggestions) return;
+
+      event.preventDefault();
+      setShowSuggestions(true);
+
+      setActiveSuggestionIndex((current) =>
+        current <= 0
+          ? searchSuggestions.length - 1
+          : current - 1,
+      );
+
+      return;
+    }
+
+    if (
+      event.key === 'Enter' &&
+      suggestionsOpen &&
+      activeSuggestionIndex >= 0
+    ) {
+      event.preventDefault();
+
+      selectSearchSuggestion(
+        searchSuggestions[activeSuggestionIndex],
+      );
+
+      return;
+    }
+
+    if (event.key === 'Escape' && showSuggestions) {
+      event.preventDefault();
+      setShowSuggestions(false);
+      setActiveSuggestionIndex(-1);
+    }
+  };
+
   const tagsByCategory = useMemo(() => {
     const map: Record<string, Tag[]> = {};
     allTags.forEach((t) => {
@@ -391,6 +465,7 @@ export default function HomePage() {
         !searchBoxRef.current.contains(event.target as Node)
       ) {
         setShowSuggestions(false);
+        setActiveSuggestionIndex(-1);
       }
     };
 
@@ -594,27 +669,49 @@ export default function HomePage() {
                 onChange={(event) => {
                   setSearch(event.target.value);
                   setShowSuggestions(true);
+                  setActiveSuggestionIndex(-1);
                 }}
-                onFocus={() => setShowSuggestions(true)}
+                onFocus={() => {
+                  setShowSuggestions(true);
+                  setActiveSuggestionIndex(-1);
+                }}
                 autoComplete="off"
                 aria-label="Search stays"
+                role="combobox"
+                aria-autocomplete="list"
+                aria-controls="search-suggestions"
                 aria-expanded={showSuggestions && searchSuggestions.length > 0}
+                aria-activedescendant={
+                  activeSuggestionIndex >= 0
+                    ? `search-suggestion-${activeSuggestionIndex}`
+                    : undefined
+                }
+                onKeyDown={handleSearchKeyDown}
                 className="w-full rounded-2xl border-0 py-4 pl-11 pr-4 text-base text-gray-900 shadow-lg
                            focus:outline-none focus:ring-2 focus:ring-gold-500/50"
               />
 
               {showSuggestions && searchSuggestions.length > 0 && (
-                <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-xl">
+                <div
+                  id="search-suggestions"
+                  role="listbox"
+                  className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-xl"
+                >
                   <div className="py-2">
-                    {searchSuggestions.map((suggestion) => (
+                    {searchSuggestions.map((suggestion, index) => (
                       <button
+                        id={`search-suggestion-${index}`}
                         key={`${suggestion.type}-${suggestion.value}`}
                         type="button"
-                        onClick={() => {
-                          setSearch(suggestion.value);
-                          setShowSuggestions(false);
-                        }}
-                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+                        role="option"
+                        aria-selected={activeSuggestionIndex === index}
+                        onMouseEnter={() => setActiveSuggestionIndex(index)}
+                        onClick={() => selectSearchSuggestion(suggestion)}
+                        className={`flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors focus:outline-none ${
+                          activeSuggestionIndex === index
+                            ? 'bg-brand-50'
+                            : 'hover:bg-gray-50'
+                        }`}
                       >
                         <div className="min-w-0">
                           <p className="truncate font-medium text-gray-900">

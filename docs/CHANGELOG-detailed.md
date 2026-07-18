@@ -13,6 +13,29 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery autocomplete keyboard navigation
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Keyboard navigation (`apps/web/app/page.tsx`):**
+  - Added Arrow Down and Arrow Up navigation through search suggestions.
+  - Added Enter selection for the active suggestion.
+  - Added Escape handling to close the suggestion list.
+  - Resets the active suggestion when typing, focusing, selecting, or clicking
+    outside.
+  - Mouse hover and keyboard navigation share the same active state.
+- **Accessibility:**
+  - Added combobox, listbox, and option roles.
+  - Added `aria-controls`, `aria-activedescendant`, and `aria-selected`.
+  - Added visible styling for the currently active suggestion.
+- **Verified:**
+  - Keyboard and mouse selection both work.
+  - Search results continue to update through the existing debounce.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-18 — Discovery Meilisearch reindexing
 
 **Commit:** _pending_ · **Migration:** none
