@@ -13,6 +13,25 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery search relevance ordering
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search ordering (`apps/api/src/listing/listing.service.ts`):**
+  - Fetches approved listing records for Meilisearch result IDs.
+  - Builds an ID-to-listing lookup after the Prisma query.
+  - Returns listings in the original Meilisearch relevance order.
+  - Safely omits missing or non-approved records.
+- **Tests (`apps/api/src/listing/listing.service.spec.ts`):**
+  - Added coverage proving Prisma result order cannot override Meilisearch
+    relevance ranking.
+- **Verified:**
+  - Listing service tests pass.
+  - Full backend test suite passes.
+  - Backend ESLint passes.
+
+---
+
 ## 2026-07-18 — Discovery filter URL state
 
 **Commit:** _pending_ · **Migration:** none

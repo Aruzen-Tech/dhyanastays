@@ -132,6 +132,37 @@ describe('ListingService', () => {
     );
   });
 
+  it('preserves Meilisearch relevance order', async () => {
+    configMock.get.mockImplementation((key: string, def?: string) => {
+      if (key === 'MEILI_URL') return 'http://localhost:7700';
+      if (key === 'MEILI_MASTER_KEY') return 'meili_dev_key';
+      return def ?? '';
+    });
+
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        hits: [
+          { id: 'listing-2' },
+          { id: 'listing-1' },
+        ],
+      }),
+    } as never);
+
+    // Prisma does not guarantee the same order as the ID list.
+    prismaMock.listing.findMany.mockResolvedValue([
+      { id: 'listing-1', title: 'Lower ranked stay' },
+      { id: 'listing-2', title: 'Top ranked stay' },
+    ]);
+
+    const result = await service.searchListings('wellness');
+
+    expect(result.map((listing) => listing.id)).toEqual([
+      'listing-2',
+      'listing-1',
+    ]);
+  });
+
   it('falls back to database search when Meilisearch returns no hits', async () => {
     configMock.get.mockImplementation((key: string, def?: string) => {
       if (key === 'MEILI_URL') return 'http://localhost:7700';

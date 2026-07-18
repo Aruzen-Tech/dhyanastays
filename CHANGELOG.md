@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery search relevance ordering
+
+### Fixed
+- Discovery search results now preserve the relevance order returned by
+  Meilisearch.
+- Listings missing from PostgreSQL or no longer approved are safely excluded
+  without disturbing the order of remaining results.
+- Added backend test coverage for relevance-order preservation.
+
+---
+
 ## 2026-07-18 — Discovery filter URL state
 
 ### Added

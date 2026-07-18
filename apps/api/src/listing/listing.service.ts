@@ -374,9 +374,27 @@ export class ListingService {
           const data = await res.json() as { hits: any[] };
           const ids: string[] = data.hits.map((h: { id: string }) => h.id);
           if (ids.length > 0) {
-            return this.prisma.listing.findMany({
-              where: { id: { in: ids }, status: ListingStatus.APPROVED },
-              include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
+            const listings = await this.prisma.listing.findMany({
+              where: {
+                id: { in: ids },
+                status: ListingStatus.APPROVED,
+              },
+              include: {
+                rateRules: true,
+                media: {
+                  orderBy: { sortOrder: 'asc' },
+                  take: 1,
+                },
+              },
+            });
+
+            const listingsById = new Map(
+              listings.map((listing) => [listing.id, listing]),
+            );
+
+            return ids.flatMap((id) => {
+              const listing = listingsById.get(id);
+              return listing ? [listing] : [];
             });
           }
         }
