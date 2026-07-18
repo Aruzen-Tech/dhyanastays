@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery search autocomplete
+
+### Added
+- Added client-side search suggestions for listing names, cities, and states.
+- Suggestions appear after two characters, remove duplicates, and close after
+  selection or when clicking outside the search box.
+- Autocomplete reuses already-loaded approved listings and does not create
+  additional API requests while typing.
+
+---
+
 ## 2026-07-18 — Discovery search database fallback
 
 ### Fixed

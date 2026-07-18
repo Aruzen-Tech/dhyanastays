@@ -13,6 +13,31 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery search autocomplete
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Autocomplete (`apps/web/app/page.tsx`):**
+  - Added suggestions for matching stay titles, cities, and states.
+  - Added duplicate protection and a maximum of six suggestions.
+  - Suggestions appear only after at least two characters are entered.
+  - Added secondary location information and suggestion-type labels.
+  - Selecting a suggestion updates the existing debounced search flow.
+  - Clicking outside the search box closes the dropdown.
+  - Suggestions are generated from already-loaded approved listings, avoiding
+    extra API requests on every keystroke.
+- **Accessibility:**
+  - Disabled browser-native autocomplete.
+  - Added search input labels and expanded-state information.
+  - Suggestion items support keyboard focus.
+- **Verified:**
+  - Search suggestions appear and update correctly.
+  - Selecting and dismissing suggestions works correctly.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-18 — Discovery search database fallback
 
 **Commit:** _pending_ · **Migration:** none

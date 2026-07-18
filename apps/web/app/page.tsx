@@ -32,6 +32,13 @@ function useDebounce<T>(value: T, delay: number): T {
 
 type ViewMode = 'grid' | 'map' | 'split';
 
+type SearchSuggestion = {
+  label: string;
+  value: string;
+  type: 'Stay' | 'City' | 'State';
+  secondary?: string;
+};
+
 function MapStatusOverlay({
   loading,
   error,
@@ -79,6 +86,8 @@ export default function HomePage() {
   const mapRequestId = useRef(0);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [search, setSearch] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchBoxRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
@@ -139,6 +148,59 @@ export default function HomePage() {
     [allListings],
   );
 
+  const searchSuggestions = useMemo<SearchSuggestion[]>(() => {
+    const query = search.trim().toLowerCase();
+
+    if (query.length < 2) return [];
+
+    const suggestions: SearchSuggestion[] = [];
+    const seen = new Set<string>();
+
+    const addSuggestion = (suggestion: SearchSuggestion) => {
+      const key = `${suggestion.type}:${suggestion.value.toLowerCase()}`;
+
+      if (!seen.has(key)) {
+        seen.add(key);
+        suggestions.push(suggestion);
+      }
+    };
+
+    allListings.forEach((listing) => {
+      if (listing.title.toLowerCase().includes(query)) {
+        addSuggestion({
+          label: listing.title,
+          value: listing.title,
+          type: 'Stay',
+          secondary: `${listing.city}, ${listing.state}`,
+        });
+      }
+    });
+
+    allListings.forEach((listing) => {
+      if (listing.city.toLowerCase().includes(query)) {
+        addSuggestion({
+          label: listing.city,
+          value: listing.city,
+          type: 'City',
+          secondary: listing.state,
+        });
+      }
+    });
+
+    allListings.forEach((listing) => {
+      if (listing.state.toLowerCase().includes(query)) {
+        addSuggestion({
+          label: listing.state,
+          value: listing.state,
+          type: 'State',
+          secondary: listing.country,
+        });
+      }
+    });
+
+    return suggestions.slice(0, 6);
+  }, [allListings, search]);
+
   const tagsByCategory = useMemo(() => {
     const map: Record<string, Tag[]> = {};
     allTags.forEach((t) => {
@@ -160,6 +222,23 @@ export default function HomePage() {
       setAllTags(tags);
     }).catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        searchBoxRef.current &&
+        !searchBoxRef.current.contains(event.target as Node)
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, []);
 
   const hasDiscoveryFacets = useMemo(
@@ -343,18 +422,60 @@ export default function HomePage() {
             Handpicked stays for mindful travellers — from Himalayan retreats to coastal hideaways.
           </p>
           <div className="max-w-lg mx-auto">
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">
+            <div ref={searchBoxRef} className="relative">
+              <span className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-lg text-gray-400">
                 {searching ? '⏳' : '🔍'}
               </span>
+
               <input
                 type="text"
                 placeholder="Search by city, state, or keyword..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-11 pr-4 py-4 rounded-2xl text-gray-900 text-base shadow-lg
-                           focus:outline-none focus:ring-2 focus:ring-gold-500/50 border-0"
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                  setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                autoComplete="off"
+                aria-label="Search stays"
+                aria-expanded={showSuggestions && searchSuggestions.length > 0}
+                className="w-full rounded-2xl border-0 py-4 pl-11 pr-4 text-base text-gray-900 shadow-lg
+                           focus:outline-none focus:ring-2 focus:ring-gold-500/50"
               />
+
+              {showSuggestions && searchSuggestions.length > 0 && (
+                <div className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-xl">
+                  <div className="py-2">
+                    {searchSuggestions.map((suggestion) => (
+                      <button
+                        key={`${suggestion.type}-${suggestion.value}`}
+                        type="button"
+                        onClick={() => {
+                          setSearch(suggestion.value);
+                          setShowSuggestions(false);
+                        }}
+                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-gray-900">
+                            {suggestion.label}
+                          </p>
+
+                          {suggestion.secondary && (
+                            <p className="truncate text-sm text-gray-500">
+                              {suggestion.secondary}
+                            </p>
+                          )}
+                        </div>
+
+                        <span className="flex-shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700">
+                          {suggestion.type}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
