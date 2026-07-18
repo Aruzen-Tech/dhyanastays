@@ -379,7 +379,6 @@ export class ListingService {
               include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
             });
           }
-          return [];
         }
       } catch (err) {
         this.logger.warn(`Meilisearch search failed, falling back to DB: ${String(err)}`);

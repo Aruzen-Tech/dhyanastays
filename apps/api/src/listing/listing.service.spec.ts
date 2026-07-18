@@ -36,7 +36,19 @@ describe('ListingService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new ListingService(prismaMock as never, notificationMock as never, configMock as never);
+    configMock.get.mockImplementation(
+      (_key: string, def?: string) => def ?? '',
+    );
+
+    service = new ListingService(
+      prismaMock as never,
+      notificationMock as never,
+      configMock as never,
+    );
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('moves to pending approval when sensitive fields are changed', async () => {
@@ -77,5 +89,83 @@ describe('ListingService', () => {
     ).rejects.toThrow('Map bounds must be valid numbers');
 
     expect(prismaMock.listing.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns approved listings from Meilisearch hits', async () => {
+    configMock.get.mockImplementation((key: string, def?: string) => {
+      if (key === 'MEILI_URL') return 'http://localhost:7700';
+      if (key === 'MEILI_MASTER_KEY') return 'meili_dev_key';
+      return def ?? '';
+    });
+
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        hits: [{ id: 'listing-1' }, { id: 'listing-2' }],
+      }),
+    } as never);
+
+    const listings = [
+      { id: 'listing-1', title: 'Goa Wellness Stay' },
+      { id: 'listing-2', title: 'Goa Beach Retreat' },
+    ];
+
+    prismaMock.listing.findMany.mockResolvedValue(listings);
+
+    await expect(service.searchListings('Goa')).resolves.toEqual(listings);
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:7700/indexes/listings/search',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ q: 'Goa', limit: 50 }),
+      }),
+    );
+
+    expect(prismaMock.listing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: { in: ['listing-1', 'listing-2'] },
+          status: ListingStatus.APPROVED,
+        },
+      }),
+    );
+  });
+
+  it('falls back to database search when Meilisearch returns no hits', async () => {
+    configMock.get.mockImplementation((key: string, def?: string) => {
+      if (key === 'MEILI_URL') return 'http://localhost:7700';
+      if (key === 'MEILI_MASTER_KEY') return 'meili_dev_key';
+      return def ?? '';
+    });
+
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        hits: [],
+      }),
+    } as never);
+
+    const fallbackListings = [{ id: 'listing-3', title: 'Goa Forest Retreat' }];
+
+    prismaMock.listing.findMany.mockResolvedValue(fallbackListings);
+
+    await expect(service.searchListings('Goa')).resolves.toEqual(
+      fallbackListings,
+    );
+
+    expect(prismaMock.listing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: ListingStatus.APPROVED,
+          OR: [
+            { title: { contains: 'Goa', mode: 'insensitive' } },
+            { city: { contains: 'Goa', mode: 'insensitive' } },
+            { state: { contains: 'Goa', mode: 'insensitive' } },
+            { description: { contains: 'Goa', mode: 'insensitive' } },
+          ],
+        }),
+      }),
+    );
   });
 });

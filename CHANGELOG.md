@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery search database fallback
+
+### Fixed
+- Discovery search now falls back to PostgreSQL when Meilisearch is available
+  but returns no matching documents.
+- Added backend tests covering Meilisearch results and zero-result fallback
+  behaviour.
+
+---
+
 ## 2026-07-18 — Discovery split-view status panel
 
 ### Added

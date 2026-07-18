@@ -13,6 +13,26 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery search database fallback
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search fallback (`apps/api/src/listing/listing.service.ts`):**
+  - Removed the early empty-array response when Meilisearch returns zero hits.
+  - Search now continues to the existing case-insensitive PostgreSQL query.
+  - Database fallback searches listing title, city, state, and description.
+  - Only approved listings are returned.
+- **Tests (`apps/api/src/listing/listing.service.spec.ts`):**
+  - Added coverage for successful Meilisearch hits.
+  - Added coverage confirming PostgreSQL fallback when Meilisearch returns no
+    hits.
+- **Verified:**
+  - All 12 backend test suites pass.
+  - All 263 backend tests pass.
+  - Backend ESLint passes.
+
+---
+
 ## 2026-07-18 — Discovery split-view status panel
 
 **Commit:** _pending_ · **Migration:** none
