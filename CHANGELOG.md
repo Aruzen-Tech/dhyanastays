@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery filter URL state
+
+### Added
+- All Discovery filters are now synchronized with the browser URL.
+- Shared links and page refreshes now preserve state, guests, maximum price,
+  tags, experiences, property type, dietary options, sorting, search text, and
+  selected view.
+- The filter panel opens automatically when restored URL filters are active.
+
+---
+
 ## 2026-07-18 — Discovery URL state
 
 ### Added

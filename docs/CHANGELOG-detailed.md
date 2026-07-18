@@ -13,6 +13,31 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery filter URL state
+
+**Commit:** _pending_ · **Migration:** none
+
+- **URL initialization (`apps/web/app/page.tsx`):**
+  - Restores state, guest count, maximum price, listing tags, experience tags,
+    property type, dietary options, sort order, search text, and view mode.
+  - Parses comma-separated multi-select filters.
+  - Validates experience tags, property types, dietary options, sort values,
+    and view modes before applying them.
+  - Opens the filter panel automatically when restored filters are active.
+- **URL synchronization:**
+  - Adds or removes URL parameters as filters change.
+  - Keeps default and cleared values out of the URL.
+  - Continues to use `history.replaceState` without refreshing the page.
+  - Preserves existing pathname and hash values.
+- **Verified:**
+  - Complete filter combinations survive refresh.
+  - Shared Discovery URLs restore the expected state.
+  - `Clear all` removes search and filter parameters.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-18 — Discovery URL state
 
 **Commit:** _pending_ · **Migration:** none

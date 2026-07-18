@@ -113,11 +113,74 @@ export default function HomePage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
 
+    const parseCsv = (value: string | null) =>
+      value
+        ? value
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean)
+        : [];
+
+    const validExperienceTags = new Set<string>(EXPERIENCE_TAGS);
+    const validPropertyTypes = new Set<string>(PROPERTY_TYPES);
+    const validDietaryOptions = new Set<string>(DIETARY_OPTIONS);
+    const validSorts = new Set<string>([
+      'newest',
+      'price-asc',
+      'price-desc',
+    ]);
+
     const urlSearch = params.get('q')?.trim() ?? '';
     const urlView = params.get('view');
+    const urlState = params.get('state')?.trim() ?? '';
+    const urlGuests = params.get('guests')?.trim() ?? '';
+    const urlMaxPrice = params.get('maxPrice')?.trim() ?? '';
+    const urlTags = parseCsv(params.get('tags'));
 
-    if (urlSearch) {
-      setSearch(urlSearch);
+    const urlExperiences = parseCsv(
+      params.get('experiences'),
+    ).filter((value) => validExperienceTags.has(value));
+
+    const urlPropertyType = params.get('propertyType')?.trim() ?? '';
+
+    const urlDietary = parseCsv(
+      params.get('dietary'),
+    ).filter((value) => validDietaryOptions.has(value));
+
+    const urlSort = params.get('sort')?.trim() ?? '';
+
+    setSearch(urlSearch);
+    setFilterState(urlState);
+    setFilterGuests(urlGuests);
+    setFilterMaxPrice(urlMaxPrice);
+    setFilterTags(urlTags);
+    setFilterExperienceTags(urlExperiences);
+
+    setFilterPropertyType(
+      validPropertyTypes.has(urlPropertyType)
+        ? urlPropertyType
+        : '',
+    );
+
+    setFilterDietary(urlDietary);
+
+    setFilterSort(
+      validSorts.has(urlSort)
+        ? (urlSort as DiscoverySort)
+        : '',
+    );
+
+    if (
+      urlState ||
+      urlGuests ||
+      urlMaxPrice ||
+      urlTags.length > 0 ||
+      urlExperiences.length > 0 ||
+      validPropertyTypes.has(urlPropertyType) ||
+      urlDietary.length > 0 ||
+      validSorts.has(urlSort)
+    ) {
+      setShowFilters(true);
     }
 
     if (
@@ -135,18 +198,49 @@ export default function HomePage() {
     if (!urlStateReady) return;
 
     const params = new URLSearchParams(window.location.search);
-    const normalizedSearch = debouncedSearch.trim();
 
-    if (normalizedSearch) {
-      params.set('q', normalizedSearch);
-    } else {
-      params.delete('q');
-    }
+    const setOrDelete = (key: string, value: string) => {
+      const normalizedValue = value.trim();
+
+      if (normalizedValue) {
+        params.set(key, normalizedValue);
+      } else {
+        params.delete(key);
+      }
+    };
+
+    setOrDelete('q', debouncedSearch);
+    setOrDelete('state', filterState);
+    setOrDelete('guests', filterGuests);
+    setOrDelete('maxPrice', filterMaxPrice);
+    setOrDelete('propertyType', filterPropertyType);
+    setOrDelete('sort', filterSort);
 
     if (viewMode !== 'grid') {
       params.set('view', viewMode);
     } else {
       params.delete('view');
+    }
+
+    if (filterTags.length > 0) {
+      params.set('tags', filterTags.join(','));
+    } else {
+      params.delete('tags');
+    }
+
+    if (filterExperienceTags.length > 0) {
+      params.set(
+        'experiences',
+        filterExperienceTags.join(','),
+      );
+    } else {
+      params.delete('experiences');
+    }
+
+    if (filterDietary.length > 0) {
+      params.set('dietary', filterDietary.join(','));
+    } else {
+      params.delete('dietary');
     }
 
     const query = params.toString();
@@ -161,7 +255,19 @@ export default function HomePage() {
       '',
       nextUrl,
     );
-  }, [debouncedSearch, viewMode, urlStateReady]);
+  }, [
+    debouncedSearch,
+    viewMode,
+    filterState,
+    filterGuests,
+    filterMaxPrice,
+    filterTags,
+    filterExperienceTags,
+    filterPropertyType,
+    filterDietary,
+    filterSort,
+    urlStateReady,
+  ]);
 
   const visibleMapListings = useMemo(() => {
     const resultIds = new Set(results.map((listing) => listing.id));
