@@ -13,6 +13,30 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery browser history support
+
+**Commit:** _pending_ · **Migration:** none
+
+- **URL restoration (`apps/web/app/page.tsx`):**
+  - Extracted URL parsing into a reusable state-restoration function.
+  - Reused the same parsing logic during initial page load and browser
+    history navigation.
+  - Restores search, filters, sorting, and Grid/Map/Split view state.
+  - Resets invalid or missing view values to Grid view.
+- **Browser navigation:**
+  - Added a `popstate` listener for Back and Forward navigation.
+  - Replaced URL-only state replacement with guarded history entries.
+  - Prevented restored URL state from being immediately overwritten.
+  - Avoided duplicate history entries when the generated URL is unchanged.
+- **Autocomplete:**
+  - Closes the suggestions list during browser-history navigation.
+  - Resets the active suggestion index.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-18 — Responsive Discovery map views
 
 **Commit:** _pending_ · **Migration:** none

@@ -103,6 +103,7 @@ export default function HomePage() {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [urlStateReady, setUrlStateReady] = useState(false);
+  const restoringUrlStateRef = useRef(false);
 
   // Filter state
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
@@ -118,7 +119,7 @@ export default function HomePage() {
 
   const debouncedSearch = useDebounce(search, 350);
 
-  useEffect(() => {
+  const applyUrlState = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
 
     const parseCsv = (value: string | null) =>
@@ -149,7 +150,8 @@ export default function HomePage() {
       params.get('experiences'),
     ).filter((value) => validExperienceTags.has(value));
 
-    const urlPropertyType = params.get('propertyType')?.trim() ?? '';
+    const urlPropertyType =
+      params.get('propertyType')?.trim() ?? '';
 
     const urlDietary = parseCsv(
       params.get('dietary'),
@@ -178,18 +180,17 @@ export default function HomePage() {
         : '',
     );
 
-    if (
-      urlState ||
-      urlGuests ||
-      urlMaxPrice ||
+    const hasUrlFilters =
+      Boolean(urlState) ||
+      Boolean(urlGuests) ||
+      Boolean(urlMaxPrice) ||
       urlTags.length > 0 ||
       urlExperiences.length > 0 ||
       validPropertyTypes.has(urlPropertyType) ||
       urlDietary.length > 0 ||
-      validSorts.has(urlSort)
-    ) {
-      setShowFilters(true);
-    }
+      validSorts.has(urlSort);
+
+    setShowFilters(hasUrlFilters);
 
     if (
       urlView === 'grid' ||
@@ -197,13 +198,41 @@ export default function HomePage() {
       urlView === 'split'
     ) {
       setViewMode(urlView);
+    } else {
+      setViewMode('grid');
     }
 
-    setUrlStateReady(true);
+    setShowSuggestions(false);
+    setActiveSuggestionIndex(-1);
   }, []);
 
   useEffect(() => {
+    restoringUrlStateRef.current = true;
+    applyUrlState();
+    setUrlStateReady(true);
+
+    const handlePopState = () => {
+      restoringUrlStateRef.current = true;
+      applyUrlState();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [applyUrlState]);
+
+  useEffect(() => {
     if (!urlStateReady) return;
+
+    if (restoringUrlStateRef.current) {
+      if (debouncedSearch === search) {
+        restoringUrlStateRef.current = false;
+      }
+
+      return;
+    }
 
     const params = new URLSearchParams(window.location.search);
 
@@ -258,12 +287,20 @@ export default function HomePage() {
       `${query ? `?${query}` : ''}` +
       `${window.location.hash}`;
 
-    window.history.replaceState(
+    const currentUrl =
+      `${window.location.pathname}` +
+      `${window.location.search}` +
+      `${window.location.hash}`;
+
+    if (nextUrl === currentUrl) return;
+
+    window.history.pushState(
       window.history.state,
       '',
       nextUrl,
     );
   }, [
+    search,
     debouncedSearch,
     viewMode,
     filterState,

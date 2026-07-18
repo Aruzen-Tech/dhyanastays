@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery browser history support
+
+### Improved
+- Added browser Back and Forward support for Discovery search state.
+- Search text, filters, and view mode are restored from the URL without
+  refreshing the page.
+- Autocomplete closes and resets when navigating through browser history.
+- Discovery changes now create meaningful browser-history entries.
+
+---
+
 ## 2026-07-18 — Responsive Discovery map views
 
 ### Improved
