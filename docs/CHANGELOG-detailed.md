@@ -13,6 +13,28 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery map request cancellation
+
+**Commit:** _pending_ · **Migration:** none
+
+- **API client (`apps/web/lib/api.ts`):**
+  - Added optional `AbortSignal` support to map-bound listing requests.
+  - Passed the signal through the existing shared request wrapper.
+- **Viewport requests (`apps/web/app/page.tsx`):**
+  - Added a reusable `AbortController` reference.
+  - Cancels the previous request before starting a new viewport request.
+  - Ignores cancellation errors instead of showing an error state.
+  - Retains request-ID protection so stale responses cannot update the map.
+  - Cleans up active requests when the page unmounts.
+- **Verified:**
+  - Rapid map movement cancels older network requests.
+  - Only the latest viewport updates map listings.
+  - Cancelled requests do not trigger the map error overlay.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-18 — Discovery marker and card selection
 
 **Commit:** _pending_ · **Migration:** none

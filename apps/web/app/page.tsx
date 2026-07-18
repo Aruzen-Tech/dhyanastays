@@ -91,6 +91,7 @@ export default function HomePage() {
   const [mapError, setMapError] = useState('');
   const [hasLoadedMapBounds, setHasLoadedMapBounds] = useState(false);
   const mapRequestId = useRef(0);
+  const mapAbortControllerRef = useRef<AbortController | null>(null);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [search, setSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -562,40 +563,61 @@ export default function HomePage() {
     return out;
   }, [filterState, filterGuests, filterMaxPrice, filterTags]);
 
-  const handleMapBoundsChange = useCallback(async (bounds: LatLngBounds) => {
-    const requestId = ++mapRequestId.current;
-    const southWest = bounds.getSouthWest();
-    const northEast = bounds.getNorthEast();
+  const handleMapBoundsChange = useCallback(
+    async (bounds: LatLngBounds) => {
+      mapAbortControllerRef.current?.abort();
 
-    setMapLoading(true);
-    setMapError('');
+      const controller = new AbortController();
+      mapAbortControllerRef.current = controller;
 
-    try {
-      const listings = await listingsApi.getByBounds(
-        southWest.lat,
-        southWest.lng,
-        northEast.lat,
-        northEast.lng,
-      );
+      const requestId = ++mapRequestId.current;
+      const southWest = bounds.getSouthWest();
+      const northEast = bounds.getNorthEast();
 
-      if (requestId === mapRequestId.current) {
-        setMapListings(listings);
-        setHasLoadedMapBounds(true);
-      }
-    } catch (error) {
-      if (requestId === mapRequestId.current) {
-        setMapError(
-          error instanceof Error
-            ? error.message
-            : 'Unable to load listings for this map area.',
+      setMapLoading(true);
+      setMapError('');
+
+      try {
+        const listings = await listingsApi.getByBounds(
+          southWest.lat,
+          southWest.lng,
+          northEast.lat,
+          northEast.lng,
+          controller.signal,
         );
-        setHasLoadedMapBounds(true);
+
+        if (requestId === mapRequestId.current) {
+          setMapListings(listings);
+          setHasLoadedMapBounds(true);
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+
+        if (requestId === mapRequestId.current) {
+          setMapError(
+            error instanceof Error
+              ? error.message
+              : 'Unable to load listings for this map area.',
+          );
+          setHasLoadedMapBounds(true);
+        }
+      } finally {
+        if (mapAbortControllerRef.current === controller) {
+          mapAbortControllerRef.current = null;
+        }
+
+        if (requestId === mapRequestId.current) {
+          setMapLoading(false);
+        }
       }
-    } finally {
-      if (requestId === mapRequestId.current) {
-        setMapLoading(false);
-      }
-    }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      mapAbortControllerRef.current?.abort();
+    };
   }, []);
 
   // Search via API (Meilisearch with DB fallback) or facet-driven discovery

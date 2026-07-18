@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery map request cancellation
+
+### Improved
+- Cancelled outdated map viewport requests when users move or zoom the map.
+- Prevented cancelled requests from showing map error states.
+- Kept stale-response protection so only the latest viewport updates markers.
+- Cancelled active map requests when leaving the page.
+
+---
+
 ## 2026-07-18 — Discovery marker and card selection
 
 ### Improved
