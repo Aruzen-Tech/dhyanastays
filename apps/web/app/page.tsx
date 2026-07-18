@@ -337,6 +337,24 @@ export default function HomePage() {
     return mapListings.filter((listing) => resultIds.has(listing.id));
   }, [mapListings, results]);
 
+  useEffect(() => {
+    if (!selectedListingId) return;
+
+    const selectedListingIsVisible = visibleMapListings.some(
+      (listing) => listing.id === selectedListingId,
+    );
+
+    if (!selectedListingIsVisible) {
+      setSelectedListingId(null);
+    }
+  }, [selectedListingId, visibleMapListings]);
+
+  useEffect(() => {
+    if (viewMode !== 'split') {
+      setHoveredId(null);
+    }
+  }, [viewMode]);
+
   const showMapEmptyState =
     hasLoadedMapBounds &&
     !mapLoading &&

@@ -16,6 +16,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery selection-state cleanup
+
+### Improved
+- Cleared selected listings when they are removed by filters or map movement.
+- Prevented stale marker highlights after switching away from Split view.
+- Kept marker and card selection synchronized with currently visible results.
+
+---
+
 ## 2026-07-18 — Discovery map request cancellation
 
 ### Improved

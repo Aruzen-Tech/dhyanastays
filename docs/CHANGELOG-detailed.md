@@ -13,6 +13,24 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery selection-state cleanup
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Selection cleanup (`apps/web/app/page.tsx`):**
+  - Clears the selected listing when it is no longer present in visible map
+    results.
+  - Prevents filtered-out or off-screen listings from remaining highlighted.
+  - Clears temporary card-hover state after leaving Split view.
+- **Verified:**
+  - Applying filters clears removed selections.
+  - Moving the map clears selections outside the viewport.
+  - Switching views does not leave stale marker highlights.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
 ## 2026-07-18 — Discovery map request cancellation
 
 **Commit:** _pending_ · **Migration:** none
