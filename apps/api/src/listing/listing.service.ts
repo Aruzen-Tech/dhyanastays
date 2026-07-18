@@ -15,6 +15,10 @@ import { AddMediaDto } from './dto/add-media.dto';
 import { AddSeasonalRateDto } from './dto/add-seasonal-rate.dto';
 import { AddAvailabilityBlockDto } from './dto/add-availability-block.dto';
 import { UpdatePreparationDto } from './dto/update-preparation.dto';
+import {
+  toMeiliListingDocument,
+  type MeiliListingSource,
+} from './meili-listing-document';
 
 @Injectable()
 export class ListingService {
@@ -713,20 +717,13 @@ export class ListingService {
     });
   }
 
-  private async meiliIndex(listing: {
-    id: string; title: string; description: string;
-    city: string; state: string; country: string; status: string;
-    rateRules?: Array<{ baseNightlyRate: number; maxGuests: number }>;
-  }): Promise<void> {
+  private async meiliIndex(
+    listing: MeiliListingSource,
+  ): Promise<void> {
     const meiliUrl = this.config.get<string>('MEILI_URL', '');
     const meiliKey = this.config.get<string>('MEILI_MASTER_KEY', '');
     if (!meiliUrl || !meiliKey) return;
-    const rr = listing.rateRules?.[0];
-    const doc = {
-      id: listing.id, title: listing.title, description: listing.description,
-      city: listing.city, state: listing.state, country: listing.country,
-      baseNightlyRate: rr?.baseNightlyRate ?? 0, maxGuests: rr?.maxGuests ?? 2,
-    };
+    const doc = toMeiliListingDocument(listing);
     try {
       await fetch(`${meiliUrl}/indexes/listings/documents`, {
         method: 'POST',

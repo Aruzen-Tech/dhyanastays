@@ -16,6 +16,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery Meilisearch reindexing
+
+### Added
+- Added a reusable mapper for generating consistent Meilisearch listing
+  documents.
+- Added a `meili:reindex` command that rebuilds the listings index from all
+  approved PostgreSQL listings.
+- The reindex command creates the index when missing, removes stale documents,
+  waits for asynchronous tasks, and configures searchable, filterable, and
+  sortable attributes.
+- Discovery fields, pricing, capacity, coordinates, and creation date are now
+  included in indexed documents.
+- Added unit tests for Meilisearch document generation.
+
+---
+
 ## 2026-07-18 — Discovery search relevance ordering
 
 ### Fixed

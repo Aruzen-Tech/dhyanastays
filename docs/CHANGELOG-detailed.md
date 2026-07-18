@@ -13,6 +13,36 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery Meilisearch reindexing
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Shared document mapper:**
+  - Added `apps/api/src/listing/meili-listing-document.ts`.
+  - Produces consistent index documents for regular listing updates and full
+    reindexing.
+  - Includes title, description, city, state, country, coordinates, experience
+    tags, property type, dietary options, nightly rate, capacity, status, and
+    creation date.
+- **Reindex command:**
+  - Added `pnpm --filter @dhyana/api meili:reindex`.
+  - Creates the `listings` index when it does not exist.
+  - Loads only approved listings from PostgreSQL.
+  - Clears stale documents before rebuilding the index.
+  - Waits for Meilisearch tasks and reports failures or timeouts.
+  - Configures searchable, filterable, and sortable attributes.
+- **Tests:**
+  - Added mapper coverage for complete Discovery fields.
+  - Added coverage for missing-rate-rule defaults.
+- **Verified:**
+  - Five approved local listings were indexed successfully.
+  - Index settings were applied.
+  - Typo-tolerant search returns matching listings.
+  - Full backend tests pass.
+  - Backend ESLint and TypeScript build pass.
+
+---
+
 ## 2026-07-18 — Discovery search relevance ordering
 
 **Commit:** _pending_ · **Migration:** none
