@@ -13,6 +13,47 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-19 — Discovery frontend tests
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Test tooling (`apps/web/package.json`, `apps/web/vitest.config.ts`):**
+  - Replaced the placeholder web test command with `vitest run`.
+  - Added a `vitest` watch-mode command.
+  - Added Vitest, jsdom, React Testing Library, and DOM Testing Library as
+    web-only development dependencies.
+  - Kept Node as the default environment and enabled jsdom only for the
+    ListingCard component specification.
+  - Added the existing `@` path alias to the test configuration.
+  - Kept the JSX transform adjustment isolated to Vitest.
+- **Map grouping tests
+  (`apps/web/components/listing-map-grouping.spec.ts`):**
+  - Added coverage for empty input and invalid coordinates.
+  - Added single-listing and exact-coordinate grouping checks.
+  - Added threshold, adjacent-bucket, and connected-component tests.
+  - Added deterministic ordering and stable group-ID checks.
+- **Listing-card tests (`apps/web/components/ListingCard.spec.tsx`):**
+  - Verifies the semantic `article` card shell.
+  - Verifies exactly one primary listing link.
+  - Protects against placing the wishlist button inside the listing link.
+  - Confirms the main listing information remains within the primary link.
+  - Verifies fallback artwork and decorative emoji accessibility semantics.
+  - Uses the real Next.js Link and a narrow WishlistButton mock.
+- **Scope:**
+  - No production component, API, backend, schema, migration, seed, deployment,
+    or CI changes.
+  - No PostgreSQL, Redis, Meilisearch, backend service, environment secret, or
+    external network access is required to run the tests.
+- **Verified:**
+  - `pnpm --filter @dhyana/web test` passes.
+  - 2 test files pass with 15 passing tests.
+  - TypeScript validation passes with `tsc --noEmit`.
+  - The web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no remaining actionable issues.
+
+---
+
 ## 2026-07-18 — Discovery listing-card accessibility
 
 **Commit:** _pending_ · **Migration:** none

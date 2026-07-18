@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-19 — Discovery frontend tests
+
+### Added
+- Added a dedicated Vitest setup for the web application.
+- Added deterministic unit tests for dense map-marker grouping.
+- Added component tests protecting the listing-card link and wishlist structure.
+- Added accessibility checks for decorative placeholders and card metadata.
+- Added frontend test and watch commands for local development.
+
+---
+
 ## 2026-07-18 — Discovery listing-card accessibility
 
 ### Improved
