@@ -13,6 +13,26 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery map viewport result limit
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Backend map query (`apps/api/src/listing/listing.service.ts`):**
+  - Added a named `MAP_LISTING_LIMIT` constant.
+  - Limited viewport queries to 200 approved listings.
+  - Preserved coordinate validation, media inclusion, rate rules, and
+    newest-first ordering.
+- **Tests (`apps/api/src/listing/listing.service.spec.ts`):**
+  - Added coverage verifying that the Prisma viewport query receives
+    `take: 200`.
+- **Verified:**
+  - Listing service test suite passes: 6 tests.
+  - Backend lint passes.
+  - Backend build completes successfully.
+  - Generated `dist` files were restored and excluded from the change.
+
+---
+
 ## 2026-07-18 — Discovery selection-state cleanup
 
 **Commit:** _pending_ · **Migration:** none

@@ -20,6 +20,8 @@ import {
   type MeiliListingSource,
 } from './meili-listing-document';
 
+const MAP_LISTING_LIMIT = 200;
+
 @Injectable()
 export class ListingService {
   private readonly logger = new Logger(ListingService.name);
@@ -341,6 +343,7 @@ export class ListingService {
       },
       include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
       orderBy: { createdAt: 'desc' },
+      take: MAP_LISTING_LIMIT,
     });
   }
 

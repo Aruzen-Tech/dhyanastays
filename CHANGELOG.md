@@ -16,6 +16,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery map viewport result limit
+
+### Improved
+- Limited map viewport queries to 200 approved listings.
+- Prevented very large map responses from slowing the Discovery page.
+- Kept the existing newest-first ordering and response format unchanged.
+
+---
+
 ## 2026-07-18 — Discovery selection-state cleanup
 
 ### Improved

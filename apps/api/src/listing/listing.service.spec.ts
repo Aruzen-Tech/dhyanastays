@@ -91,6 +91,24 @@ describe('ListingService', () => {
     expect(prismaMock.listing.findMany).not.toHaveBeenCalled();
   });
 
+  it('limits map viewport results', async () => {
+    prismaMock.listing.findMany.mockResolvedValue([]);
+
+    await service.getListingsByBounds(
+      11.8,
+      79.6,
+      12.2,
+      80,
+    );
+
+    expect(prismaMock.listing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+      }),
+    );
+  });
+
   it('returns approved listings from Meilisearch hits', async () => {
     configMock.get.mockImplementation((key: string, def?: string) => {
       if (key === 'MEILI_URL') return 'http://localhost:7700';
