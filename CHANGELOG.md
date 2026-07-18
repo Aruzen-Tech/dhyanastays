@@ -16,6 +16,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery controls accessibility
+
+### Improved
+- Added accessible names and selected-state semantics to Grid, Map, and Split
+  view controls.
+- Added expanded-state semantics to the Discovery filter panel.
+- Added programmatic selected states to filter buttons.
+- Added explicit labels for filter form controls.
+- Improved search result announcements and keyboard focus visibility.
+- Improved error and empty-result semantics without changing search behavior.
+
+---
+
 ## 2026-07-18 — Dense map marker grouping
 
 ### Improved

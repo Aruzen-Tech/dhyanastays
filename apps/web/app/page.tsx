@@ -728,6 +728,31 @@ export default function HomePage() {
   const formatFacet = (s: string) =>
     s.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
+  const suggestionsRendered =
+    showSuggestions && searchSuggestions.length > 0;
+
+  const activeSuggestionId =
+    suggestionsRendered &&
+    activeSuggestionIndex >= 0 &&
+    activeSuggestionIndex < searchSuggestions.length
+      ? `search-suggestion-${activeSuggestionIndex}`
+      : undefined;
+
+  const resultsStatusText =
+    loading
+      ? 'Loading stays.'
+      : searching
+        ? 'Searching stays.'
+        : `${results.length} curated ${results.length === 1 ? 'stay' : 'stays'}.`;
+
+  const visibleResultsStatusText =
+    loading || searching
+      ? 'Searching...'
+      : `${results.length} curated ${results.length === 1 ? 'stay' : 'stays'}`;
+
+  const discoveryFocusRingClassName =
+    'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/30 focus-visible:ring-offset-2';
+
   return (
     <>
       {/* Hero */}
@@ -772,19 +797,15 @@ export default function HomePage() {
                 aria-label="Search stays"
                 role="combobox"
                 aria-autocomplete="list"
-                aria-controls="search-suggestions"
-                aria-expanded={showSuggestions && searchSuggestions.length > 0}
-                aria-activedescendant={
-                  activeSuggestionIndex >= 0
-                    ? `search-suggestion-${activeSuggestionIndex}`
-                    : undefined
-                }
+                aria-controls={suggestionsRendered ? 'search-suggestions' : undefined}
+                aria-expanded={suggestionsRendered}
+                aria-activedescendant={activeSuggestionId}
                 onKeyDown={handleSearchKeyDown}
                 className="w-full rounded-2xl border-0 py-4 pl-11 pr-4 text-base text-gray-900 shadow-lg
                            focus:outline-none focus:ring-2 focus:ring-gold-500/50"
               />
 
-              {showSuggestions && searchSuggestions.length > 0 && (
+              {suggestionsRendered && (
                 <div
                   id="search-suggestions"
                   role="listbox"
@@ -838,15 +859,21 @@ export default function HomePage() {
             <h2 className="text-xl font-bold text-gray-900">
               {search ? `Results for "${search}"` : 'All Stays'}
             </h2>
-            <p className="text-gray-500 text-sm mt-0.5">
-              {loading || searching ? 'Searching...' : `${results.length} curated ${results.length === 1 ? 'stay' : 'stays'}`}
+            <p
+              className="text-gray-500 text-sm mt-0.5"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <span aria-hidden="true">{visibleResultsStatusText}</span>
+              <span className="sr-only">{resultsStatusText}</span>
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {(search || activeFilterCount > 0) && (
               <button
                 onClick={() => { setSearch(''); clearFilters(); }}
-                className="btn-ghost text-sm"
+                className={`btn-ghost text-sm ${discoveryFocusRingClassName}`}
               >
                 Clear all
               </button>
@@ -855,28 +882,44 @@ export default function HomePage() {
             {/* Filter toggle */}
             <button
               onClick={() => setShowFilters((v) => !v)}
+              aria-expanded={showFilters}
+              aria-controls={showFilters ? 'discovery-filters' : undefined}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${showFilters || activeFilterCount > 0
                 ? 'bg-brand-700 text-white border-brand-700'
                 : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
-                }`}
+                } ${discoveryFocusRingClassName}`}
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
               </svg>
               Filters
               {activeFilterCount > 0 && (
-                <span className="bg-white text-brand-700 rounded-full w-4 h-4 text-xs flex items-center justify-center font-bold leading-none">
-                  {activeFilterCount}
-                </span>
+                <>
+                  <span
+                    aria-hidden="true"
+                    className="bg-white text-brand-700 rounded-full w-4 h-4 text-xs flex items-center justify-center font-bold leading-none"
+                  >
+                    {activeFilterCount}
+                  </span>
+                  <span className="sr-only">
+                    {activeFilterCount} active {activeFilterCount === 1 ? 'filter' : 'filters'}
+                  </span>
+                </>
               )}
             </button>
 
             {/* View mode toggle */}
-            <div className="flex items-center rounded-lg bg-gray-100 p-1">
+            <div
+              className="flex items-center rounded-lg bg-gray-100 p-1"
+              role="group"
+              aria-label="Listing view"
+            >
               <button
                 onClick={() => setViewMode('grid')}
+                aria-label="Grid view"
+                aria-pressed={viewMode === 'grid'}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  }`}
+                  } ${discoveryFocusRingClassName}`}
                 title="Grid view"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -885,8 +928,10 @@ export default function HomePage() {
               </button>
               <button
                 onClick={() => setViewMode('map')}
+                aria-label="Map view"
+                aria-pressed={viewMode === 'map'}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'map' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  }`}
+                  } ${discoveryFocusRingClassName}`}
                 title="Map view"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -895,11 +940,13 @@ export default function HomePage() {
               </button>
               <button
                 onClick={() => setViewMode('split')}
+                aria-label="Split view"
+                aria-pressed={viewMode === 'split'}
                 className={`hidden px-3 py-1.5 rounded-md text-sm font-medium transition-colors md:inline-flex ${
                   viewMode === 'split'
                     ? 'bg-white text-gray-900 shadow-sm'
                     : 'text-gray-500 hover:text-gray-700'
-                }`}
+                } ${discoveryFocusRingClassName}`}
                 title="Split view"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -912,12 +959,16 @@ export default function HomePage() {
 
         {/* Filter panel */}
         {showFilters && (
-          <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6 space-y-5">
+          <div
+            id="discovery-filters"
+            className="bg-white border border-gray-200 rounded-xl p-5 mb-6 space-y-5"
+          >
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
               {/* State filter */}
               <div>
-                <label className="label text-xs">State</label>
+                <label htmlFor="discovery-filter-state" className="label text-xs">State</label>
                 <select
+                  id="discovery-filter-state"
                   value={filterState}
                   onChange={(e) => setFilterState(e.target.value)}
                   className="input text-sm"
@@ -931,8 +982,9 @@ export default function HomePage() {
 
               {/* Guests filter */}
               <div>
-                <label className="label text-xs">Minimum guests</label>
+                <label htmlFor="discovery-filter-guests" className="label text-xs">Minimum guests</label>
                 <input
+                  id="discovery-filter-guests"
                   type="number"
                   min={1}
                   max={20}
@@ -945,8 +997,9 @@ export default function HomePage() {
 
               {/* Max price */}
               <div>
-                <label className="label text-xs">Max price per night (₹)</label>
+                <label htmlFor="discovery-filter-max-price" className="label text-xs">Max price per night (₹)</label>
                 <input
+                  id="discovery-filter-max-price"
                   type="number"
                   min={0}
                   step={500}
@@ -959,8 +1012,9 @@ export default function HomePage() {
 
               {/* Sort */}
               <div>
-                <label className="label text-xs">Sort by</label>
+                <label htmlFor="discovery-filter-sort" className="label text-xs">Sort by</label>
                 <select
+                  id="discovery-filter-sort"
                   value={filterSort}
                   onChange={(e) => setFilterSort(e.target.value as DiscoverySort | '')}
                   className="input text-sm"
@@ -981,10 +1035,11 @@ export default function HomePage() {
                   <button
                     key={tag}
                     onClick={() => toggleExperience(tag)}
+                    aria-pressed={filterExperienceTags.includes(tag)}
                     className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterExperienceTags.includes(tag)
                       ? 'bg-brand-700 text-white border-brand-700'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                      }`}
+                      } ${discoveryFocusRingClassName}`}
                   >
                     {formatFacet(tag)}
                   </button>
@@ -998,10 +1053,11 @@ export default function HomePage() {
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setFilterPropertyType('')}
+                  aria-pressed={!filterPropertyType}
                   className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${!filterPropertyType
                     ? 'bg-brand-700 text-white border-brand-700'
                     : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                    }`}
+                    } ${discoveryFocusRingClassName}`}
                 >
                   Any
                 </button>
@@ -1009,10 +1065,11 @@ export default function HomePage() {
                   <button
                     key={pt}
                     onClick={() => setFilterPropertyType(pt)}
+                    aria-pressed={filterPropertyType === pt}
                     className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterPropertyType === pt
                       ? 'bg-brand-700 text-white border-brand-700'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                      }`}
+                      } ${discoveryFocusRingClassName}`}
                   >
                     {formatFacet(pt)}
                   </button>
@@ -1028,10 +1085,11 @@ export default function HomePage() {
                   <button
                     key={option}
                     onClick={() => toggleDietary(option)}
+                    aria-pressed={filterDietary.includes(option)}
                     className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterDietary.includes(option)
                       ? 'bg-brand-700 text-white border-brand-700'
                       : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                      }`}
+                      } ${discoveryFocusRingClassName}`}
                   >
                     {formatFacet(option)}
                   </button>
@@ -1052,10 +1110,11 @@ export default function HomePage() {
                           <button
                             key={tag.id}
                             onClick={() => toggleTag(tag.id)}
+                            aria-pressed={filterTags.includes(tag.id)}
                             className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterTags.includes(tag.id)
                               ? 'bg-brand-700 text-white border-brand-700'
                               : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                              }`}
+                              } ${discoveryFocusRingClassName}`}
                           >
                             {tag.name}
                           </button>
@@ -1069,7 +1128,10 @@ export default function HomePage() {
 
             {activeFilterCount > 0 && (
               <div className="flex justify-end">
-                <button onClick={clearFilters} className="btn-ghost text-sm text-gray-500">
+                <button
+                  onClick={clearFilters}
+                  className={`btn-ghost text-sm text-gray-500 ${discoveryFocusRingClassName}`}
+                >
                   Clear filters
                 </button>
               </div>
@@ -1078,7 +1140,7 @@ export default function HomePage() {
         )}
 
         {error && (
-          <div className="alert-error mb-6">
+          <div className="alert-error mb-6" role="alert">
             Could not load listings: {error}
             <span className="block text-xs mt-1 opacity-70">Make sure the API is running on port 3001.</span>
           </div>
@@ -1111,7 +1173,10 @@ export default function HomePage() {
                 : 'Check back soon — our curators are adding new retreats.'}
             </p>
             {(search || activeFilterCount > 0) && (
-              <button onClick={() => { setSearch(''); clearFilters(); }} className="btn-primary mt-6">
+              <button
+                onClick={() => { setSearch(''); clearFilters(); }}
+                className={`btn-primary mt-6 ${discoveryFocusRingClassName}`}
+              >
                 Browse all stays
               </button>
             )}

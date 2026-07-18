@@ -13,6 +13,45 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery controls accessibility
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search and results (`apps/web/app/page.tsx`):**
+  - Keeps autocomplete keyboard behavior unchanged.
+  - Only exposes `aria-controls` while the suggestion list exists.
+  - Added a single polite, atomic status region for loading, searching, and
+    completed result counts.
+  - Prevented duplicate announcements during empty-result transitions.
+- **View controls:**
+  - Added labelled grouping semantics for Grid, Map, and Split controls.
+  - Added `aria-label` and `aria-pressed` to icon-only view buttons.
+  - Added visible keyboard focus styling.
+- **Filters:**
+  - Added `aria-expanded` and conditional `aria-controls` to the filter
+    disclosure.
+  - Added explicit `id` and `htmlFor` associations to State, Guests, Maximum
+    Price, and Sort controls.
+  - Added `aria-pressed` to experience, property-type, dietary, and listing-tag
+    filter buttons.
+  - Added screen-reader text describing the active filter count.
+- **Results states:**
+  - Error state uses alert semantics.
+  - Empty-state content remains visible while the main results status remains
+    the only polite live region.
+- **Scope:**
+  - No map, card, API, dependency, backend, schema, migration, seed, or
+    unrelated module changes.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no remaining actionable issues.
+  - Search, autocomplete, filters, view controls, responsive behavior, and
+    results states were manually verified.
+
+---
+
 ## 2026-07-18 — Dense map marker grouping
 
 **Commit:** _pending_ · **Migration:** none
