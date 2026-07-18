@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-18 — Discovery listing-card accessibility
+
+### Improved
+- Removed invalid nested interactive content from Discovery listing cards.
+- Preserved native card-link navigation while making the wishlist control independent.
+- Added clearer keyboard focus treatment for card and wishlist interactions.
+- Improved placeholder-image and decorative emoji semantics.
+- Preserved Grid, Split-view, wishlist, hover-sync, and responsive behavior.
+
+---
+
 ## 2026-07-18 — Discovery map accessibility
 
 ### Improved

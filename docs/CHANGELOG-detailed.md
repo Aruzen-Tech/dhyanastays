@@ -13,6 +13,41 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Discovery listing-card accessibility
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Card structure (`apps/web/components/ListingCard.tsx`):**
+  - Replaced the invalid full-card link containing a wishlist button with a
+    semantic `article`.
+  - Kept one real Next.js link for the primary listing navigation.
+  - Moved `WishlistButton` outside the link as an independent sibling control.
+  - Preserved native click, new-tab, context-menu, and keyboard navigation.
+- **Wishlist behavior:**
+  - Preserved guest-only rendering, loading, disabled, and API behavior.
+  - Kept the wishlist control in its existing top-right visual position.
+  - Ensured wishlist interaction does not trigger listing navigation.
+- **Keyboard accessibility:**
+  - Preserved the tab order of listing link followed by wishlist button.
+  - Added visible focus treatment without adding wrapper tab stops.
+- **Images and decorative content:**
+  - Made the fallback listing illustration decorative to avoid duplicate naming.
+  - Hid decorative location and guest emoji from assistive technology while
+    preserving readable text.
+- **Scope:**
+  - No `WishlistButton`, parent page, map, grouping, API, global CSS,
+    dependency, backend, schema, migration, seed, deployment, or CI changes.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no actionable issues.
+  - Grid and Split navigation, new-tab behavior, wishlist independence,
+    marker synchronization, selected styling, keyboard focus, and responsive
+    layouts were manually verified.
+
+---
+
 ## 2026-07-18 — Discovery map accessibility
 
 **Commit:** _pending_ · **Migration:** none
