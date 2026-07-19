@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-19 — Discovery tag URL validation
+
+### Fixed
+- Prevented unvalidated listing-tag IDs from filtering Discovery results before metadata loads.
+- Added metadata-aware validation and canonicalization for tag IDs in shared URLs.
+- Preserved raw tag URLs when metadata is unavailable while keeping those tags inactive.
+- Prevented unknown and duplicate tag IDs from emptying results or creating invalid filter state.
+- Preserved user-driven tag selection and browser Back/Forward behavior.
+
+---
+
 ## 2026-07-19 — Discovery URL-state hardening
 
 ### Fixed

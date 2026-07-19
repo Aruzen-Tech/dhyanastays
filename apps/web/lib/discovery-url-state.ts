@@ -22,6 +22,11 @@ export type NormalizedDiscoveryUrlState = {
   canonicalParams: URLSearchParams;
 };
 
+export type NormalizedDiscoveryTagUrlState = {
+  tagIds: string[];
+  canonicalParams: URLSearchParams;
+};
+
 const DEFAULT_VALID_SORTS: readonly DiscoverySort[] = [
   'newest',
   'price-asc',
@@ -111,6 +116,56 @@ function setSingleParam(
   if (value) {
     params.set(key, value);
   }
+}
+
+export function parseDiscoveryTagCandidates(
+  inputParams: URLSearchParams,
+): string[] {
+  const tagsValue = inputParams.get('tags');
+
+  if (!tagsValue) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  tagsValue
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .forEach((item) => {
+      if (seen.has(item)) {
+        return;
+      }
+
+      seen.add(item);
+      out.push(item);
+    });
+
+  return out;
+}
+
+export function normalizeDiscoveryTagUrlState(
+  inputParams: URLSearchParams,
+  validTagIds: readonly string[],
+): NormalizedDiscoveryTagUrlState {
+  const canonicalParams = new URLSearchParams(inputParams);
+  const validTagIdSet = new Set(validTagIds);
+  const tagIds = parseDiscoveryTagCandidates(inputParams).filter((tagId) =>
+    validTagIdSet.has(tagId),
+  );
+
+  canonicalParams.delete('tags');
+
+  if (tagIds.length > 0) {
+    canonicalParams.set('tags', tagIds.join(','));
+  }
+
+  return {
+    tagIds,
+    canonicalParams,
+  };
 }
 
 export function normalizeDiscoveryUrlState(

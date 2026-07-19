@@ -13,6 +13,54 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-19 — Discovery tag URL validation
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Tag URL parsing (`apps/web/lib/discovery-url-state.ts`):**
+  - Added a pure parser for pending tag-ID candidates.
+  - Uses the first `tags` parameter, trims entries, removes empty values, and
+    deduplicates IDs while preserving their original order.
+  - Added metadata-aware validation against successfully loaded tag IDs.
+  - Canonicalizes successful validation to at most one `tags` parameter.
+  - Preserves unrelated URL parameters without mutating the input.
+- **Metadata lifecycle (`apps/web/app/page.tsx`):**
+  - Added explicit `loading`, `ready`, and `failed` states for tag metadata.
+  - Keeps URL tag candidates separate from active filters while metadata is
+    unresolved.
+  - Prevents pending or unknown IDs from affecting results, selected buttons,
+    or active-filter counts.
+  - Successful metadata loading activates only known IDs and removes unknown
+    or duplicate values using `replaceState`.
+  - Metadata failure leaves the original tag URL untouched while keeping
+    unvalidated tags inactive.
+- **History and interaction behavior:**
+  - Preserves parser-driven `replaceState` canonicalization without adding
+    history entries.
+  - Preserves the existing `pushState` flow for user-selected tag filters.
+  - Keeps browser Back/Forward restoration aligned with the latest URL.
+  - Prevents delayed candidates from overriding later user selections.
+- **Tests (`apps/web/components/discovery-url-state.spec.ts`):**
+  - Added candidate parsing, deduplication, and first-occurrence coverage.
+  - Added exact case-sensitive metadata validation tests.
+  - Added unknown-ID, repeated-parameter, empty-vocabulary, unrelated-parameter,
+    and input-immutability coverage.
+- **Scope:**
+  - No API, backend, dependency, Vitest configuration, schema, migration, seed,
+    deployment, or CI changes.
+- **Verified:**
+  - Targeted URL-state suite passes: 21 tests.
+  - Complete frontend suite passes: 3 files and 39 tests.
+  - Web TypeScript validation passes.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex clarification review found no actionable issues.
+  - Successful, delayed, and failed tag-metadata flows were manually verified.
+  - URL canonicalization, active-filter state, user selection, refresh, and
+    browser Back/Forward behavior were manually verified.
+
+---
+
 ## 2026-07-19 — Discovery URL-state hardening
 
 **Commit:** _pending_ · **Migration:** none

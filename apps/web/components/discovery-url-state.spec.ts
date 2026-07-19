@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeDiscoveryUrlState } from '../lib/discovery-url-state';
+import {
+  normalizeDiscoveryTagUrlState,
+  normalizeDiscoveryUrlState,
+  parseDiscoveryTagCandidates,
+} from '../lib/discovery-url-state';
 import {
   DIETARY_OPTIONS,
   EXPERIENCE_TAGS,
@@ -36,6 +40,10 @@ describe('normalizeDiscoveryUrlState', () => {
       'guests=abc',
       'guests=NaN',
       'guests=Infinity',
+      'guests=1e1',
+      'guests=%2B4',
+      'guests=4abc',
+      'guests=0x10',
       'guests=21',
       `guests=${Number.MAX_SAFE_INTEGER + 1}`,
     ];
@@ -63,6 +71,10 @@ describe('normalizeDiscoveryUrlState', () => {
       'maxPrice=abc',
       'maxPrice=NaN',
       'maxPrice=Infinity',
+      'maxPrice=1e3',
+      'maxPrice=%2B500',
+      'maxPrice=500abc',
+      'maxPrice=0x10',
       `maxPrice=${Number.MAX_SAFE_INTEGER + 1}`,
     ];
 
@@ -194,5 +206,97 @@ describe('normalizeDiscoveryUrlState', () => {
     ]);
     expect(normalized.canonicalParams.get('q')).toBe('Retreat');
     expect(normalized.canonicalParams.has('view')).toBe(false);
+  });
+});
+
+describe('parseDiscoveryTagCandidates', () => {
+  it('returns an empty array when tags are missing', () => {
+    expect(parseDiscoveryTagCandidates(new URLSearchParams(''))).toEqual([]);
+  });
+
+  it('removes empty entries, trims ids, and deduplicates in first-occurrence order', () => {
+    const params = new URLSearchParams(
+      'tags=%20spa,%20,%20wifi,spa,%20wifi%20,%20heating%20',
+    );
+
+    expect(parseDiscoveryTagCandidates(params)).toEqual([
+      'spa',
+      'wifi',
+      'heating',
+    ]);
+  });
+
+  it('uses only the first tags occurrence and performs no vocabulary validation', () => {
+    const params = new URLSearchParams('tags=unknown,%20valid&tags=ignored');
+
+    expect(parseDiscoveryTagCandidates(params)).toEqual(['unknown', 'valid']);
+  });
+});
+
+describe('normalizeDiscoveryTagUrlState', () => {
+  it('keeps valid ids, removes unknown ids and duplicates, and preserves candidate order', () => {
+    const params = new URLSearchParams(
+      'tags=tag-b,unknown,tag-a,tag-b,tag-c',
+    );
+
+    const normalized = normalizeDiscoveryTagUrlState(params, [
+      'tag-a',
+      'tag-b',
+      'tag-c',
+    ]);
+
+    expect(normalized.tagIds).toEqual(['tag-b', 'tag-a', 'tag-c']);
+    expect(normalized.canonicalParams.getAll('tags')).toEqual([
+      'tag-b,tag-a,tag-c',
+    ]);
+  });
+
+  it('uses exact case-sensitive matching and removes tags entirely when all candidates are invalid', () => {
+    const params = new URLSearchParams('tags=Tag-A,tag-b');
+
+    const normalized = normalizeDiscoveryTagUrlState(params, ['tag-a']);
+
+    expect(normalized.tagIds).toEqual([]);
+    expect(normalized.canonicalParams.has('tags')).toBe(false);
+  });
+
+  it('canonicalizes repeated tags occurrences to one occurrence after metadata is ready', () => {
+    const params = new URLSearchParams('tags=tag-a,%20tag-b&tags=tag-c');
+
+    const normalized = normalizeDiscoveryTagUrlState(params, [
+      'tag-a',
+      'tag-b',
+      'tag-c',
+    ]);
+
+    expect(normalized.tagIds).toEqual(['tag-a', 'tag-b']);
+    expect(normalized.canonicalParams.getAll('tags')).toEqual([
+      'tag-a,tag-b',
+    ]);
+  });
+
+  it('preserves unrelated parameters and does not mutate the input URLSearchParams object', () => {
+    const params = new URLSearchParams(
+      'north=12.1&tags=tag-a,unknown&guests=4&tags=tag-b',
+    );
+    const before = params.toString();
+
+    const normalized = normalizeDiscoveryTagUrlState(params, ['tag-a']);
+
+    expect(normalized.tagIds).toEqual(['tag-a']);
+    expect(normalized.canonicalParams.get('north')).toBe('12.1');
+    expect(normalized.canonicalParams.get('guests')).toBe('4');
+    expect(params.toString()).toBe(before);
+    expect(params.getAll('tags')).toEqual(['tag-a,unknown', 'tag-b']);
+  });
+
+  it('removes all tag candidates when the successful vocabulary is empty', () => {
+    const normalized = normalizeDiscoveryTagUrlState(
+      new URLSearchParams('tags=tag-a,tag-b'),
+      [],
+    );
+
+    expect(normalized.tagIds).toEqual([]);
+    expect(normalized.canonicalParams.has('tags')).toBe(false);
   });
 });

@@ -12,7 +12,11 @@ import type { LatLngBounds } from 'leaflet';
 import dynamic from 'next/dynamic';
 import ListingCard from '../components/ListingCard';
 import { listingsApi } from '../lib/api';
-import { normalizeDiscoveryUrlState } from '../lib/discovery-url-state';
+import {
+  normalizeDiscoveryTagUrlState,
+  normalizeDiscoveryUrlState,
+  parseDiscoveryTagCandidates,
+} from '../lib/discovery-url-state';
 import type { DiscoverySort, Listing, Tag } from '../lib/types';
 import {
   DIETARY_OPTIONS,
@@ -46,6 +50,14 @@ type SearchSuggestion = {
   type: 'Stay' | 'City' | 'State';
   secondary?: string;
 };
+
+type TagMetadataStatus = 'loading' | 'ready' | 'failed';
+
+function arraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+
+  return left.every((value, index) => value === right[index]);
+}
 
 function MapStatusOverlay({
   loading,
@@ -105,6 +117,8 @@ export default function HomePage() {
   const searchRequestId = useRef(0);
   const mapAbortControllerRef = useRef<AbortController | null>(null);
   const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [tagMetadataStatus, setTagMetadataStatus] =
+    useState<TagMetadataStatus>('loading');
   const [search, setSearch] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
@@ -122,6 +136,7 @@ export default function HomePage() {
   const [showFilters, setShowFilters] = useState(false);
   const [urlStateReady, setUrlStateReady] = useState(false);
   const restoringUrlStateRef = useRef(false);
+  const pendingUrlTagCandidatesRef = useRef<string[]>([]);
 
   // Filter state
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
@@ -136,31 +151,38 @@ export default function HomePage() {
   const [filterSort, setFilterSort] = useState<DiscoverySort | ''>('');
 
   const debouncedSearch = useDebounce(search, 350);
+  const validTagIds = useMemo(() => allTags.map((tag) => tag.id), [allTags]);
 
   const applyUrlState = useCallback(() => {
     const params = new URLSearchParams(window.location.search);
-
-    const parseCsv = (value: string | null) =>
-      value
-        ? value
-            .split(',')
-            .map((item) => item.trim())
-            .filter(Boolean)
-        : [];
 
     const normalizedUrlState = normalizeDiscoveryUrlState(params, {
       validExperienceTags: EXPERIENCE_TAGS,
       validPropertyTypes: PROPERTY_TYPES,
       validDietaryOptions: DIETARY_OPTIONS,
     });
+    const pendingTagCandidates = parseDiscoveryTagCandidates(params);
+    pendingUrlTagCandidatesRef.current = pendingTagCandidates;
 
-    const urlTags = parseCsv(params.get('tags'));
+    let activeTagIds: string[] = [];
+    let canonicalParams = normalizedUrlState.canonicalParams;
+
+    if (tagMetadataStatus === 'ready') {
+      const normalizedTagState = normalizeDiscoveryTagUrlState(
+        canonicalParams,
+        validTagIds,
+      );
+
+      activeTagIds = normalizedTagState.tagIds;
+      canonicalParams = normalizedTagState.canonicalParams;
+      pendingUrlTagCandidatesRef.current = activeTagIds;
+    }
 
     setSearch(normalizedUrlState.q);
     setFilterState(normalizedUrlState.state);
     setFilterGuests(normalizedUrlState.guests);
     setFilterMaxPrice(normalizedUrlState.maxPrice);
-    setFilterTags(urlTags);
+    setFilterTags(activeTagIds);
     setFilterExperienceTags(normalizedUrlState.experiences);
     setFilterPropertyType(normalizedUrlState.propertyType);
     setFilterDietary(normalizedUrlState.dietary);
@@ -170,7 +192,7 @@ export default function HomePage() {
       Boolean(normalizedUrlState.state) ||
       Boolean(normalizedUrlState.guests) ||
       Boolean(normalizedUrlState.maxPrice) ||
-      urlTags.length > 0 ||
+      activeTagIds.length > 0 ||
       normalizedUrlState.experiences.length > 0 ||
       Boolean(normalizedUrlState.propertyType) ||
       normalizedUrlState.dietary.length > 0 ||
@@ -182,7 +204,7 @@ export default function HomePage() {
     setShowSuggestions(false);
     setActiveSuggestionIndex(-1);
 
-    const canonicalQuery = normalizedUrlState.canonicalParams.toString();
+    const canonicalQuery = canonicalParams.toString();
     const currentUrl =
       `${window.location.pathname}` +
       `${window.location.search}` +
@@ -199,7 +221,7 @@ export default function HomePage() {
         canonicalUrl,
       );
     }
-  }, []);
+  }, [tagMetadataStatus, validTagIds]);
 
   useEffect(() => {
     restoringUrlStateRef.current = true;
@@ -254,10 +276,12 @@ export default function HomePage() {
       params.delete('view');
     }
 
-    if (filterTags.length > 0) {
-      params.set('tags', filterTags.join(','));
-    } else {
-      params.delete('tags');
+    if (tagMetadataStatus === 'ready') {
+      if (filterTags.length > 0) {
+        params.set('tags', filterTags.join(','));
+      } else {
+        params.delete('tags');
+      }
     }
 
     if (filterExperienceTags.length > 0) {
@@ -307,6 +331,7 @@ export default function HomePage() {
     filterDietary,
     filterSort,
     urlStateReady,
+    tagMetadataStatus,
   ]);
 
   const handleListingSelect = useCallback((listingId: string) => {
@@ -519,17 +544,62 @@ export default function HomePage() {
 
   // Initial load
   useEffect(() => {
-    Promise.all([
-      listingsApi.getPublic(),
-      listingsApi.getTags().catch(() => [] as Tag[]),
-    ]).then(([listings, tags]) => {
-      setAllListings(listings);
-      setResults(listings);
-      setMapListings(listings);
-      setAllTags(tags);
-    }).catch((e: Error) => setError(e.message))
+    listingsApi.getPublic()
+      .then((listings) => {
+        setAllListings(listings);
+        setResults(listings);
+        setMapListings(listings);
+      })
+      .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+
+    listingsApi.getTags()
+      .then((tags) => {
+        setAllTags(tags);
+        setTagMetadataStatus('ready');
+      })
+      .catch(() => {
+        setAllTags([]);
+        setTagMetadataStatus('failed');
+      });
   }, []);
+
+  useEffect(() => {
+    if (tagMetadataStatus !== 'ready') {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const normalizedTagState = normalizeDiscoveryTagUrlState(
+      params,
+      validTagIds,
+    );
+
+    pendingUrlTagCandidatesRef.current = normalizedTagState.tagIds;
+
+    if (!arraysEqual(filterTags, normalizedTagState.tagIds)) {
+      restoringUrlStateRef.current = true;
+      setFilterTags(normalizedTagState.tagIds);
+    }
+
+    const canonicalQuery = normalizedTagState.canonicalParams.toString();
+    const currentUrl =
+      `${window.location.pathname}` +
+      `${window.location.search}` +
+      `${window.location.hash}`;
+    const canonicalUrl =
+      `${window.location.pathname}` +
+      `${canonicalQuery ? `?${canonicalQuery}` : ''}` +
+      `${window.location.hash}`;
+
+    if (canonicalUrl !== currentUrl) {
+      window.history.replaceState(
+        window.history.state,
+        '',
+        canonicalUrl,
+      );
+    }
+  }, [tagMetadataStatus, validTagIds]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -718,6 +788,7 @@ export default function HomePage() {
   }, [filterState, filterGuests, filterMaxPrice, filterTags, allListings, hasDiscoveryFacets]);
 
   const clearFilters = () => {
+    pendingUrlTagCandidatesRef.current = [];
     setFilterMaxPrice('');
     setFilterGuests('');
     setFilterState('');
@@ -729,6 +800,7 @@ export default function HomePage() {
   };
 
   const toggleTag = (tagId: string) => {
+    pendingUrlTagCandidatesRef.current = [];
     setFilterTags((prev) =>
       prev.includes(tagId) ? prev.filter((t) => t !== tagId) : [...prev, tagId],
     );
