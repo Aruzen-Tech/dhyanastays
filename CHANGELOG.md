@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-19 — Discovery edge-case hardening
+
+### Improved
+- Added validation for reversed map latitude and longitude bounds.
+- Added consistent 50-result limits for Meilisearch and database search fallback.
+- Added regression coverage for zero-area map bounds and search fallback behavior.
+- Added dense-marker tests for threshold boundaries, long connected clusters, and 200 identical coordinates.
+
+---
+
 ## 2026-07-19 — Discovery frontend tests
 
 ### Added

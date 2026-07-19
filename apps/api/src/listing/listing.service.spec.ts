@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { ListingStatus } from '@prisma/client';
 import { ListingService } from './listing.service';
 
@@ -29,6 +30,16 @@ const notificationMock = {
 
 const configMock = {
   get: jest.fn((_key: string, def?: string) => def ?? ''),
+};
+
+const searchFallbackWhere = {
+  status: ListingStatus.APPROVED,
+  OR: [
+    { title: { contains: 'Goa', mode: 'insensitive' } },
+    { city: { contains: 'Goa', mode: 'insensitive' } },
+    { state: { contains: 'Goa', mode: 'insensitive' } },
+    { description: { contains: 'Goa', mode: 'insensitive' } },
+  ],
 };
 
 describe('ListingService', () => {
@@ -107,6 +118,56 @@ describe('ListingService', () => {
         take: 200,
       }),
     );
+  });
+
+  it('rejects reversed latitude bounds before querying the database', async () => {
+    await expect(
+      service.getListingsByBounds(12.2, 79.6, 11.8, 80),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      service.getListingsByBounds(12.2, 79.6, 11.8, 80),
+    ).rejects.toThrow('Map bounds must have north greater than or equal to south');
+
+    expect(prismaMock.listing.findMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects reversed longitude bounds before querying the database', async () => {
+    await expect(
+      service.getListingsByBounds(11.8, 80, 12.2, 79.6),
+    ).rejects.toThrow(BadRequestException);
+
+    await expect(
+      service.getListingsByBounds(11.8, 80, 12.2, 79.6),
+    ).rejects.toThrow(
+      'Map bounds must have west less than or equal to east; antimeridian-crossing bounds are not supported by this endpoint',
+    );
+
+    expect(prismaMock.listing.findMany).not.toHaveBeenCalled();
+  });
+
+  it('accepts a zero-area viewport and queries the exact coordinate bounds', async () => {
+    prismaMock.listing.findMany.mockResolvedValue([]);
+
+    await service.getListingsByBounds(12.2, 80, 12.2, 80);
+
+    expect(prismaMock.listing.findMany).toHaveBeenCalledWith({
+      where: {
+        status: ListingStatus.APPROVED,
+        AND: [
+          { latitude: { not: null } },
+          { latitude: { gte: 12.2, lte: 12.2 } },
+          { longitude: { not: null } },
+          { longitude: { gte: 80, lte: 80 } },
+        ],
+      },
+      include: {
+        rateRules: true,
+        media: { orderBy: { sortOrder: 'asc' }, take: 1 },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
   });
 
   it('returns approved listings from Meilisearch hits', async () => {
@@ -205,15 +266,63 @@ describe('ListingService', () => {
 
     expect(prismaMock.listing.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          status: ListingStatus.APPROVED,
-          OR: [
-            { title: { contains: 'Goa', mode: 'insensitive' } },
-            { city: { contains: 'Goa', mode: 'insensitive' } },
-            { state: { contains: 'Goa', mode: 'insensitive' } },
-            { description: { contains: 'Goa', mode: 'insensitive' } },
-          ],
-        }),
+        where: searchFallbackWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+    );
+  });
+
+  it('falls back to database search when Meilisearch throws', async () => {
+    configMock.get.mockImplementation((key: string, def?: string) => {
+      if (key === 'MEILI_URL') return 'http://localhost:7700';
+      if (key === 'MEILI_MASTER_KEY') return 'meili_dev_key';
+      return def ?? '';
+    });
+
+    jest.spyOn(global, 'fetch').mockRejectedValue(new Error('socket hang up'));
+
+    const fallbackListings = [{ id: 'listing-4', title: 'Goa Cliff Retreat' }];
+
+    prismaMock.listing.findMany.mockResolvedValue(fallbackListings);
+
+    await expect(service.searchListings('Goa')).resolves.toEqual(
+      fallbackListings,
+    );
+
+    expect(prismaMock.listing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: searchFallbackWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+    );
+  });
+
+  it('falls back to database search when Meilisearch returns a non-success response', async () => {
+    configMock.get.mockImplementation((key: string, def?: string) => {
+      if (key === 'MEILI_URL') return 'http://localhost:7700';
+      if (key === 'MEILI_MASTER_KEY') return 'meili_dev_key';
+      return def ?? '';
+    });
+
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: false,
+    } as never);
+
+    const fallbackListings = [{ id: 'listing-5', title: 'Goa River Stay' }];
+
+    prismaMock.listing.findMany.mockResolvedValue(fallbackListings);
+
+    await expect(service.searchListings('Goa')).resolves.toEqual(
+      fallbackListings,
+    );
+
+    expect(prismaMock.listing.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: searchFallbackWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 50,
       }),
     );
   });

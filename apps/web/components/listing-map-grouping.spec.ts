@@ -126,6 +126,29 @@ describe('groupListingsForMap', () => {
     ]);
   });
 
+  it('groups listings that are exactly at the 72px threshold', () => {
+    const projectionById: Record<string, ProjectedPoint> = {
+      alpha: { x: 0, y: 0 },
+      beta: { x: 72, y: 0 },
+    };
+
+    const groups = groupListingsForMap<TestListing>({
+      listings: [
+        buildListing('beta', 28.601, 77.201),
+        buildListing('alpha', 28.6, 77.2),
+      ],
+      zoom: 10,
+      project: (listing) => projectionById[listing.id],
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].groupId).toBe('z10:alpha,beta');
+    expect(groups[0].listings.map((listing) => listing.id)).toEqual([
+      'alpha',
+      'beta',
+    ]);
+  });
+
   it('merges connected chains into one deterministic component', () => {
     const projectionById: Record<string, ProjectedPoint> = {
       alpha: { x: 0, y: 0 },
@@ -150,6 +173,33 @@ describe('groupListingsForMap', () => {
       'beta',
       'gamma',
     ]);
+  });
+
+  it('merges a longer transitive chain into one connected component', () => {
+    const listings = Array.from({ length: 20 }, (_, index) =>
+      buildListing(
+        `stay-${String(index + 1).padStart(2, '0')}`,
+        28.6 + index * 0.001,
+        77.2 + index * 0.001,
+      ),
+    );
+
+    const groups = groupListingsForMap<TestListing>({
+      listings: [...listings].reverse(),
+      zoom: 12,
+      project: (listing) => {
+        const index = Number.parseInt(listing.id.slice(-2), 10) - 1;
+        return { x: index * 60, y: 0 };
+      },
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].groupId).toBe(
+      `z12:${listings.map((listing) => listing.id).join(',')}`,
+    );
+    expect(groups[0].listings.map((listing) => listing.id)).toEqual(
+      listings.map((listing) => listing.id),
+    );
   });
 
   it('returns identical group ordering, member ordering, and ids for shuffled input', () => {
@@ -195,5 +245,31 @@ describe('groupListingsForMap', () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0].groupId).toBe('z15:stay-a,stay-b,stay-c');
+  });
+
+  it('creates one deterministic exact-coordinate cluster for 200 listings', () => {
+    const listings = Array.from({ length: 200 }, (_, index) =>
+      buildListing(
+        `stay-${String(index + 1).padStart(3, '0')}`,
+        28.61,
+        77.21,
+      ),
+    );
+
+    const groups = groupListingsForMap<TestListing>({
+      listings: [...listings].reverse(),
+      zoom: 14,
+      project: () => ({ x: 320, y: 160 }),
+    });
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].isExactCoordinateGroup).toBe(true);
+    expect(groups[0].listings).toHaveLength(200);
+    expect(groups[0].listings.map((listing) => listing.id)).toEqual(
+      listings.map((listing) => listing.id),
+    );
+    expect(groups[0].groupId).toBe(
+      `z14:${listings.map((listing) => listing.id).join(',')}`,
+    );
   });
 });

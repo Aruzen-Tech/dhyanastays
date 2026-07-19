@@ -21,6 +21,7 @@ import {
 } from './meili-listing-document';
 
 const MAP_LISTING_LIMIT = 200;
+const SEARCH_LISTING_LIMIT = 50;
 
 @Injectable()
 export class ListingService {
@@ -331,6 +332,16 @@ export class ListingService {
       throw new BadRequestException('Map bounds are outside the valid coordinate range');
     }
 
+    if (neLat < swLat) {
+      throw new BadRequestException('Map bounds must have north greater than or equal to south');
+    }
+
+    if (swLng > neLng) {
+      throw new BadRequestException(
+        'Map bounds must have west less than or equal to east; antimeridian-crossing bounds are not supported by this endpoint',
+      );
+    }
+
     return this.prisma.listing.findMany({
       where: {
         status: ListingStatus.APPROVED,
@@ -374,7 +385,7 @@ export class ListingService {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${meiliKey}`,
           },
-          body: JSON.stringify({ q: q.trim(), limit: 50 }),
+          body: JSON.stringify({ q: q.trim(), limit: SEARCH_LISTING_LIMIT }),
         });
         if (res.ok) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -424,6 +435,7 @@ export class ListingService {
       },
       include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
       orderBy: { createdAt: 'desc' },
+      take: SEARCH_LISTING_LIMIT,
     });
   }
 

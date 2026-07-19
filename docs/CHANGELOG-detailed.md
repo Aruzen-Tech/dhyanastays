@@ -13,6 +13,48 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-19 — Discovery edge-case hardening
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search fallback parity (`apps/api/src/listing/listing.service.ts`):**
+  - Added a shared public search limit of 50 results.
+  - Applied the same limit to Meilisearch and Prisma fallback paths.
+  - Preserved existing search filters, approval checks, relevance ordering, and
+    database fallback ordering.
+  - Kept the map viewport limit unchanged at 200 listings.
+- **Map-bound validation:**
+  - Reversed latitude bounds now fail with a bad-request response.
+  - Reversed longitude and unsupported antimeridian-crossing bounds now fail
+    with a bad-request response.
+  - Zero-height and zero-width viewports remain valid.
+  - Existing finite-number and legal coordinate-range validation remains intact.
+- **Backend tests (`apps/api/src/listing/listing.service.spec.ts`):**
+  - Added reversed-latitude and reversed-longitude rejection tests.
+  - Added zero-area viewport acceptance and exact Prisma-bound assertions.
+  - Added Meilisearch exception and non-success fallback tests.
+  - Verified fallback searches retain the 50-result cap.
+- **Dense grouping tests
+  (`apps/web/components/listing-map-grouping.spec.ts`):**
+  - Added exact 72-pixel threshold coverage.
+  - Added a 20-listing transitive connected-component test.
+  - Added deterministic grouping coverage for 200 listings at identical
+    coordinates.
+- **Scope:**
+  - No controller, schema, migration, dependency, lockfile, frontend page,
+    map rendering, deployment, or CI changes.
+- **Verified:**
+  - Targeted listing-service tests pass.
+  - Complete API suite passes: 13 suites and 272 tests.
+  - Frontend suite passes: 2 files and 18 tests.
+  - Web TypeScript validation and production build pass.
+  - API build passes.
+  - `git diff --check` passes.
+  - Codex review found no actionable issues.
+  - Valid, reversed, and zero-area viewport API smoke checks passed.
+
+---
+
 ## 2026-07-19 — Discovery frontend tests
 
 **Commit:** _pending_ · **Migration:** none
