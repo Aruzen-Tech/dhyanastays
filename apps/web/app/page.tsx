@@ -12,6 +12,7 @@ import type { LatLngBounds } from 'leaflet';
 import dynamic from 'next/dynamic';
 import ListingCard from '../components/ListingCard';
 import { listingsApi } from '../lib/api';
+import { normalizeDiscoveryUrlState } from '../lib/discovery-url-state';
 import type { DiscoverySort, Listing, Tag } from '../lib/types';
 import {
   DIETARY_OPTIONS,
@@ -147,80 +148,57 @@ export default function HomePage() {
             .filter(Boolean)
         : [];
 
-    const validExperienceTags = new Set<string>(EXPERIENCE_TAGS);
-    const validPropertyTypes = new Set<string>(PROPERTY_TYPES);
-    const validDietaryOptions = new Set<string>(DIETARY_OPTIONS);
-    const validSorts = new Set<string>([
-      'newest',
-      'price-asc',
-      'price-desc',
-    ]);
+    const normalizedUrlState = normalizeDiscoveryUrlState(params, {
+      validExperienceTags: EXPERIENCE_TAGS,
+      validPropertyTypes: PROPERTY_TYPES,
+      validDietaryOptions: DIETARY_OPTIONS,
+    });
 
-    const urlSearch = params.get('q')?.trim() ?? '';
-    const urlView = params.get('view');
-    const urlState = params.get('state')?.trim() ?? '';
-    const urlGuests = params.get('guests')?.trim() ?? '';
-    const urlMaxPrice = params.get('maxPrice')?.trim() ?? '';
     const urlTags = parseCsv(params.get('tags'));
 
-    const urlExperiences = parseCsv(
-      params.get('experiences'),
-    ).filter((value) => validExperienceTags.has(value));
-
-    const urlPropertyType =
-      params.get('propertyType')?.trim() ?? '';
-
-    const urlDietary = parseCsv(
-      params.get('dietary'),
-    ).filter((value) => validDietaryOptions.has(value));
-
-    const urlSort = params.get('sort')?.trim() ?? '';
-
-    setSearch(urlSearch);
-    setFilterState(urlState);
-    setFilterGuests(urlGuests);
-    setFilterMaxPrice(urlMaxPrice);
+    setSearch(normalizedUrlState.q);
+    setFilterState(normalizedUrlState.state);
+    setFilterGuests(normalizedUrlState.guests);
+    setFilterMaxPrice(normalizedUrlState.maxPrice);
     setFilterTags(urlTags);
-    setFilterExperienceTags(urlExperiences);
-
-    setFilterPropertyType(
-      validPropertyTypes.has(urlPropertyType)
-        ? urlPropertyType
-        : '',
-    );
-
-    setFilterDietary(urlDietary);
-
-    setFilterSort(
-      validSorts.has(urlSort)
-        ? (urlSort as DiscoverySort)
-        : '',
-    );
+    setFilterExperienceTags(normalizedUrlState.experiences);
+    setFilterPropertyType(normalizedUrlState.propertyType);
+    setFilterDietary(normalizedUrlState.dietary);
+    setFilterSort(normalizedUrlState.sort);
 
     const hasUrlFilters =
-      Boolean(urlState) ||
-      Boolean(urlGuests) ||
-      Boolean(urlMaxPrice) ||
+      Boolean(normalizedUrlState.state) ||
+      Boolean(normalizedUrlState.guests) ||
+      Boolean(normalizedUrlState.maxPrice) ||
       urlTags.length > 0 ||
-      urlExperiences.length > 0 ||
-      validPropertyTypes.has(urlPropertyType) ||
-      urlDietary.length > 0 ||
-      validSorts.has(urlSort);
+      normalizedUrlState.experiences.length > 0 ||
+      Boolean(normalizedUrlState.propertyType) ||
+      normalizedUrlState.dietary.length > 0 ||
+      Boolean(normalizedUrlState.sort);
 
     setShowFilters(hasUrlFilters);
-
-    if (
-      urlView === 'grid' ||
-      urlView === 'map' ||
-      urlView === 'split'
-    ) {
-      setViewMode(urlView);
-    } else {
-      setViewMode('grid');
-    }
+    setViewMode(normalizedUrlState.view);
 
     setShowSuggestions(false);
     setActiveSuggestionIndex(-1);
+
+    const canonicalQuery = normalizedUrlState.canonicalParams.toString();
+    const currentUrl =
+      `${window.location.pathname}` +
+      `${window.location.search}` +
+      `${window.location.hash}`;
+    const canonicalUrl =
+      `${window.location.pathname}` +
+      `${canonicalQuery ? `?${canonicalQuery}` : ''}` +
+      `${window.location.hash}`;
+
+    if (canonicalUrl !== currentUrl) {
+      window.history.replaceState(
+        window.history.state,
+        '',
+        canonicalUrl,
+      );
+    }
   }, []);
 
   useEffect(() => {

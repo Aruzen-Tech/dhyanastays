@@ -16,6 +16,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-19 — Discovery URL-state hardening
+
+### Fixed
+- Prevented malformed guest and maximum-price URL values from corrupting Discovery results.
+- Added canonical handling for numeric, text, enum, experience, and dietary URL parameters.
+- Removed duplicate and invalid fixed-filter values from shareable URLs.
+- Preserved browser Back/Forward behavior without adding history entries during URL normalization.
+- Preserved unrelated parameters and deferred metadata-dependent listing-tag validation.
+
+---
+
 ## 2026-07-19 — Discovery request-state hardening
 
 ### Fixed

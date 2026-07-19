@@ -13,6 +13,57 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-19 — Discovery URL-state hardening
+
+**Commit:** _pending_ · **Migration:** none
+
+- **URL normalizer (`apps/web/lib/discovery-url-state.ts`):**
+  - Added a pure parser and canonicalizer for fixed Discovery URL parameters.
+  - Preserves unrelated query parameters and performs no browser, React, or
+    network operations.
+  - Leaves general listing-tag parameters untouched until metadata-aware
+    validation is implemented separately.
+- **Numeric filters:**
+  - Guests accept only canonical integers from 1 through 20.
+  - Maximum price accepts only safe, non-negative integer rupee values.
+  - Invalid, decimal, signed, mixed-text, infinite, and unsafe values are
+    removed instead of reaching filter logic.
+  - Existing rupee-to-paise conversion remains unchanged.
+- **Text and fixed filters:**
+  - Trims outer whitespace from search and state values while preserving
+    internal spacing and Unicode.
+  - Validates view, sort, and property type against existing production
+    contracts.
+  - Validates and deduplicates experience and dietary values while preserving
+    their first-occurrence order.
+- **URL integration (`apps/web/app/page.tsx`):**
+  - Applies normalized values during initial mount and browser Back/Forward
+    restoration.
+  - Uses `replaceState` only for parser-driven canonicalization.
+  - Preserves `history.state`, pathname, hash, and existing user-driven
+    `pushState` behavior.
+  - Prevents malformed values from temporarily reaching active filter logic.
+- **Tests (`apps/web/components/discovery-url-state.spec.ts`):**
+  - Added strict numeric parsing and canonicalization coverage.
+  - Added text, Unicode, enum, fixed-list, and repeated-parameter tests.
+  - Added preservation checks for unrelated and repeated general-tag
+    parameters.
+- **Scope:**
+  - No API, backend, dependency, test configuration, map component, schema,
+    migration, seed, deployment, or CI changes.
+- **Verified:**
+  - Targeted URL-state tests pass: 13 tests.
+  - Complete frontend suite passes: 3 files and 31 tests.
+  - Web TypeScript validation passes.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no actionable issues.
+  - Malformed numeric values, canonical values, Unicode text, invalid enums,
+    duplicate list values, preserved parameters, refresh, and browser
+    Back/Forward behavior were manually verified.
+
+---
+
 ## 2026-07-19 — Discovery request-state hardening
 
 **Commit:** _pending_ · **Migration:** none
