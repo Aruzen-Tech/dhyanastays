@@ -16,6 +16,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-19 — Discovery request-state hardening
+
+### Fixed
+- Prevented stale search responses from replacing newer Discovery results.
+- Prevented older requests from clearing the active searching state.
+- Invalidated in-flight search updates when the Discovery page unmounts.
+- Cleared stale hover highlights when a listing disappears from the current map results.
+
+---
+
 ## 2026-07-19 — Discovery edge-case hardening
 
 ### Improved

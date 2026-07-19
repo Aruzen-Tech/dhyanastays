@@ -13,6 +13,43 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-19 — Discovery request-state hardening
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search request ownership (`apps/web/app/page.tsx`):**
+  - Added a dedicated request-generation reference for Discovery searches.
+  - Ensured only the newest request may replace results.
+  - Prevented stale successful and rejected requests from mutating current state.
+  - Prevented older completion handlers from clearing the searching state of a
+    newer request.
+  - Kept the existing API calls, filters, URL synchronization, and browser
+    Back/Forward behavior unchanged.
+- **Component lifecycle:**
+  - Invalidates in-flight search generations when the page unmounts.
+  - Performs no state updates during cleanup.
+  - Remains independent from existing map-request cancellation and generation
+    handling.
+- **Hover cleanup:**
+  - Clears `hoveredId` when the hovered stay disappears from the current visible
+    map listings.
+  - Preserves hover state while the stay remains visible.
+  - Leaves selected-listing cleanup and marker synchronization unchanged.
+- **Scope:**
+  - No API, backend, map component, URL parsing, filter semantics, dependency,
+    schema, migration, seed, deployment, or CI changes.
+- **Verified:**
+  - Frontend tests pass: 2 files and 18 tests.
+  - Web TypeScript validation passes.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no actionable issues.
+  - Slow-network query changes, rapid filter changes, browser Back/Forward,
+    stale response ordering, and disappearing hover states were manually
+    verified.
+
+---
+
 ## 2026-07-19 — Discovery edge-case hardening
 
 **Commit:** _pending_ · **Migration:** none

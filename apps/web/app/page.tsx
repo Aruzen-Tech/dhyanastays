@@ -101,6 +101,7 @@ export default function HomePage() {
   const [mapError, setMapError] = useState('');
   const [hasLoadedMapBounds, setHasLoadedMapBounds] = useState(false);
   const mapRequestId = useRef(0);
+  const searchRequestId = useRef(0);
   const mapAbortControllerRef = useRef<AbortController | null>(null);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [search, setSearch] = useState('');
@@ -358,6 +359,18 @@ export default function HomePage() {
       setSelectedListingId(null);
     }
   }, [selectedListingId, visibleMapListings]);
+
+  useEffect(() => {
+    if (!hoveredId) return;
+
+    const hoveredListingIsVisible = visibleMapListings.some(
+      (listing) => listing.id === hoveredId,
+    );
+
+    if (!hoveredListingIsVisible) {
+      setHoveredId(null);
+    }
+  }, [hoveredId, visibleMapListings]);
 
   useEffect(() => {
     if (viewMode !== 'split') {
@@ -648,11 +661,21 @@ export default function HomePage() {
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      searchRequestId.current += 1;
+    };
+  }, []);
+
   // Search via API (Meilisearch with DB fallback) or facet-driven discovery
   const runSearch = useCallback(async (q: string) => {
+    const requestId = ++searchRequestId.current;
     const useDiscovery = hasDiscoveryFacets || !!q.trim();
     if (!useDiscovery) {
-      setResults(applyFilters(allListings));
+      if (requestId === searchRequestId.current) {
+        setResults(applyFilters(allListings));
+        setSearching(false);
+      }
       return;
     }
     setSearching(true);
@@ -665,12 +688,20 @@ export default function HomePage() {
           dietaryOptions: filterDietary.length ? filterDietary : undefined,
           sort: filterSort || undefined,
         });
-        setResults(applyFilters(data));
+        if (requestId === searchRequestId.current) {
+          setResults(applyFilters(data));
+        }
       } else {
         const data = await listingsApi.search(q);
-        setResults(applyFilters(data));
+        if (requestId === searchRequestId.current) {
+          setResults(applyFilters(data));
+        }
       }
     } catch {
+      if (requestId !== searchRequestId.current) {
+        return;
+      }
+
       const lower = q.toLowerCase();
       setResults(
         applyFilters(allListings.filter(
@@ -682,7 +713,9 @@ export default function HomePage() {
         )),
       );
     } finally {
-      setSearching(false);
+      if (requestId === searchRequestId.current) {
+        setSearching(false);
+      }
     }
   }, [
     allListings,
