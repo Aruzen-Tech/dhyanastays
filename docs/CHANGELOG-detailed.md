@@ -232,6 +232,29 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-18 — Docs: production feature checklist (vs. all-modules PDF)
+
+**Commit:** _pending_ · **Migration:** none (documentation only)
+
+- **Source:** `all modules.pdf` (12 pages, 34 modules, V1→V3 breakdown with the
+  PDF's own phasing: 1–10 MVP, 11–20 Phase 2, 21–34 Phase 3). Text extracted
+  via pdf-parse (no PDF tooling on this machine).
+- **Method:** every uncertain feature grep-verified against `apps/api/src`
+  before scoring — confirmed absent: forgot/reset password, email/phone
+  verification, invoices, coupon engine, booking modification, saved addresses,
+  recently-viewed, review reply/report, sentiment, inspection module, host bank
+  details (IFSC/account), video/360 media, SOS live-location, host expenses,
+  CMS, CRM, wallet, exit-request. Confirmed present but partial: WhatsApp
+  channel plumbing (no provider), Auth0-only social login, seasonal (not
+  demand) pricing, add-on-level food/bike (not full verticals).
+- **`docs/PRODUCTION-CHECKLIST.md`** (new): scorecard (Phase 1: 4✅/5🟡/1❌ ·
+  Phase 2: 2✅/6🟡/2❌ · Phase 3: 2✅/6🟡/6❌), 34 per-module tables with
+  per-feature status + evidence notes, prioritized to-be-done (P0 №1–6 launch
+  blockers → P3 №21–28), and a cross-cutting engineering-debt gate (paise,
+  RBAC/audit, idempotency, tests, changelog convention, Meili-fallback, CI).
+
+---
+
 ## 2026-07-18 — Discovery listing-card accessibility
 
 **Commit:** _pending_ · **Migration:** none
