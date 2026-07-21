@@ -16,6 +16,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-19 — Fix schema drift: 3 tables missing from migrations (0033)
+
+### Fixed
+- **Migration/schema drift — `SystemConfig`, `AdminNotification`, `HostNotification`
+  were in `schema.prisma` but no migration created them.** Local/dev DBs had them
+  (added ad-hoc via `db push`/`migrate dev`), but a fresh `prisma migrate deploy`
+  — CI **and the live Render database** — never created them, so host/admin
+  notifications and platform system-config were silently failing in production
+  (the writes are wrapped in try/catch). Caught by the new CI integration-test
+  job. Added **`0033_sync_config_notification_tables`** (idempotent: `IF NOT
+  EXISTS` + DO-block FK, so it's a no-op where the tables already exist and a
+  create where they don't).
+- **Action required:** run `prisma migrate deploy` against the live Render DB to
+  create these tables there (they're currently missing).
+
+---
+
 ## 2026-07-19 — Production hardening pass: AI itinerary, jobs, CI, error tracking
 
 ### Fixed

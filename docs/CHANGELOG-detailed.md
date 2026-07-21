@@ -13,6 +13,42 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-19 — Fix schema drift: 3 tables missing from migrations (0033)
+
+**Commit:** _pending_ · **Migration:** `0033_sync_config_notification_tables`
+
+- **How it surfaced:** the new CI integration-test job failed — 34 tests passed
+  but `teardownFixtures` threw `The table public.HostNotification does not exist`
+  on a fresh `migrate deploy` DB. (Locally everything passed because dev DBs
+  already have the table.)
+- **Root cause:** three models were added to `schema.prisma` without ever
+  generating a migration. Verified with a text audit of every `model` vs
+  `CREATE TABLE (IF NOT EXISTS)?` across `prisma/migrations/`: exactly
+  `SystemConfig`, `AdminNotification`, `HostNotification` had no migration.
+  `FeatureFlag`/`HostSetting` (0032) and everything else were present. Because
+  the booking confirm/complete flow writes `HostNotification`/`AdminNotification`
+  inside try/catch (non-fatal), these silently no-op'd on any freshly-migrated
+  DB — CI and the live Render staging DB included.
+- **DDL source:** `prisma migrate diff --from-empty --to-schema-datamodel
+  prisma/schema.prisma --script` → extracted the exact CREATE TABLE + index +
+  FK statements for the 3 tables.
+- **`0033_sync_config_notification_tables/migration.sql`**: `CREATE TABLE IF NOT
+  EXISTS` for all three, `CREATE [UNIQUE] INDEX IF NOT EXISTS` for their indexes,
+  and a `DO $$ … EXCEPTION WHEN duplicate_object THEN NULL … $$` guard for
+  `HostNotification_hostId_fkey` — fully idempotent so it no-ops on DBs that
+  already have the tables and creates them where absent.
+- **Verification (reproduced CI locally):** created a fresh Postgres schema,
+  `migrate deploy` (incl. 0033) → tables created; applied the post-migrate GiST
+  index; ran the integration suite → teardown passes, **33/34** (the 1 failure
+  was the GiST-planner test, a fresh-empty-schema statistics artifact — it picks
+  the competing `Booking_listingId_startsAt_endsAt_idx` b-tree on tiny data; it
+  passed in the real CI run and passes on the normal `public` schema). Dropped
+  the scratch schema and ran the full suite on `public` → **34/34**.
+- **Prod action:** `prisma migrate deploy` must be run against the Render DB to
+  create these tables (they're missing there for the same reason).
+
+---
+
 ## 2026-07-19 — Production hardening pass: AI itinerary + background jobs
 
 **Commit:** _pending_ · **Migration:** none
