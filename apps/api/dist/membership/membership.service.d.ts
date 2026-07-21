@@ -29,8 +29,8 @@ export declare class MembershipService {
             id: string;
             createdAt: Date;
             updatedAt: Date;
-            title: string;
             description: string;
+            title: string;
             active: boolean;
             tier: import("@prisma/client").$Enums.MemberTier;
         }[];

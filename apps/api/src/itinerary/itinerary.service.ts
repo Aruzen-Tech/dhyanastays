@@ -74,6 +74,8 @@ const COST_PER_KTOK_OUTPUT_PAISE = 33;
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
 const ANTHROPIC_API_VERSION = '2023-06-01';
+/** Per-attempt hard timeout for the Anthropic call (the flow retries once). */
+const ANTHROPIC_TIMEOUT_MS = 30_000;
 
 const MAX_DAYS = 21;
 const MAX_CHAT_HISTORY = 20;
@@ -622,15 +624,29 @@ export class ItineraryService {
       tokensInput: number;
       tokensOutput: number;
     } | { ok: false; status: number; body: string }> => {
-      const res = await fetch(ANTHROPIC_API_URL, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': this.apiKey,
-          'anthropic-version': ANTHROPIC_API_VERSION,
-        },
-        body: JSON.stringify(body),
-      });
+      // Hard timeout — without it a stalled Anthropic connection would hang the
+      // request indefinitely, holding a Node socket + the guest's HTTP request.
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), ANTHROPIC_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(ANTHROPIC_API_URL, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-api-key': this.apiKey,
+            'anthropic-version': ANTHROPIC_API_VERSION,
+          },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+      } catch (err) {
+        // Abort (timeout) or network error → status 0, treated as retryable.
+        const msg = err instanceof Error ? err.message : 'network error';
+        return { ok: false, status: 0, body: ctrl.signal.aborted ? `timeout after ${ANTHROPIC_TIMEOUT_MS}ms` : msg };
+      } finally {
+        clearTimeout(timer);
+      }
       if (!res.ok) {
         const text = await res.text();
         return { ok: false, status: res.status, body: text };
@@ -651,8 +667,8 @@ export class ItineraryService {
       const r1 = await attempt();
       if (r1.ok) return r1;
 
-      // Retry once on 429 / 5xx. Other errors are terminal.
-      if (r1.status === 429 || r1.status >= 500) {
+      // Retry once on 429 / 5xx / timeout(0). Other errors are terminal.
+      if (r1.status === 429 || r1.status >= 500 || r1.status === 0) {
         this.logger.warn(`Anthropic ${r1.status}, retrying once after 2s`);
         await new Promise((r) => setTimeout(r, 2000));
         const r2 = await attempt();

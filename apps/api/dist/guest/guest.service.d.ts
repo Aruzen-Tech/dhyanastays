@@ -6,10 +6,10 @@ export declare class GuestService {
     private readonly prisma;
     constructor(prisma: PrismaService);
     getProfile(userId: string): Promise<{
-        role: import("@prisma/client").$Enums.UserRole;
         id: string;
         email: string;
         fullName: string;
+        role: import("@prisma/client").$Enums.UserRole;
         createdAt: Date;
         phone: string | null;
         avatarUrl: string | null;
@@ -20,10 +20,10 @@ export declare class GuestService {
         };
     }>;
     updateProfile(userId: string, dto: UpdateProfileDto): Promise<{
-        role: import("@prisma/client").$Enums.UserRole;
         id: string;
         email: string;
         fullName: string;
+        role: import("@prisma/client").$Enums.UserRole;
         phone: string | null;
         avatarUrl: string | null;
     }>;
@@ -63,12 +63,12 @@ export declare class GuestService {
             city: string;
             state: string;
             media: {
-                url: string;
                 id: string;
                 createdAt: Date;
-                listingId: string;
-                sortOrder: number;
+                url: string;
                 mediaType: string;
+                sortOrder: number;
+                listingId: string;
             }[];
             rateRules: {
                 baseNightlyRate: number;
@@ -140,21 +140,21 @@ export declare class GuestService {
         count: number;
     }>;
     getNotifications(userId: string, unreadOnly?: boolean): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
         userId: string;
+        type: string;
         metadata: import("@prisma/client/runtime/library").JsonValue;
         title: string;
         isRead: boolean;
     }[]>;
     markNotificationRead(userId: string, notificationId: string): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
         userId: string;
+        type: string;
         metadata: import("@prisma/client/runtime/library").JsonValue;
         title: string;
         isRead: boolean;

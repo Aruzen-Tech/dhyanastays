@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { captureException } from '../observability/sentry';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -46,6 +47,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       this.logger.error(
         `Unhandled exception [${correlationId}]: ${exception instanceof Error ? exception.stack : String(exception)}`,
       );
+      // Forward genuine 500s to Sentry (no-op unless SENTRY_DSN is configured).
+      captureException(exception, { correlationId, path: request.url });
     }
 
     response.status(status).json({

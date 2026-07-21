@@ -5,15 +5,15 @@ export declare class HoldController {
     private readonly holdService;
     constructor(holdService: HoldService);
     create(user: RequestUser, dto: CreateHoldDto): Promise<{
-        id: string;
         idempotencyKey: string;
-        listingId: string;
-        guestId: string;
+        id: string;
+        createdAt: Date;
+        expiresAt: Date;
         startsAt: Date;
         endsAt: Date;
-        expiresAt: Date;
+        listingId: string;
+        guestId: string;
         priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-        createdAt: Date;
     }>;
     status(user: RequestUser, listingId: string, checkIn: string, checkOut: string): Promise<{
         held: false;

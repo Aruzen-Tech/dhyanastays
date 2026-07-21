@@ -79,9 +79,9 @@ export declare class InvestorController {
             fullName: string;
         };
     } & {
-        url: string;
         id: string;
         kind: import("@prisma/client").$Enums.InvestorDocumentKind;
+        url: string;
         title: string;
         investorUserId: string;
         uploadedById: string;

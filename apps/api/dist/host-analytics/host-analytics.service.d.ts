@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 export declare class HostAnalyticsService {
     private readonly prisma;
@@ -50,21 +51,21 @@ export declare class HostAnalyticsService {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
-        priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-        guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-        checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-        checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
+        priceSnapshot: Prisma.JsonValue;
+        guestDetails: Prisma.JsonValue | null;
+        checkInData: Prisma.JsonValue | null;
+        checkOutData: Prisma.JsonValue | null;
         balanceDueAt: Date | null;
         payLaterMonths: number | null;
         acceptedTermsAt: Date | null;
-        statusHistory: import("@prisma/client/runtime/library").JsonValue;
-        cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+        statusHistory: Prisma.JsonValue;
+        cancellationPolicySnapshot: Prisma.JsonValue | null;
     })[]>;
     getBookings(userId: string, page: number, limit: number, status?: string): Promise<{
         bookings: ({
@@ -79,11 +80,11 @@ export declare class HostAnalyticsService {
                 fullName: string;
             };
             payments: {
-                type: import("@prisma/client").$Enums.PaymentPlan;
                 idempotencyKey: string;
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                type: import("@prisma/client").$Enums.PaymentPlan;
                 status: import("@prisma/client").$Enums.PaymentStatus;
                 amount: number;
                 bookingId: string;
@@ -97,52 +98,52 @@ export declare class HostAnalyticsService {
             createdAt: Date;
             updatedAt: Date;
             status: import("@prisma/client").$Enums.BookingStatus;
-            holdId: string;
-            listingId: string;
-            guestId: string;
-            plan: import("@prisma/client").$Enums.PaymentPlan;
             startsAt: Date;
             endsAt: Date;
-            priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-            guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-            checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-            checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+            listingId: string;
+            holdId: string;
+            guestId: string;
+            plan: import("@prisma/client").$Enums.PaymentPlan;
+            priceSnapshot: Prisma.JsonValue;
+            guestDetails: Prisma.JsonValue | null;
+            checkInData: Prisma.JsonValue | null;
+            checkOutData: Prisma.JsonValue | null;
             balanceDueAt: Date | null;
             payLaterMonths: number | null;
             acceptedTermsAt: Date | null;
-            statusHistory: import("@prisma/client/runtime/library").JsonValue;
-            cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+            statusHistory: Prisma.JsonValue;
+            cancellationPolicySnapshot: Prisma.JsonValue | null;
         })[];
         total: number;
         page: number;
         limit: number;
     }>;
     createNotification(hostId: string, type: string, title: string, message: string, metadata?: Record<string, unknown>): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
-        metadata: import("@prisma/client/runtime/library").JsonValue;
+        type: string;
+        metadata: Prisma.JsonValue;
         hostId: string;
         title: string;
         isRead: boolean;
     }>;
     getNotifications(userId: string, unreadOnly: boolean): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
-        metadata: import("@prisma/client/runtime/library").JsonValue;
+        type: string;
+        metadata: Prisma.JsonValue;
         hostId: string;
         title: string;
         isRead: boolean;
     }[]>;
     markNotificationRead(userId: string, id: string): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
-        metadata: import("@prisma/client/runtime/library").JsonValue;
+        type: string;
+        metadata: Prisma.JsonValue;
         hostId: string;
         title: string;
         isRead: boolean;

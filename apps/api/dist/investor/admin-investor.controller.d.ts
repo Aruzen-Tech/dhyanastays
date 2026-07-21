@@ -105,18 +105,18 @@ export declare class AdminInvestorController {
             fullName: string;
         };
     } & {
-        url: string;
         id: string;
         kind: import("@prisma/client").$Enums.InvestorDocumentKind;
+        url: string;
         title: string;
         investorUserId: string;
         uploadedById: string;
         uploadedAt: Date;
     })[]>;
     uploadDocument(dto: UploadInvestorDocumentDto, user: RequestUser): Promise<{
-        url: string;
         id: string;
         kind: import("@prisma/client").$Enums.InvestorDocumentKind;
+        url: string;
         title: string;
         investorUserId: string;
         uploadedById: string;

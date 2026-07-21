@@ -7,10 +7,10 @@ export declare class GuestController {
     private readonly guestService;
     constructor(guestService: GuestService);
     getProfile(user: RequestUser): Promise<{
-        role: import("@prisma/client").$Enums.UserRole;
         id: string;
         email: string;
         fullName: string;
+        role: import("@prisma/client").$Enums.UserRole;
         createdAt: Date;
         phone: string | null;
         avatarUrl: string | null;
@@ -21,10 +21,10 @@ export declare class GuestController {
         };
     }>;
     updateProfile(user: RequestUser, dto: UpdateProfileDto): Promise<{
-        role: import("@prisma/client").$Enums.UserRole;
         id: string;
         email: string;
         fullName: string;
+        role: import("@prisma/client").$Enums.UserRole;
         phone: string | null;
         avatarUrl: string | null;
     }>;
@@ -104,12 +104,12 @@ export declare class GuestController {
             city: string;
             state: string;
             media: {
-                url: string;
                 id: string;
                 createdAt: Date;
-                listingId: string;
-                sortOrder: number;
+                url: string;
                 mediaType: string;
+                sortOrder: number;
+                listingId: string;
             }[];
             rateRules: {
                 baseNightlyRate: number;
@@ -162,11 +162,11 @@ export declare class GuestController {
         comment: string | null;
     })[]>;
     getNotifications(user: RequestUser, unreadOnly?: string): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
         userId: string;
+        type: string;
         metadata: import("@prisma/client/runtime/library").JsonValue;
         title: string;
         isRead: boolean;
@@ -175,11 +175,11 @@ export declare class GuestController {
         count: number;
     }>;
     markRead(user: RequestUser, id: string): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
         userId: string;
+        type: string;
         metadata: import("@prisma/client/runtime/library").JsonValue;
         title: string;
         isRead: boolean;

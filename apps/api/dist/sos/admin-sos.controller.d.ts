@@ -102,8 +102,8 @@ export declare class AdminSosController {
         createdAt: Date;
         senderId: string;
         senderRole: string;
-        content: string;
         incidentId: string;
+        content: string;
     }[]>;
     sendMessage(user: RequestUser, id: string, body: {
         content: string;
@@ -112,8 +112,8 @@ export declare class AdminSosController {
         createdAt: Date;
         senderId: string;
         senderRole: string;
-        content: string;
         incidentId: string;
+        content: string;
     }>;
     ack(user: RequestUser, id: string, dto: AckIncidentDto): Promise<{
         message: string | null;

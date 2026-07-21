@@ -105,6 +105,17 @@ export class AppModule {
                 password: config.get<string>('REDIS_PASSWORD') ?? undefined,
                 maxRetriesPerRequest: null,
               },
+              // Default job options for every queue. All processors are
+              // idempotent (status-gated crons + dedup-guarded dispatchers), so
+              // retrying transient failures is safe. removeOnComplete/Fail caps
+              // stop finished jobs accumulating forever in Redis (the managed
+              // Key Value store is small — an unbounded job history would OOM it).
+              defaultJobOptions: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 2000 },
+                removeOnComplete: { count: 1000, age: 24 * 3600 },
+                removeOnFail: { count: 5000, age: 7 * 24 * 3600 },
+              },
             }),
           }),
           JobsModule,

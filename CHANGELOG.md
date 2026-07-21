@@ -16,6 +16,39 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-19 — Production hardening pass: AI itinerary, jobs, CI, error tracking
+
+### Fixed
+- **AI itinerary — Anthropic call had no timeout.** A stalled connection would
+  hang the request (and the guest's HTTP call) indefinitely. Added a 30s
+  per-attempt `AbortController` timeout; timeout/network errors now surface as
+  status 0 and retry once (like a 429/5xx), then fail cleanly.
+- **CI never ran on `dev`.** The workflow triggered on `push` to `main`/`develop`,
+  but the working branch is `dev` — so direct pushes to it were never checked.
+  Trigger is now `main`/`dev`.
+
+### Added
+- **CI integration-test job.** New `integration` job spins up Postgres 16,
+  applies migrations + the GiST index, and runs the 34-test booking-engine
+  integration suite + concurrency proofs — the tests that caught the
+  money-integrity bugs now gate every PR.
+- **Sentry error tracking (opt-in, inert by default).** Wired `@sentry/node`:
+  `initSentry()` in bootstrap + capture of genuine 500s in the global exception
+  filter. Completely no-op until `SENTRY_DSN` is set (SDK is free; only the
+  hosted project needs an account). New optional env: `SENTRY_DSN`,
+  `SENTRY_TRACES_SAMPLE_RATE`, `SENTRY_RELEASE`.
+
+### Changed
+- **BullMQ default job options (all 11 queues).** Added `attempts: 3` +
+  exponential backoff (transient failures now retry — all processors are
+  idempotent) and `removeOnComplete`/`removeOnFail` caps so finished jobs stop
+  accumulating forever in the managed Redis (protects SOS broadcast, booking
+  crons, notification outbox from an unbounded-history OOM).
+- **`render.yaml` health check → `/api/health/ready`** (DB-aware readiness probe
+  that returns 503 when Postgres is down) instead of `/api/listings`.
+
+---
+
 ## 2026-07-19 — Discovery tag URL validation
 
 ### Fixed

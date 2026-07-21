@@ -16,6 +16,9 @@ const config_1 = require("@nestjs/config");
 const client_1 = require("@prisma/client");
 const prisma_service_1 = require("../prisma/prisma.service");
 const notification_service_1 = require("../notification/notification.service");
+const meili_listing_document_1 = require("./meili-listing-document");
+const MAP_LISTING_LIMIT = 200;
+const SEARCH_LISTING_LIMIT = 50;
 let ListingService = ListingService_1 = class ListingService {
     constructor(prisma, notificationService, config) {
         this.prisma = prisma;
@@ -253,6 +256,26 @@ let ListingService = ListingService_1 = class ListingService {
         return listings;
     }
     async getListingsByBounds(swLat, swLng, neLat, neLng) {
+        const bounds = [swLat, swLng, neLat, neLng];
+        if (!bounds.every(Number.isFinite)) {
+            throw new common_1.BadRequestException('Map bounds must be valid numbers');
+        }
+        if (swLat < -90 ||
+            swLat > 90 ||
+            neLat < -90 ||
+            neLat > 90 ||
+            swLng < -180 ||
+            swLng > 180 ||
+            neLng < -180 ||
+            neLng > 180) {
+            throw new common_1.BadRequestException('Map bounds are outside the valid coordinate range');
+        }
+        if (neLat < swLat) {
+            throw new common_1.BadRequestException('Map bounds must have north greater than or equal to south');
+        }
+        if (swLng > neLng) {
+            throw new common_1.BadRequestException('Map bounds must have west less than or equal to east; antimeridian-crossing bounds are not supported by this endpoint');
+        }
         return this.prisma.listing.findMany({
             where: {
                 status: client_1.ListingStatus.APPROVED,
@@ -265,6 +288,7 @@ let ListingService = ListingService_1 = class ListingService {
             },
             include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
             orderBy: { createdAt: 'desc' },
+            take: MAP_LISTING_LIMIT,
         });
     }
     async getPublicListingById(id) {
@@ -293,18 +317,31 @@ let ListingService = ListingService_1 = class ListingService {
                         'Content-Type': 'application/json',
                         Authorization: `Bearer ${meiliKey}`,
                     },
-                    body: JSON.stringify({ q: q.trim(), limit: 50 }),
+                    body: JSON.stringify({ q: q.trim(), limit: SEARCH_LISTING_LIMIT }),
                 });
                 if (res.ok) {
                     const data = await res.json();
                     const ids = data.hits.map((h) => h.id);
                     if (ids.length > 0) {
-                        return this.prisma.listing.findMany({
-                            where: { id: { in: ids }, status: client_1.ListingStatus.APPROVED },
-                            include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
+                        const listings = await this.prisma.listing.findMany({
+                            where: {
+                                id: { in: ids },
+                                status: client_1.ListingStatus.APPROVED,
+                            },
+                            include: {
+                                rateRules: true,
+                                media: {
+                                    orderBy: { sortOrder: 'asc' },
+                                    take: 1,
+                                },
+                            },
+                        });
+                        const listingsById = new Map(listings.map((listing) => [listing.id, listing]));
+                        return ids.flatMap((id) => {
+                            const listing = listingsById.get(id);
+                            return listing ? [listing] : [];
                         });
                     }
-                    return [];
                 }
             }
             catch (err) {
@@ -325,6 +362,7 @@ let ListingService = ListingService_1 = class ListingService {
             },
             include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
             orderBy: { createdAt: 'desc' },
+            take: SEARCH_LISTING_LIMIT,
         });
     }
     async addMedia(userId, listingId, dto) {
@@ -596,12 +634,7 @@ let ListingService = ListingService_1 = class ListingService {
         const meiliKey = this.config.get('MEILI_MASTER_KEY', '');
         if (!meiliUrl || !meiliKey)
             return;
-        const rr = listing.rateRules?.[0];
-        const doc = {
-            id: listing.id, title: listing.title, description: listing.description,
-            city: listing.city, state: listing.state, country: listing.country,
-            baseNightlyRate: rr?.baseNightlyRate ?? 0, maxGuests: rr?.maxGuests ?? 2,
-        };
+        const doc = (0, meili_listing_document_1.toMeiliListingDocument)(listing);
         try {
             await fetch(`${meiliUrl}/indexes/listings/documents`, {
                 method: 'POST',

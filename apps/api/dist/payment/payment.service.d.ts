@@ -17,11 +17,11 @@ export declare class PaymentService {
     private readonly logger;
     constructor(prisma: PrismaService, bookingService: BookingService, auditService: AuditService, razorpay: RazorpayService, snapshotSigner: PriceSnapshotSignerService, payLaterService: PayLaterService, stateMachine: BookingStateMachine);
     initPayment(guestId: string, dto: InitPaymentDto): Promise<{
-        type: import("@prisma/client").$Enums.PaymentPlan;
         idempotencyKey: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        type: import("@prisma/client").$Enums.PaymentPlan;
         status: import("@prisma/client").$Enums.PaymentStatus;
         amount: number;
         bookingId: string;
@@ -47,11 +47,11 @@ export declare class PaymentService {
     private handlePaymentFailed;
     private handleRefundProcessed;
     payBalance(guestId: string, bookingId: string, idempotencyKey: string): Promise<{
-        type: import("@prisma/client").$Enums.PaymentPlan;
         idempotencyKey: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        type: import("@prisma/client").$Enums.PaymentPlan;
         status: import("@prisma/client").$Enums.PaymentStatus;
         amount: number;
         bookingId: string;
@@ -74,11 +74,11 @@ export declare class PaymentService {
         errors: number;
     }>;
     initPayLaterInstalmentPayment(guestId: string, bookingId: string, seq: number, idempotencyKey: string): Promise<{
-        type: import("@prisma/client").$Enums.PaymentPlan;
         idempotencyKey: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        type: import("@prisma/client").$Enums.PaymentPlan;
         status: import("@prisma/client").$Enums.PaymentStatus;
         amount: number;
         bookingId: string;

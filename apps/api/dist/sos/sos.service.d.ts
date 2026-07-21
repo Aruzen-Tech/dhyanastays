@@ -14,34 +14,34 @@ export declare class SosService {
     private readonly logger;
     constructor(prisma: PrismaService, auditService: AuditService, adminNotifications: AdminNotificationService, broadcastQueue: Queue);
     listTrustedContacts(userId: string): Promise<{
-        name: string;
         id: string;
         email: string | null;
         createdAt: Date;
         updatedAt: Date;
         phone: string | null;
+        name: string;
         userId: string;
         relation: string;
         primary: boolean;
     }[]>;
     createTrustedContact(userId: string, dto: UpsertTrustedContactDto): Promise<{
-        name: string;
         id: string;
         email: string | null;
         createdAt: Date;
         updatedAt: Date;
         phone: string | null;
+        name: string;
         userId: string;
         relation: string;
         primary: boolean;
     }>;
     updateTrustedContact(userId: string, id: string, dto: UpsertTrustedContactDto): Promise<{
-        name: string;
         id: string;
         email: string | null;
         createdAt: Date;
         updatedAt: Date;
         phone: string | null;
+        name: string;
         userId: string;
         relation: string;
         primary: boolean;
@@ -185,16 +185,16 @@ export declare class SosService {
         createdAt: Date;
         senderId: string;
         senderRole: string;
-        content: string;
         incidentId: string;
+        content: string;
     }[]>;
     sendMessage(actorId: string, incidentId: string, role: 'GUEST' | 'ADMIN', content: string): Promise<{
         id: string;
         createdAt: Date;
         senderId: string;
         senderRole: string;
-        content: string;
         incidentId: string;
+        content: string;
     }>;
     getStatusTimeline(actorId: string, incidentId: string, role: 'GUEST' | 'ADMIN'): Promise<{
         status: import("@prisma/client").$Enums.SosStatus;

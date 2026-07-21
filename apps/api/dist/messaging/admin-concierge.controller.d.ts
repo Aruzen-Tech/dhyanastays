@@ -5,12 +5,6 @@ export declare class AdminConciergeController {
     private readonly messaging;
     constructor(messaging: MessagingService);
     list(status?: string, breached?: string): Promise<({
-        messages: {
-            createdAt: Date;
-            senderRole: import("@prisma/client").$Enums.UserRole;
-            body: string;
-            isSystem: boolean;
-        }[];
         listing: {
             id: string;
             title: string;
@@ -21,6 +15,12 @@ export declare class AdminConciergeController {
             startsAt: Date;
             endsAt: Date;
         } | null;
+        messages: {
+            createdAt: Date;
+            senderRole: import("@prisma/client").$Enums.UserRole;
+            body: string;
+            isSystem: boolean;
+        }[];
         userOne: {
             id: string;
             email: string;
@@ -32,11 +32,11 @@ export declare class AdminConciergeController {
             fullName: string;
         };
     } & {
-        type: string;
         id: string;
         kind: import("@prisma/client").$Enums.ConversationKind;
         createdAt: Date;
         updatedAt: Date;
+        type: string;
         status: import("@prisma/client").$Enums.ConversationStatus;
         listingId: string | null;
         bookingId: string | null;
@@ -50,11 +50,21 @@ export declare class AdminConciergeController {
         closedAt: Date | null;
     })[]>;
     getOne(id: string): Promise<{
+        listing: {
+            id: string;
+            title: string;
+        } | null;
+        booking: {
+            id: string;
+            status: import("@prisma/client").$Enums.BookingStatus;
+            startsAt: Date;
+            endsAt: Date;
+        } | null;
         messages: ({
             sender: {
-                role: import("@prisma/client").$Enums.UserRole;
                 id: string;
                 fullName: string;
+                role: import("@prisma/client").$Enums.UserRole;
                 avatarUrl: string | null;
             };
         } & {
@@ -67,34 +77,24 @@ export declare class AdminConciergeController {
             body: string;
             isSystem: boolean;
         })[];
-        listing: {
-            id: string;
-            title: string;
-        } | null;
-        booking: {
-            id: string;
-            status: import("@prisma/client").$Enums.BookingStatus;
-            startsAt: Date;
-            endsAt: Date;
-        } | null;
         userOne: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
         userTwo: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
     } & {
-        type: string;
         id: string;
         kind: import("@prisma/client").$Enums.ConversationKind;
         createdAt: Date;
         updatedAt: Date;
+        type: string;
         status: import("@prisma/client").$Enums.ConversationStatus;
         listingId: string | null;
         bookingId: string | null;
@@ -113,9 +113,9 @@ export declare class AdminConciergeController {
     }>;
     send(user: RequestUser, id: string, dto: SendMessageDto): Promise<{
         sender: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
     } & {

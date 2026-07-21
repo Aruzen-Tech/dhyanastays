@@ -37,7 +37,7 @@ exports.envValidationSchema = void 0;
 const Joi = __importStar(require("joi"));
 exports.envValidationSchema = Joi.object({
     NODE_ENV: Joi.string()
-        .valid('development', 'test', 'production')
+        .valid('development', 'test', 'staging', 'production')
         .default('development'),
     PORT: Joi.number().port().default(3001),
     TZ: Joi.string().default('Asia/Kolkata'),
@@ -98,6 +98,9 @@ exports.envValidationSchema = Joi.object({
     MEILI_MASTER_KEY: Joi.string().allow('').default('meili_dev_key'),
     SOS_OPS_PHONE: Joi.string().allow('').default(''),
     SOS_OPS_EMAIL: Joi.string().allow('').default(''),
+    SENTRY_DSN: Joi.string().allow('').default(''),
+    SENTRY_TRACES_SAMPLE_RATE: Joi.number().min(0).max(1).default(0),
+    SENTRY_RELEASE: Joi.string().allow('').default(''),
     ANTHROPIC_API_KEY: Joi.string().allow('').default(''),
     ITINERARY_USER_MONTHLY_CAP_PAISE: Joi.number().integer().min(0).default(5000),
 })

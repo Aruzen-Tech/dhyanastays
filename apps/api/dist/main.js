@@ -11,7 +11,9 @@ const nestjs_pino_1 = require("nestjs-pino");
 const app_module_1 = require("./app.module");
 const global_exception_filter_1 = require("./common/filters/global-exception.filter");
 const correlation_id_interceptor_1 = require("./common/interceptors/correlation-id.interceptor");
+const sentry_1 = require("./common/observability/sentry");
 async function bootstrap() {
+    (0, sentry_1.initSentry)();
     const app = await core_1.NestFactory.create(await app_module_1.AppModule.forRoot(), { rawBody: true, bufferLogs: true });
     app.useLogger(app.get(nestjs_pino_1.Logger));
     app.use((0, helmet_1.default)({
@@ -35,16 +37,26 @@ async function bootstrap() {
         forbidNonWhitelisted: true,
         transform: true,
     }));
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()) ?? [
-        'http://localhost:3000',
-    ];
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',')
+        .map((o) => o.trim())
+        .filter(Boolean) ?? ['http://localhost:3000'];
+    const originMatchers = allowedOrigins.map((entry) => entry.includes('*')
+        ? new RegExp('^' +
+            entry
+                .split('*')
+                .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                .join('.*') +
+            '$')
+        : entry);
+    const isAllowedOrigin = (origin) => originMatchers.some((m) => typeof m === 'string' ? m === origin : m.test(origin));
     app.enableCors({
         origin: (origin, callback) => {
-            if (!origin || allowedOrigins.includes(origin)) {
+            if (!origin || isAllowedOrigin(origin)) {
                 callback(null, true);
             }
             else {
-                callback(new Error(`Origin ${origin} not allowed by CORS`));
+                console.warn(`CORS: origin not in ALLOWED_ORIGINS: ${origin}`);
+                callback(null, false);
             }
         },
         credentials: true,

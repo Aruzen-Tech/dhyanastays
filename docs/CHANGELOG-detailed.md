@@ -13,6 +13,61 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-19 — Production hardening pass: AI itinerary + background jobs
+
+**Commit:** _pending_ · **Migration:** none
+
+Part of the booking-engine / SOS / AI-itinerary production-readiness review.
+Verification found those three subsystems already largely production-grade
+(booking engine hardened earlier; SOS has a circuit breaker + degradation alerts
++ audit rows + prod backstop; itinerary has a monthly cost cap + prod key guard +
+prompt caching). Concrete gaps closed:
+
+- **`itinerary.service.ts` — `callAnthropic()`**: the `fetch` had no timeout, so
+  a stalled upstream connection would hang indefinitely. Added
+  `ANTHROPIC_TIMEOUT_MS = 30_000` + per-attempt `AbortController`; the catch maps
+  abort/network errors to `{ ok: false, status: 0 }`, and the retry predicate now
+  includes `status === 0` so a timeout retries once (2s backoff) before the
+  method returns null → `ServiceUnavailableException` to the caller.
+- **`app.module.ts` — `BullModule.forRootAsync`**: added `defaultJobOptions`
+  applied to all 11 queues — `attempts: 3` with exponential backoff (2s) and
+  `removeOnComplete { count: 1000, age: 24h }` / `removeOnFail { count: 5000,
+  age: 7d }`. Rationale: processors are idempotent (crons are status-gated;
+  outbox/payment-recon are dedup-guarded), so retrying transient infra failures
+  is safe, and the cleanup caps prevent an unbounded completed-job history from
+  exhausting the small managed Redis. SOS retry is safe: `broadcast()` swallows
+  per-channel errors (records FAILED/SKIPPED rows) and only throws on a hard DB
+  error, where a retry is desirable.
+- **`render.yaml`**: `healthCheckPath` `/api/listings` → `/api/health/ready`
+  (existing `HealthController.ready()` does `SELECT 1` and returns 503 when
+  Postgres is unreachable — a real readiness signal for Render's health checks).
+
+### CI/CD (`.github/workflows/ci.yml`)
+- **Trigger bug**: `push` branches were `["main", "develop"]` but the active
+  branch is `dev` → direct pushes were never CI-checked. Changed to
+  `["main", "dev"]` (PRs were already covered by the `pull_request:` trigger).
+- **New `integration` job**: Postgres 16 service + `prisma migrate deploy` +
+  `prisma db execute` (GiST index) + `jest --config jest-integration.config.json
+  --runInBand --forceExit` with `INT_CONCURRENCY_ITERATIONS: 10`. Env-provided
+  `DATABASE_URL`/secrets, so prisma + jest are called directly (not the
+  dotenv-wrapped package scripts, which expect a `.env` absent in CI). Validated
+  locally with the exact command → 34/34 pass.
+
+### Error tracking (Sentry)
+- Added `@sentry/node` (^10). New `src/common/observability/sentry.ts`:
+  `initSentry()` (no-op unless `SENTRY_DSN` set), `isSentryEnabled()`,
+  `captureException(err, ctx?)`. Wired `initSentry()` at the top of
+  `main.ts:bootstrap()` (before app creation) and `captureException()` in the
+  global exception filter's 500 branch (with `{ correlationId, path }`).
+  `env.validation.ts` gains optional `SENTRY_DSN` / `SENTRY_TRACES_SAMPLE_RATE`
+  (0) / `SENTRY_RELEASE`; documented in `apps/api/.env.example`. Verified inert
+  with no DSN (`isSentryEnabled() === false`).
+
+**Verified:** `tsc` 0 errors, lint clean, `build` OK, unit suite **272/272**
+green, integration **34/34** via the CI-style command, Sentry inert without DSN.
+
+---
+
 ## 2026-07-19 — Discovery tag URL validation
 
 **Commit:** _pending_ · **Migration:** none

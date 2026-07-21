@@ -11,10 +11,10 @@ export declare class TripGroupService {
             expenses: number;
         };
     } & {
-        name: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         startsAt: Date | null;
         endsAt: Date | null;
         notes: string | null;
@@ -23,10 +23,10 @@ export declare class TripGroupService {
     })[]>;
     create(userId: string, dto: CreateTripGroupDto): Promise<{
         members: {
-            role: import("@prisma/client").$Enums.TripGroupRole;
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.TripGroupRole;
             userId: string | null;
             status: import("@prisma/client").$Enums.TripGroupInviteStatus;
             groupId: string;
@@ -34,10 +34,10 @@ export declare class TripGroupService {
             acceptedAt: Date | null;
         }[];
     } & {
-        name: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         startsAt: Date | null;
         endsAt: Date | null;
         notes: string | null;
@@ -52,10 +52,10 @@ export declare class TripGroupService {
             fullName: string;
         };
         members: {
-            role: import("@prisma/client").$Enums.TripGroupRole;
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.TripGroupRole;
             userId: string | null;
             status: import("@prisma/client").$Enums.TripGroupInviteStatus;
             groupId: string;
@@ -88,10 +88,10 @@ export declare class TripGroupService {
             method: import("@prisma/client").$Enums.ExpenseSplitMethod;
             incurredAt: Date;
         })[];
-        name: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         startsAt: Date | null;
         endsAt: Date | null;
         notes: string | null;
@@ -102,10 +102,10 @@ export declare class TripGroupService {
         deleted: boolean;
     }>;
     inviteMember(userId: string, groupId: string, dto: InviteMemberDto): Promise<{
-        role: import("@prisma/client").$Enums.TripGroupRole;
         id: string;
         email: string;
         fullName: string;
+        role: import("@prisma/client").$Enums.TripGroupRole;
         userId: string | null;
         status: import("@prisma/client").$Enums.TripGroupInviteStatus;
         groupId: string;
@@ -113,10 +113,10 @@ export declare class TripGroupService {
         acceptedAt: Date | null;
     }>;
     acceptInvite(userId: string, groupId: string): Promise<{
-        role: import("@prisma/client").$Enums.TripGroupRole;
         id: string;
         email: string;
         fullName: string;
+        role: import("@prisma/client").$Enums.TripGroupRole;
         userId: string | null;
         status: import("@prisma/client").$Enums.TripGroupInviteStatus;
         groupId: string;

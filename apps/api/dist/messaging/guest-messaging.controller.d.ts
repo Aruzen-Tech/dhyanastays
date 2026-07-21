@@ -12,9 +12,9 @@ export declare class GuestMessagingController {
         status: import("@prisma/client").$Enums.ConversationStatus;
         subject: string | null;
         otherUser: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
         listing: {
@@ -40,11 +40,21 @@ export declare class GuestMessagingController {
         updatedAt: Date;
     }[]>;
     create(user: RequestUser, dto: CreateConversationDto): Promise<{
+        listing: {
+            id: string;
+            title: string;
+        } | null;
+        booking: {
+            id: string;
+            status: import("@prisma/client").$Enums.BookingStatus;
+            startsAt: Date;
+            endsAt: Date;
+        } | null;
         messages: ({
             sender: {
-                role: import("@prisma/client").$Enums.UserRole;
                 id: string;
                 fullName: string;
+                role: import("@prisma/client").$Enums.UserRole;
                 avatarUrl: string | null;
             };
         } & {
@@ -57,34 +67,24 @@ export declare class GuestMessagingController {
             body: string;
             isSystem: boolean;
         })[];
-        listing: {
-            id: string;
-            title: string;
-        } | null;
-        booking: {
-            id: string;
-            status: import("@prisma/client").$Enums.BookingStatus;
-            startsAt: Date;
-            endsAt: Date;
-        } | null;
         userOne: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
         userTwo: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
     } & {
-        type: string;
         id: string;
         kind: import("@prisma/client").$Enums.ConversationKind;
         createdAt: Date;
         updatedAt: Date;
+        type: string;
         status: import("@prisma/client").$Enums.ConversationStatus;
         listingId: string | null;
         bookingId: string | null;
@@ -101,11 +101,21 @@ export declare class GuestMessagingController {
         count: number;
     }>;
     getOne(user: RequestUser, id: string): Promise<{
+        listing: {
+            id: string;
+            title: string;
+        } | null;
+        booking: {
+            id: string;
+            status: import("@prisma/client").$Enums.BookingStatus;
+            startsAt: Date;
+            endsAt: Date;
+        } | null;
         messages: ({
             sender: {
-                role: import("@prisma/client").$Enums.UserRole;
                 id: string;
                 fullName: string;
+                role: import("@prisma/client").$Enums.UserRole;
                 avatarUrl: string | null;
             };
         } & {
@@ -118,34 +128,24 @@ export declare class GuestMessagingController {
             body: string;
             isSystem: boolean;
         })[];
-        listing: {
-            id: string;
-            title: string;
-        } | null;
-        booking: {
-            id: string;
-            status: import("@prisma/client").$Enums.BookingStatus;
-            startsAt: Date;
-            endsAt: Date;
-        } | null;
         userOne: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
         userTwo: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
     } & {
-        type: string;
         id: string;
         kind: import("@prisma/client").$Enums.ConversationKind;
         createdAt: Date;
         updatedAt: Date;
+        type: string;
         status: import("@prisma/client").$Enums.ConversationStatus;
         listingId: string | null;
         bookingId: string | null;
@@ -160,9 +160,9 @@ export declare class GuestMessagingController {
     }>;
     send(user: RequestUser, id: string, dto: SendMessageDto): Promise<{
         sender: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
     } & {

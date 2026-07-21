@@ -16,12 +16,12 @@ export declare class ListingService {
     constructor(prisma: PrismaService, notificationService: NotificationService, config: ConfigService);
     createHostListing(userId: string, dto: CreateListingDto): Promise<({
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -37,11 +37,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -58,12 +58,12 @@ export declare class ListingService {
     }) | null>;
     updateHostListing(userId: string, listingId: string, dto: UpdateListingDto): Promise<({
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -79,11 +79,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -100,12 +100,12 @@ export declare class ListingService {
     }) | null>;
     getHostListings(userId: string): Promise<({
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -121,11 +121,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -155,11 +155,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -178,11 +178,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -245,25 +245,25 @@ export declare class ListingService {
         payoutEnabled: boolean;
     }>;
     getPublicListings(): Promise<({
+        media: {
+            id: string;
+            createdAt: Date;
+            url: string;
+            mediaType: string;
+            sortOrder: number;
+            listingId: string;
+        }[];
         tags: ({
             tag: {
-                name: string;
                 id: string;
                 createdAt: Date;
+                name: string;
                 category: string;
             };
         } & {
             listingId: string;
             tagId: string;
         })[];
-        media: {
-            url: string;
-            id: string;
-            createdAt: Date;
-            listingId: string;
-            sortOrder: number;
-            mediaType: string;
-        }[];
         rateRules: {
             id: string;
             createdAt: Date;
@@ -278,11 +278,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -305,25 +305,25 @@ export declare class ListingService {
         dietaryOptions?: string[];
         sort?: 'newest' | 'price-asc' | 'price-desc';
     }): Promise<({
+        media: {
+            id: string;
+            createdAt: Date;
+            url: string;
+            mediaType: string;
+            sortOrder: number;
+            listingId: string;
+        }[];
         tags: ({
             tag: {
-                name: string;
                 id: string;
                 createdAt: Date;
+                name: string;
                 category: string;
             };
         } & {
             listingId: string;
             tagId: string;
         })[];
-        media: {
-            url: string;
-            id: string;
-            createdAt: Date;
-            listingId: string;
-            sortOrder: number;
-            mediaType: string;
-        }[];
         rateRules: {
             id: string;
             createdAt: Date;
@@ -338,11 +338,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -359,12 +359,12 @@ export declare class ListingService {
     })[]>;
     getListingsByBounds(swLat: number, swLng: number, neLat: number, neLng: number): Promise<({
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -380,11 +380,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -406,25 +406,25 @@ export declare class ListingService {
             };
             userId: string;
         };
+        media: {
+            id: string;
+            createdAt: Date;
+            url: string;
+            mediaType: string;
+            sortOrder: number;
+            listingId: string;
+        }[];
         tags: ({
             tag: {
-                name: string;
                 id: string;
                 createdAt: Date;
+                name: string;
                 category: string;
             };
         } & {
             listingId: string;
             tagId: string;
         })[];
-        media: {
-            url: string;
-            id: string;
-            createdAt: Date;
-            listingId: string;
-            sortOrder: number;
-            mediaType: string;
-        }[];
         rateRules: {
             id: string;
             createdAt: Date;
@@ -438,20 +438,20 @@ export declare class ListingService {
         seasonalRates: {
             id: string;
             createdAt: Date;
-            listingId: string;
             startsAt: Date;
             endsAt: Date;
             nightlyRate: number;
+            listingId: string;
         }[];
     } & {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -468,12 +468,12 @@ export declare class ListingService {
     }>;
     searchListings(q: string): Promise<({
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -489,11 +489,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -509,12 +509,12 @@ export declare class ListingService {
         needsReapproval: boolean;
     })[]>;
     addMedia(userId: string, listingId: string, dto: AddMediaDto): Promise<{
-        url: string;
         id: string;
         createdAt: Date;
-        listingId: string;
-        sortOrder: number;
+        url: string;
         mediaType: string;
+        sortOrder: number;
+        listingId: string;
     }>;
     deleteMedia(userId: string, listingId: string, mediaId: string): Promise<{
         deleted: boolean;
@@ -522,18 +522,18 @@ export declare class ListingService {
     addSeasonalRate(userId: string, listingId: string, dto: AddSeasonalRateDto): Promise<{
         id: string;
         createdAt: Date;
-        listingId: string;
         startsAt: Date;
         endsAt: Date;
         nightlyRate: number;
+        listingId: string;
     }>;
     getSeasonalRates(userId: string, listingId: string): Promise<{
         id: string;
         createdAt: Date;
-        listingId: string;
         startsAt: Date;
         endsAt: Date;
         nightlyRate: number;
+        listingId: string;
     }[]>;
     deleteSeasonalRate(userId: string, listingId: string, rateId: string): Promise<{
         deleted: boolean;
@@ -542,33 +542,33 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         reason: string;
-        listingId: string;
         startsAt: Date;
         endsAt: Date;
+        listingId: string;
     }>;
     getAvailabilityBlocks(userId: string, listingId: string): Promise<{
         id: string;
         createdAt: Date;
         reason: string;
-        listingId: string;
         startsAt: Date;
         endsAt: Date;
+        listingId: string;
     }[]>;
     deleteAvailabilityBlock(userId: string, listingId: string, blockId: string): Promise<{
         deleted: boolean;
     }>;
     getAllTags(): Promise<{
-        name: string;
         id: string;
         createdAt: Date;
+        name: string;
         category: string;
     }[]>;
     setListingTags(userId: string, listingId: string, tagIds: string[]): Promise<({
         tags: ({
             tag: {
-                name: string;
                 id: string;
                 createdAt: Date;
+                name: string;
                 category: string;
             };
         } & {
@@ -589,11 +589,11 @@ export declare class ListingService {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -610,9 +610,9 @@ export declare class ListingService {
     }) | null>;
     getListingTags(listingId: string): Promise<({
         tag: {
-            name: string;
             id: string;
             createdAt: Date;
+            name: string;
             category: string;
         };
     } & {

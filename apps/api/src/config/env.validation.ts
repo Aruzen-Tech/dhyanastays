@@ -98,6 +98,11 @@ export const envValidationSchema = Joi.object({
   SOS_OPS_PHONE: Joi.string().allow('').default(''),
   SOS_OPS_EMAIL: Joi.string().allow('').default(''),
 
+  // ── Error tracking (optional — inert without a DSN) ───────────────────────
+  SENTRY_DSN: Joi.string().allow('').default(''),
+  SENTRY_TRACES_SAMPLE_RATE: Joi.number().min(0).max(1).default(0),
+  SENTRY_RELEASE: Joi.string().allow('').default(''),
+
   // ── Anthropic (AI itinerary planner §5.9) ─────────────────────────────────
   // Required in production — see env.validation.ts production block. The
   // itinerary service refuses to start without it (no silent stub fallback).

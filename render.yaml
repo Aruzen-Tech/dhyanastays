@@ -35,7 +35,7 @@ services:
     plan: free                    # spins down when idle; first request ~30s cold start
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: .
-    healthCheckPath: /api/listings
+    healthCheckPath: /api/health/ready   # DB-aware readiness probe (503 if Postgres down)
     envVars:
       # staging (NOT "production") → Razorpay stub allowed, stub email/SMS/storage
       # allowed, no Anthropic key required. Flip to production only with real

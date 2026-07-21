@@ -33,11 +33,11 @@ export declare class PayLaterController {
         months: number;
     }>;
     payInstalment(user: RequestUser, bookingId: string, seq: number, dto: PayInstalmentDto): Promise<{
-        type: import("@prisma/client").$Enums.PaymentPlan;
         idempotencyKey: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        type: import("@prisma/client").$Enums.PaymentPlan;
         status: import("@prisma/client").$Enums.PaymentStatus;
         amount: number;
         bookingId: string;

@@ -8,28 +8,28 @@ export declare class HostQuickReplyController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        hostId: string;
-        body: string;
         label: string;
         sortOrder: number;
+        hostId: string;
+        body: string;
     }[]>;
     create(user: RequestUser, dto: UpsertQuickReplyDto): Promise<{
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        hostId: string;
-        body: string;
         label: string;
         sortOrder: number;
+        hostId: string;
+        body: string;
     }>;
     update(user: RequestUser, id: string, dto: UpsertQuickReplyDto): Promise<{
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        hostId: string;
-        body: string;
         label: string;
         sortOrder: number;
+        hostId: string;
+        body: string;
     }>;
     remove(user: RequestUser, id: string): Promise<{
         success: boolean;
