@@ -16,6 +16,59 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-19 — Discovery tag URL validation
+
+### Fixed
+- Prevented unvalidated listing-tag IDs from filtering Discovery results before metadata loads.
+- Added metadata-aware validation and canonicalization for tag IDs in shared URLs.
+- Preserved raw tag URLs when metadata is unavailable while keeping those tags inactive.
+- Prevented unknown and duplicate tag IDs from emptying results or creating invalid filter state.
+- Preserved user-driven tag selection and browser Back/Forward behavior.
+
+---
+
+## 2026-07-19 — Discovery URL-state hardening
+
+### Fixed
+- Prevented malformed guest and maximum-price URL values from corrupting Discovery results.
+- Added canonical handling for numeric, text, enum, experience, and dietary URL parameters.
+- Removed duplicate and invalid fixed-filter values from shareable URLs.
+- Preserved browser Back/Forward behavior without adding history entries during URL normalization.
+- Preserved unrelated parameters and deferred metadata-dependent listing-tag validation.
+
+---
+
+## 2026-07-19 — Discovery request-state hardening
+
+### Fixed
+- Prevented stale search responses from replacing newer Discovery results.
+- Prevented older requests from clearing the active searching state.
+- Invalidated in-flight search updates when the Discovery page unmounts.
+- Cleared stale hover highlights when a listing disappears from the current map results.
+
+---
+
+## 2026-07-19 — Discovery edge-case hardening
+
+### Improved
+- Added validation for reversed map latitude and longitude bounds.
+- Added consistent 50-result limits for Meilisearch and database search fallback.
+- Added regression coverage for zero-area map bounds and search fallback behavior.
+- Added dense-marker tests for threshold boundaries, long connected clusters, and 200 identical coordinates.
+
+---
+
+## 2026-07-19 — Discovery frontend tests
+
+### Added
+- Added a dedicated Vitest setup for the web application.
+- Added deterministic unit tests for dense map-marker grouping.
+- Added component tests protecting the listing-card link and wishlist structure.
+- Added accessibility checks for decorative placeholders and card metadata.
+- Added frontend test and watch commands for local development.
+
+---
+
 ## 2026-07-18 — Docs: production feature checklist (vs. all-modules PDF)
 
 ### Added
@@ -26,6 +79,249 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
   invoices, backups, live providers, monitoring), P1 core-journey polish (coupons,
   modify booking, review upgrades, inspection module, discovery), P2 partner
   operations, P3 platform maturity.
+
+---
+
+## 2026-07-18 — Discovery listing-card accessibility
+
+### Improved
+- Removed invalid nested interactive content from Discovery listing cards.
+- Preserved native card-link navigation while making the wishlist control independent.
+- Added clearer keyboard focus treatment for card and wishlist interactions.
+- Improved placeholder-image and decorative emoji semantics.
+- Preserved Grid, Split-view, wishlist, hover-sync, and responsive behavior.
+
+---
+
+## 2026-07-18 — Discovery map accessibility
+
+### Improved
+- Added labelled and busy-state semantics to Map and Split map regions.
+- Improved map loading, error, and empty-state accessibility.
+- Added accessible names and keyboard metadata to individual stay markers.
+- Improved selected-state semantics inside clustered-stay popups.
+- Removed disruptive automatic focus from cluster popups.
+- Improved Split-view list-region and map-popup accessibility.
+
+---
+
+## 2026-07-18 — Discovery controls accessibility
+
+### Improved
+- Added accessible names and selected-state semantics to Grid, Map, and Split
+  view controls.
+- Added expanded-state semantics to the Discovery filter panel.
+- Added programmatic selected states to filter buttons.
+- Added explicit labels for filter form controls.
+- Improved search result announcements and keyboard focus visibility.
+- Improved error and empty-result semantics without changing search behavior.
+
+---
+
+## 2026-07-18 — Dense map marker grouping
+
+### Improved
+- Grouped nearby map markers using deterministic client-side clustering.
+- Added cluster markers showing the number of stays in dense areas.
+- Added selectable, scrollable stay lists for exact-coordinate and
+  maximum-zoom clusters.
+- Preserved marker-to-card selection and added direct listing-detail links
+  inside cluster popups.
+- Added selected-cluster styling and keyboard-accessible cluster interactions.
+- Added the solution without introducing new dependencies or lockfile changes.
+
+---
+
+## 2026-07-18 — Discovery map viewport result limit
+
+### Improved
+- Limited map viewport queries to 200 approved listings.
+- Prevented very large map responses from slowing the Discovery page.
+- Kept the existing newest-first ordering and response format unchanged.
+
+---
+
+## 2026-07-18 — Discovery selection-state cleanup
+
+### Improved
+- Cleared selected listings when they are removed by filters or map movement.
+- Prevented stale marker highlights after switching away from Split view.
+- Kept marker and card selection synchronized with currently visible results.
+
+---
+
+## 2026-07-18 — Discovery map request cancellation
+
+### Improved
+- Cancelled outdated map viewport requests when users move or zoom the map.
+- Prevented cancelled requests from showing map error states.
+- Kept stale-response protection so only the latest viewport updates markers.
+- Cancelled active map requests when leaving the page.
+
+---
+
+## 2026-07-18 — Discovery marker and card selection
+
+### Improved
+- Clicking a map marker now selects the matching listing.
+- In Split view, the matching listing card scrolls into view automatically.
+- Selected listing cards and markers remain visually highlighted.
+- Card hover continues to provide temporary marker highlighting.
+
+---
+
+## 2026-07-18 — Discovery browser history support
+
+### Improved
+- Added browser Back and Forward support for Discovery search state.
+- Search text, filters, and view mode are restored from the URL without
+  refreshing the page.
+- Autocomplete closes and resets when navigating through browser history.
+- Discovery changes now create meaningful browser-history entries.
+
+---
+
+## 2026-07-18 — Responsive Discovery map views
+
+### Improved
+- Made the Discovery Grid and Map controls available on mobile devices.
+- Kept Split view available on tablet and desktop layouts.
+- Added responsive map heights for smaller screens.
+- Updated Split view to stack vertically on tablets and return to a
+  side-by-side layout on desktop.
+- Improved responsive loading, error, and empty-state panels.
+
+---
+
+## 2026-07-18 — Discovery autocomplete keyboard navigation
+
+### Improved
+- Search autocomplete now supports Arrow Up and Arrow Down navigation.
+- Pressing Enter selects the active suggestion, while Escape closes the list.
+- Added visible active-suggestion styling and improved combobox accessibility
+  attributes.
+
+---
+
+## 2026-07-18 — Discovery Meilisearch reindexing
+
+### Added
+- Added a reusable mapper for generating consistent Meilisearch listing
+  documents.
+- Added a `meili:reindex` command that rebuilds the listings index from all
+  approved PostgreSQL listings.
+- The reindex command creates the index when missing, removes stale documents,
+  waits for asynchronous tasks, and configures searchable, filterable, and
+  sortable attributes.
+- Discovery fields, pricing, capacity, coordinates, and creation date are now
+  included in indexed documents.
+- Added unit tests for Meilisearch document generation.
+
+---
+
+## 2026-07-18 — Discovery search relevance ordering
+
+### Fixed
+- Discovery search results now preserve the relevance order returned by
+  Meilisearch.
+- Listings missing from PostgreSQL or no longer approved are safely excluded
+  without disturbing the order of remaining results.
+- Added backend test coverage for relevance-order preservation.
+
+---
+
+## 2026-07-18 — Discovery filter URL state
+
+### Added
+- All Discovery filters are now synchronized with the browser URL.
+- Shared links and page refreshes now preserve state, guests, maximum price,
+  tags, experiences, property type, dietary options, sorting, search text, and
+  selected view.
+- The filter panel opens automatically when restored URL filters are active.
+
+---
+
+## 2026-07-18 — Discovery URL state
+
+### Added
+- Search text and selected Discovery view are now synchronized with the browser
+  URL.
+- Search and Map/Split view selections survive page refreshes and can be shared
+  through links.
+- Default Grid view and empty search state keep the homepage URL clean.
+
+---
+
+## 2026-07-18 — Discovery search autocomplete
+
+### Added
+- Added client-side search suggestions for listing names, cities, and states.
+- Suggestions appear after two characters, remove duplicates, and close after
+  selection or when clicking outside the search box.
+- Autocomplete reuses already-loaded approved listings and does not create
+  additional API requests while typing.
+
+---
+
+## 2026-07-18 — Discovery search database fallback
+
+### Fixed
+- Discovery search now falls back to PostgreSQL when Meilisearch is available
+  but returns no matching documents.
+- Added backend tests covering Meilisearch results and zero-result fallback
+  behaviour.
+
+---
+
+## 2026-07-18 — Discovery split-view status panel
+
+### Added
+- Added dedicated loading, error, and empty-area states to the listing panel in
+  Split view, so it no longer appears blank when the current map viewport has
+  no matching stays.
+
+---
+
+## 2026-07-17 — Discovery map loading and empty states
+
+### Added
+- Added non-blocking loading, error, and empty-area overlays for Map and Split
+  views while keeping the Leaflet map visible and interactive.
+- Map viewport errors are now handled separately from page-level Discovery
+  errors, and stale requests cannot incorrectly change the loading state.
+
+---
+
+## 2026-07-17 — Discovery map price markers
+
+### Changed
+- Replaced standard Leaflet pins with theme-aware nightly-price markers and
+  improved listing popups with property type, location, guest capacity,
+  experience, price, and listing links.
+- Selected markers now receive a highlighted state when their matching card is
+  hovered in split view.
+
+---
+
+## 2026-07-17 — Discovery map viewport loading
+
+### Changed
+- Map and split views now load approved listings for the current Leaflet
+  viewport through `GET /api/listings/map`, ignore stale responses, and keep
+  active search and filter results applied to visible markers and split cards.
+- Removed duplicate map requests by relying on Leaflet's `moveend` event, and
+  corrected coordinate checks so valid zero latitude or longitude values are
+  supported.
+
+---
+
+## 2026-07-17 — Discovery map bounds validation
+
+### Fixed
+- `GET /api/listings/map` now rejects missing, non-numeric, or out-of-range
+  coordinates with `400 Bad Request` instead of allowing invalid `NaN` values
+  to reach Prisma and return `500 Internal Server Error`. Added unit coverage
+  in `apps/api/src/listing/listing.service.spec.ts`.
 
 ---
 

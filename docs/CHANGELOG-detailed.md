@@ -13,6 +13,225 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-19 — Discovery tag URL validation
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Tag URL parsing (`apps/web/lib/discovery-url-state.ts`):**
+  - Added a pure parser for pending tag-ID candidates.
+  - Uses the first `tags` parameter, trims entries, removes empty values, and
+    deduplicates IDs while preserving their original order.
+  - Added metadata-aware validation against successfully loaded tag IDs.
+  - Canonicalizes successful validation to at most one `tags` parameter.
+  - Preserves unrelated URL parameters without mutating the input.
+- **Metadata lifecycle (`apps/web/app/page.tsx`):**
+  - Added explicit `loading`, `ready`, and `failed` states for tag metadata.
+  - Keeps URL tag candidates separate from active filters while metadata is
+    unresolved.
+  - Prevents pending or unknown IDs from affecting results, selected buttons,
+    or active-filter counts.
+  - Successful metadata loading activates only known IDs and removes unknown
+    or duplicate values using `replaceState`.
+  - Metadata failure leaves the original tag URL untouched while keeping
+    unvalidated tags inactive.
+- **History and interaction behavior:**
+  - Preserves parser-driven `replaceState` canonicalization without adding
+    history entries.
+  - Preserves the existing `pushState` flow for user-selected tag filters.
+  - Keeps browser Back/Forward restoration aligned with the latest URL.
+  - Prevents delayed candidates from overriding later user selections.
+- **Tests (`apps/web/components/discovery-url-state.spec.ts`):**
+  - Added candidate parsing, deduplication, and first-occurrence coverage.
+  - Added exact case-sensitive metadata validation tests.
+  - Added unknown-ID, repeated-parameter, empty-vocabulary, unrelated-parameter,
+    and input-immutability coverage.
+- **Scope:**
+  - No API, backend, dependency, Vitest configuration, schema, migration, seed,
+    deployment, or CI changes.
+- **Verified:**
+  - Targeted URL-state suite passes: 21 tests.
+  - Complete frontend suite passes: 3 files and 39 tests.
+  - Web TypeScript validation passes.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex clarification review found no actionable issues.
+  - Successful, delayed, and failed tag-metadata flows were manually verified.
+  - URL canonicalization, active-filter state, user selection, refresh, and
+    browser Back/Forward behavior were manually verified.
+
+---
+
+## 2026-07-19 — Discovery URL-state hardening
+
+**Commit:** _pending_ · **Migration:** none
+
+- **URL normalizer (`apps/web/lib/discovery-url-state.ts`):**
+  - Added a pure parser and canonicalizer for fixed Discovery URL parameters.
+  - Preserves unrelated query parameters and performs no browser, React, or
+    network operations.
+  - Leaves general listing-tag parameters untouched until metadata-aware
+    validation is implemented separately.
+- **Numeric filters:**
+  - Guests accept only canonical integers from 1 through 20.
+  - Maximum price accepts only safe, non-negative integer rupee values.
+  - Invalid, decimal, signed, mixed-text, infinite, and unsafe values are
+    removed instead of reaching filter logic.
+  - Existing rupee-to-paise conversion remains unchanged.
+- **Text and fixed filters:**
+  - Trims outer whitespace from search and state values while preserving
+    internal spacing and Unicode.
+  - Validates view, sort, and property type against existing production
+    contracts.
+  - Validates and deduplicates experience and dietary values while preserving
+    their first-occurrence order.
+- **URL integration (`apps/web/app/page.tsx`):**
+  - Applies normalized values during initial mount and browser Back/Forward
+    restoration.
+  - Uses `replaceState` only for parser-driven canonicalization.
+  - Preserves `history.state`, pathname, hash, and existing user-driven
+    `pushState` behavior.
+  - Prevents malformed values from temporarily reaching active filter logic.
+- **Tests (`apps/web/components/discovery-url-state.spec.ts`):**
+  - Added strict numeric parsing and canonicalization coverage.
+  - Added text, Unicode, enum, fixed-list, and repeated-parameter tests.
+  - Added preservation checks for unrelated and repeated general-tag
+    parameters.
+- **Scope:**
+  - No API, backend, dependency, test configuration, map component, schema,
+    migration, seed, deployment, or CI changes.
+- **Verified:**
+  - Targeted URL-state tests pass: 13 tests.
+  - Complete frontend suite passes: 3 files and 31 tests.
+  - Web TypeScript validation passes.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no actionable issues.
+  - Malformed numeric values, canonical values, Unicode text, invalid enums,
+    duplicate list values, preserved parameters, refresh, and browser
+    Back/Forward behavior were manually verified.
+
+---
+
+## 2026-07-19 — Discovery request-state hardening
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search request ownership (`apps/web/app/page.tsx`):**
+  - Added a dedicated request-generation reference for Discovery searches.
+  - Ensured only the newest request may replace results.
+  - Prevented stale successful and rejected requests from mutating current state.
+  - Prevented older completion handlers from clearing the searching state of a
+    newer request.
+  - Kept the existing API calls, filters, URL synchronization, and browser
+    Back/Forward behavior unchanged.
+- **Component lifecycle:**
+  - Invalidates in-flight search generations when the page unmounts.
+  - Performs no state updates during cleanup.
+  - Remains independent from existing map-request cancellation and generation
+    handling.
+- **Hover cleanup:**
+  - Clears `hoveredId` when the hovered stay disappears from the current visible
+    map listings.
+  - Preserves hover state while the stay remains visible.
+  - Leaves selected-listing cleanup and marker synchronization unchanged.
+- **Scope:**
+  - No API, backend, map component, URL parsing, filter semantics, dependency,
+    schema, migration, seed, deployment, or CI changes.
+- **Verified:**
+  - Frontend tests pass: 2 files and 18 tests.
+  - Web TypeScript validation passes.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no actionable issues.
+  - Slow-network query changes, rapid filter changes, browser Back/Forward,
+    stale response ordering, and disappearing hover states were manually
+    verified.
+
+---
+
+## 2026-07-19 — Discovery edge-case hardening
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search fallback parity (`apps/api/src/listing/listing.service.ts`):**
+  - Added a shared public search limit of 50 results.
+  - Applied the same limit to Meilisearch and Prisma fallback paths.
+  - Preserved existing search filters, approval checks, relevance ordering, and
+    database fallback ordering.
+  - Kept the map viewport limit unchanged at 200 listings.
+- **Map-bound validation:**
+  - Reversed latitude bounds now fail with a bad-request response.
+  - Reversed longitude and unsupported antimeridian-crossing bounds now fail
+    with a bad-request response.
+  - Zero-height and zero-width viewports remain valid.
+  - Existing finite-number and legal coordinate-range validation remains intact.
+- **Backend tests (`apps/api/src/listing/listing.service.spec.ts`):**
+  - Added reversed-latitude and reversed-longitude rejection tests.
+  - Added zero-area viewport acceptance and exact Prisma-bound assertions.
+  - Added Meilisearch exception and non-success fallback tests.
+  - Verified fallback searches retain the 50-result cap.
+- **Dense grouping tests
+  (`apps/web/components/listing-map-grouping.spec.ts`):**
+  - Added exact 72-pixel threshold coverage.
+  - Added a 20-listing transitive connected-component test.
+  - Added deterministic grouping coverage for 200 listings at identical
+    coordinates.
+- **Scope:**
+  - No controller, schema, migration, dependency, lockfile, frontend page,
+    map rendering, deployment, or CI changes.
+- **Verified:**
+  - Targeted listing-service tests pass.
+  - Complete API suite passes: 13 suites and 272 tests.
+  - Frontend suite passes: 2 files and 18 tests.
+  - Web TypeScript validation and production build pass.
+  - API build passes.
+  - `git diff --check` passes.
+  - Codex review found no actionable issues.
+  - Valid, reversed, and zero-area viewport API smoke checks passed.
+
+---
+
+## 2026-07-19 — Discovery frontend tests
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Test tooling (`apps/web/package.json`, `apps/web/vitest.config.ts`):**
+  - Replaced the placeholder web test command with `vitest run`.
+  - Added a `vitest` watch-mode command.
+  - Added Vitest, jsdom, React Testing Library, and DOM Testing Library as
+    web-only development dependencies.
+  - Kept Node as the default environment and enabled jsdom only for the
+    ListingCard component specification.
+  - Added the existing `@` path alias to the test configuration.
+  - Kept the JSX transform adjustment isolated to Vitest.
+- **Map grouping tests
+  (`apps/web/components/listing-map-grouping.spec.ts`):**
+  - Added coverage for empty input and invalid coordinates.
+  - Added single-listing and exact-coordinate grouping checks.
+  - Added threshold, adjacent-bucket, and connected-component tests.
+  - Added deterministic ordering and stable group-ID checks.
+- **Listing-card tests (`apps/web/components/ListingCard.spec.tsx`):**
+  - Verifies the semantic `article` card shell.
+  - Verifies exactly one primary listing link.
+  - Protects against placing the wishlist button inside the listing link.
+  - Confirms the main listing information remains within the primary link.
+  - Verifies fallback artwork and decorative emoji accessibility semantics.
+  - Uses the real Next.js Link and a narrow WishlistButton mock.
+- **Scope:**
+  - No production component, API, backend, schema, migration, seed, deployment,
+    or CI changes.
+  - No PostgreSQL, Redis, Meilisearch, backend service, environment secret, or
+    external network access is required to run the tests.
+- **Verified:**
+  - `pnpm --filter @dhyana/web test` passes.
+  - 2 test files pass with 15 passing tests.
+  - TypeScript validation passes with `tsc --noEmit`.
+  - The web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no remaining actionable issues.
+
+---
+
 ## 2026-07-18 — Docs: production feature checklist (vs. all-modules PDF)
 
 **Commit:** _pending_ · **Migration:** none (documentation only)
@@ -36,21 +255,601 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
-## 2026-07-16 — Docs: discovery/map handoff brief
+## 2026-07-18 — Discovery listing-card accessibility
 
-**Commit:** `8bea415` · **Migration:** none (documentation + branch only)
+**Commit:** _pending_ · **Migration:** none
 
-- **`docs/HANDOFF-discovery-map.md`** (new) — self-contained brief for an
-  external developer taking the discovery/search + map tracks: SETUP.md
-  pointer (no production secrets needed — stubs + own seeded admin), current
-  state of both tracks, per-file work map (api: listing.service /
-  public-listing.controller / spec / schema; web: page.tsx / ListingMap /
-  detail page / lib/api / types), conventions (integer paise, Postgres search
-  fallback is the production path, 4-place facet-field checklist, design
-  tokens, two-tier changelog, CI gates), guardrails (booking/payment/payout,
-  existing migrations, deploy/CI config, auth off-limits), definition of done.
-- Branch **`feature/discovery-map`** created from `dev` and pushed — external
-  work lands there and PRs into `dev`; `main` stays deploy-only.
+- **Card structure (`apps/web/components/ListingCard.tsx`):**
+  - Replaced the invalid full-card link containing a wishlist button with a
+    semantic `article`.
+  - Kept one real Next.js link for the primary listing navigation.
+  - Moved `WishlistButton` outside the link as an independent sibling control.
+  - Preserved native click, new-tab, context-menu, and keyboard navigation.
+- **Wishlist behavior:**
+  - Preserved guest-only rendering, loading, disabled, and API behavior.
+  - Kept the wishlist control in its existing top-right visual position.
+  - Ensured wishlist interaction does not trigger listing navigation.
+- **Keyboard accessibility:**
+  - Preserved the tab order of listing link followed by wishlist button.
+  - Added visible focus treatment without adding wrapper tab stops.
+- **Images and decorative content:**
+  - Made the fallback listing illustration decorative to avoid duplicate naming.
+  - Hid decorative location and guest emoji from assistive technology while
+    preserving readable text.
+- **Scope:**
+  - No `WishlistButton`, parent page, map, grouping, API, global CSS,
+    dependency, backend, schema, migration, seed, deployment, or CI changes.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no actionable issues.
+  - Grid and Split navigation, new-tab behavior, wishlist independence,
+    marker synchronization, selected styling, keyboard focus, and responsive
+    layouts were manually verified.
+
+---
+
+## 2026-07-18 — Discovery map accessibility
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Map regions (`apps/web/app/page.tsx`):**
+  - Added labelled regions for the Map view and the map half of Split view.
+  - Added `aria-busy` based on map loading state.
+  - Added screen-reader descriptions with the visible-stay count and marker
+    keyboard instructions.
+  - Kept map descriptions non-live to avoid announcements during every pan or
+    zoom operation.
+- **Map states:**
+  - Loading remains visually unchanged and non-live.
+  - Map errors use alert semantics.
+  - Empty map states use polite, atomic status semantics.
+  - Split view suppresses duplicate announcements between its map overlay and
+    listing panel.
+- **Split listing panel:**
+  - Added a labelled region for stays in the current map area.
+  - Added busy-state semantics.
+  - Added appropriate error and empty-panel semantics without changing card
+    rendering or scrolling.
+- **Markers and clusters (`apps/web/components/ListingMap.tsx`):**
+  - Added explicit keyboard support and accessible title/alt text to normal
+    listing markers.
+  - Preserved cluster naming, grouping, selection, click, and exact-coordinate
+    behavior.
+  - Added programmatic current-selection state and descriptive accessible names
+    to cluster-popup stay buttons.
+  - Preserved the separate stay-selection button and detail-page link.
+- **Popup behavior:**
+  - Removed automatic focus from cluster-popup buttons.
+  - Preserved normal keyboard traversal and popup opening behavior.
+  - Hid decorative location and guest emoji from assistive technology while
+    retaining readable text.
+- **Scope:**
+  - No ListingCard, WishlistButton, grouping algorithm, global CSS, API,
+    dependency, backend, schema, migration, seed, deployment, or CI changes.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no actionable regressions.
+  - Marker activation, cluster interaction, popup traversal, card/marker
+    synchronization, responsive layouts, rapid map movement, view switching,
+    and selection cleanup were manually verified.
+
+---
+
+## 2026-07-18 — Discovery controls accessibility
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search and results (`apps/web/app/page.tsx`):**
+  - Keeps autocomplete keyboard behavior unchanged.
+  - Only exposes `aria-controls` while the suggestion list exists.
+  - Added a single polite, atomic status region for loading, searching, and
+    completed result counts.
+  - Prevented duplicate announcements during empty-result transitions.
+- **View controls:**
+  - Added labelled grouping semantics for Grid, Map, and Split controls.
+  - Added `aria-label` and `aria-pressed` to icon-only view buttons.
+  - Added visible keyboard focus styling.
+- **Filters:**
+  - Added `aria-expanded` and conditional `aria-controls` to the filter
+    disclosure.
+  - Added explicit `id` and `htmlFor` associations to State, Guests, Maximum
+    Price, and Sort controls.
+  - Added `aria-pressed` to experience, property-type, dietary, and listing-tag
+    filter buttons.
+  - Added screen-reader text describing the active filter count.
+- **Results states:**
+  - Error state uses alert semantics.
+  - Empty-state content remains visible while the main results status remains
+    the only polite live region.
+- **Scope:**
+  - No map, card, API, dependency, backend, schema, migration, seed, or
+    unrelated module changes.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no remaining actionable issues.
+  - Search, autocomplete, filters, view controls, responsive behavior, and
+    results states were manually verified.
+
+---
+
+## 2026-07-18 — Dense map marker grouping
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Grouping helper (`apps/web/components/listing-map-grouping.ts`):**
+  - Added deterministic projected-pixel grouping with a 72-pixel threshold.
+  - Uses spatial buckets and neighbouring-cell checks to avoid unrestricted
+    pairwise comparisons.
+  - Uses deterministic union-find grouping with stable listing and group
+    ordering.
+  - Safely ignores missing or invalid coordinates.
+  - Handles nearby coordinates and exact duplicate coordinates.
+  - Exports grouping types and helpers for later frontend automated tests.
+- **Map rendering (`apps/web/components/ListingMap.tsx`):**
+  - Preserved existing price markers and listing popups for single stays.
+  - Added aggregate markers displaying the number of clustered stays.
+  - Nearby clusters zoom to their bounds when further separation is possible.
+  - Exact-coordinate and maximum-zoom clusters open a scrollable popup.
+  - Cluster popup entries support selecting the stay and opening its detail
+    page separately.
+  - Selected or hovered stays visually highlight their containing cluster.
+  - Existing marker-to-card scrolling and selection behavior remains intact.
+- **Styling (`apps/web/app/globals.css`):**
+  - Added scoped normal, selected, hover, and focus-visible cluster styles.
+  - Added mobile-safe, scrollable popup-list styling.
+  - Reused existing Dhyana Stays design tokens.
+- **Scope:**
+  - No dependency or lockfile changes.
+  - No backend, API, schema, migration, seed, or unrelated module changes.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - `git diff --check` passes.
+  - Codex review found no remaining actionable issues.
+  - Map, Split, selection, navigation, responsive, filtering, and rapid
+    pan/zoom behavior were manually verified.
+
+---
+
+## 2026-07-18 — Discovery map viewport result limit
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Backend map query (`apps/api/src/listing/listing.service.ts`):**
+  - Added a named `MAP_LISTING_LIMIT` constant.
+  - Limited viewport queries to 200 approved listings.
+  - Preserved coordinate validation, media inclusion, rate rules, and
+    newest-first ordering.
+- **Tests (`apps/api/src/listing/listing.service.spec.ts`):**
+  - Added coverage verifying that the Prisma viewport query receives
+    `take: 200`.
+- **Verified:**
+  - Listing service test suite passes: 6 tests.
+  - Backend lint passes.
+  - Backend build completes successfully.
+  - Generated `dist` files were restored and excluded from the change.
+
+---
+
+## 2026-07-18 — Discovery selection-state cleanup
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Selection cleanup (`apps/web/app/page.tsx`):**
+  - Clears the selected listing when it is no longer present in visible map
+    results.
+  - Prevents filtered-out or off-screen listings from remaining highlighted.
+  - Clears temporary card-hover state after leaving Split view.
+- **Verified:**
+  - Applying filters clears removed selections.
+  - Moving the map clears selections outside the viewport.
+  - Switching views does not leave stale marker highlights.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-18 — Discovery map request cancellation
+
+**Commit:** _pending_ · **Migration:** none
+
+- **API client (`apps/web/lib/api.ts`):**
+  - Added optional `AbortSignal` support to map-bound listing requests.
+  - Passed the signal through the existing shared request wrapper.
+- **Viewport requests (`apps/web/app/page.tsx`):**
+  - Added a reusable `AbortController` reference.
+  - Cancels the previous request before starting a new viewport request.
+  - Ignores cancellation errors instead of showing an error state.
+  - Retains request-ID protection so stale responses cannot update the map.
+  - Cleans up active requests when the page unmounts.
+- **Verified:**
+  - Rapid map movement cancels older network requests.
+  - Only the latest viewport updates map listings.
+  - Cancelled requests do not trigger the map error overlay.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-18 — Discovery marker and card selection
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Map interaction (`apps/web/components/ListingMap.tsx`):**
+  - Added an optional listing-selection callback.
+  - Marker clicks now report the selected listing ID.
+  - Selected markers continue to use the existing highlighted marker style.
+- **Split-view interaction (`apps/web/app/page.tsx`):**
+  - Added persistent selected-listing state.
+  - Added references for rendered listing cards.
+  - Clicking a marker scrolls the matching card into view.
+  - Selected cards receive a visible brand-coloured outline.
+  - Card hover temporarily takes priority over the persistent selection.
+- **Map view:**
+  - Marker selection also remains visible outside Split view.
+- **Verified:**
+  - Marker clicks select the correct listing.
+  - Split-view cards scroll smoothly into view.
+  - Hover highlighting returns to the selected marker after mouse leave.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-18 — Discovery browser history support
+
+**Commit:** _pending_ · **Migration:** none
+
+- **URL restoration (`apps/web/app/page.tsx`):**
+  - Extracted URL parsing into a reusable state-restoration function.
+  - Reused the same parsing logic during initial page load and browser
+    history navigation.
+  - Restores search, filters, sorting, and Grid/Map/Split view state.
+  - Resets invalid or missing view values to Grid view.
+- **Browser navigation:**
+  - Added a `popstate` listener for Back and Forward navigation.
+  - Replaced URL-only state replacement with guarded history entries.
+  - Prevented restored URL state from being immediately overwritten.
+  - Avoided duplicate history entries when the generated URL is unchanged.
+- **Autocomplete:**
+  - Closes the suggestions list during browser-history navigation.
+  - Resets the active suggestion index.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-18 — Responsive Discovery map views
+
+**Commit:** _pending_ · **Migration:** none
+
+- **View controls (`apps/web/app/page.tsx`):**
+  - Made Grid and Map controls visible on mobile.
+  - Kept Split view hidden on smaller mobile screens.
+  - Allowed the listing header controls to wrap without overlapping.
+- **Map view:**
+  - Replaced the fixed map height with a responsive `clamp()` height.
+  - Improved map usability across mobile, tablet, and desktop widths.
+- **Split view:**
+  - Stacks the map and listings vertically below the desktop breakpoint.
+  - Uses the existing 50/50 side-by-side layout on desktop.
+  - Keeps independent listing-panel scrolling on desktop.
+  - Added responsive heights to loading, error, and empty states.
+- **Verified:**
+  - Grid and Map controls are usable on mobile.
+  - Split view is available on tablet and desktop.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-18 — Discovery autocomplete keyboard navigation
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Keyboard navigation (`apps/web/app/page.tsx`):**
+  - Added Arrow Down and Arrow Up navigation through search suggestions.
+  - Added Enter selection for the active suggestion.
+  - Added Escape handling to close the suggestion list.
+  - Resets the active suggestion when typing, focusing, selecting, or clicking
+    outside.
+  - Mouse hover and keyboard navigation share the same active state.
+- **Accessibility:**
+  - Added combobox, listbox, and option roles.
+  - Added `aria-controls`, `aria-activedescendant`, and `aria-selected`.
+  - Added visible styling for the currently active suggestion.
+- **Verified:**
+  - Keyboard and mouse selection both work.
+  - Search results continue to update through the existing debounce.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-18 — Discovery Meilisearch reindexing
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Shared document mapper:**
+  - Added `apps/api/src/listing/meili-listing-document.ts`.
+  - Produces consistent index documents for regular listing updates and full
+    reindexing.
+  - Includes title, description, city, state, country, coordinates, experience
+    tags, property type, dietary options, nightly rate, capacity, status, and
+    creation date.
+- **Reindex command:**
+  - Added `pnpm --filter @dhyana/api meili:reindex`.
+  - Creates the `listings` index when it does not exist.
+  - Loads only approved listings from PostgreSQL.
+  - Clears stale documents before rebuilding the index.
+  - Waits for Meilisearch tasks and reports failures or timeouts.
+  - Configures searchable, filterable, and sortable attributes.
+- **Tests:**
+  - Added mapper coverage for complete Discovery fields.
+  - Added coverage for missing-rate-rule defaults.
+- **Verified:**
+  - Five approved local listings were indexed successfully.
+  - Index settings were applied.
+  - Typo-tolerant search returns matching listings.
+  - Full backend tests pass.
+  - Backend ESLint and TypeScript build pass.
+
+---
+
+## 2026-07-18 — Discovery search relevance ordering
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search ordering (`apps/api/src/listing/listing.service.ts`):**
+  - Fetches approved listing records for Meilisearch result IDs.
+  - Builds an ID-to-listing lookup after the Prisma query.
+  - Returns listings in the original Meilisearch relevance order.
+  - Safely omits missing or non-approved records.
+- **Tests (`apps/api/src/listing/listing.service.spec.ts`):**
+  - Added coverage proving Prisma result order cannot override Meilisearch
+    relevance ranking.
+- **Verified:**
+  - Listing service tests pass.
+  - Full backend test suite passes.
+  - Backend ESLint passes.
+
+---
+
+## 2026-07-18 — Discovery filter URL state
+
+**Commit:** _pending_ · **Migration:** none
+
+- **URL initialization (`apps/web/app/page.tsx`):**
+  - Restores state, guest count, maximum price, listing tags, experience tags,
+    property type, dietary options, sort order, search text, and view mode.
+  - Parses comma-separated multi-select filters.
+  - Validates experience tags, property types, dietary options, sort values,
+    and view modes before applying them.
+  - Opens the filter panel automatically when restored filters are active.
+- **URL synchronization:**
+  - Adds or removes URL parameters as filters change.
+  - Keeps default and cleared values out of the URL.
+  - Continues to use `history.replaceState` without refreshing the page.
+  - Preserves existing pathname and hash values.
+- **Verified:**
+  - Complete filter combinations survive refresh.
+  - Shared Discovery URLs restore the expected state.
+  - `Clear all` removes search and filter parameters.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-18 — Discovery URL state
+
+**Commit:** _pending_ · **Migration:** none
+
+- **URL synchronization (`apps/web/app/page.tsx`):**
+  - Reads the `q` search parameter during initial page load.
+  - Reads the `view` parameter when its value is `grid`, `map`, or `split`.
+  - Updates the URL after the existing search debounce.
+  - Uses `history.replaceState`, so URL updates do not refresh the page.
+  - Removes `q` when the search box is cleared.
+  - Removes `view` when Grid view is selected.
+  - Preserves existing URL parameters and hash values.
+- **User experience:**
+  - Search text survives page refresh.
+  - Map and Split views survive page refresh.
+  - Discovery result URLs can be copied and shared.
+- **Verified:**
+  - Search and view parameters update correctly.
+  - Refresh restores the selected search and view.
+  - Clearing search and returning to Grid restores the clean homepage URL.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-18 — Discovery search autocomplete
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Autocomplete (`apps/web/app/page.tsx`):**
+  - Added suggestions for matching stay titles, cities, and states.
+  - Added duplicate protection and a maximum of six suggestions.
+  - Suggestions appear only after at least two characters are entered.
+  - Added secondary location information and suggestion-type labels.
+  - Selecting a suggestion updates the existing debounced search flow.
+  - Clicking outside the search box closes the dropdown.
+  - Suggestions are generated from already-loaded approved listings, avoiding
+    extra API requests on every keystroke.
+- **Accessibility:**
+  - Disabled browser-native autocomplete.
+  - Added search input labels and expanded-state information.
+  - Suggestion items support keyboard focus.
+- **Verified:**
+  - Search suggestions appear and update correctly.
+  - Selecting and dismissing suggestions works correctly.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-18 — Discovery search database fallback
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Search fallback (`apps/api/src/listing/listing.service.ts`):**
+  - Removed the early empty-array response when Meilisearch returns zero hits.
+  - Search now continues to the existing case-insensitive PostgreSQL query.
+  - Database fallback searches listing title, city, state, and description.
+  - Only approved listings are returned.
+- **Tests (`apps/api/src/listing/listing.service.spec.ts`):**
+  - Added coverage for successful Meilisearch hits.
+  - Added coverage confirming PostgreSQL fallback when Meilisearch returns no
+    hits.
+- **Verified:**
+  - All 12 backend test suites pass.
+  - All 263 backend tests pass.
+  - Backend ESLint passes.
+
+---
+
+## 2026-07-18 — Discovery split-view status panel
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Split-view listing panel (`apps/web/app/page.tsx`):**
+  - Added a loading state while the map viewport request is running.
+  - Added a map-specific error state when stays cannot be loaded.
+  - Added a clear empty-area message when no listings match the current
+    viewport.
+  - Existing listing cards return automatically when the map moves back to an
+    area containing matching stays.
+  - Card hover behaviour continues to highlight the corresponding price marker.
+- **Verified:**
+  - Empty, loading, and error layouts keep the Split view visually balanced.
+  - Listing cards return after moving back to a populated area.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-17 — Discovery map loading and empty states
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Map request state (`apps/web/app/page.tsx`):**
+  - Added dedicated `mapLoading`, `mapError`, and `hasLoadedMapBounds` state.
+  - Kept map request errors separate from the main page error state.
+  - Existing request IDs continue to prevent stale viewport responses from
+    updating listings, errors, or loading state.
+- **Status overlay:**
+  - Added a reusable `MapStatusOverlay` for Map and Split views.
+  - Displays `Searching this map area...` while the viewport request runs.
+  - Displays an empty-area message when the current viewport has no matching
+    listings.
+  - Displays a map-specific error message when the viewport request fails.
+  - Uses `pointer-events-none`, allowing users to keep moving and zooming the
+    map while a status message is visible.
+- **Verified:**
+  - Loading state appears during viewport requests.
+  - Empty-area message appears when no listings are inside the map bounds.
+  - Markers and messages update correctly after returning to an area with
+    listings.
+  - Behaviour works in both Map and Split views.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+
+---
+
+## 2026-07-17 — Discovery map price markers
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Map markers (`apps/web/components/ListingMap.tsx`):**
+  - Replaced Leaflet's default image pins with `L.divIcon()` price markers.
+  - Displays the base nightly rate in rupees while preserving paise-based data.
+  - Listings without a usable rate display `On request`.
+  - Selected markers receive a higher z-index and highlighted visual state.
+- **Popup improvements:**
+  - Added property type, title, city/state, maximum guests, first experience
+    tag, nightly rate, and a link to the listing details page.
+  - Added readable formatting for hyphenated property types and experience
+    names.
+- **Styles (`apps/web/app/globals.css`):**
+  - Added responsive price-pill marker styles using existing theme variables.
+  - Added hover, pointer, shadow, dark-mode-compatible, and selected states.
+- **Verified:**
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+  - Price markers render correctly in map and split views.
+  - Marker popups open correctly.
+  - Browser console remains free of errors.
+
+---
+
+## 2026-07-17 — Discovery map viewport loading
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Problem:** the existing map rendered the complete search result set and did
+  not use the available `GET /api/listings/map` viewport endpoint when the user
+  moved or zoomed the map.
+- **Frontend integration (`apps/web/app/page.tsx`):**
+  - Added separate `mapListings` state for viewport results.
+  - Connected Leaflet bounds changes to `listingsApi.getByBounds()`.
+  - Added a request counter so slower outdated responses cannot overwrite the
+    newest viewport results.
+  - Intersects viewport listings with the active search and filter result IDs,
+    keeping map markers consistent with the current Discovery filters.
+  - Split-view cards now represent only listings visible inside the current map
+    viewport.
+  - The map remains visible when a viewport contains no listings, allowing the
+    user to continue dragging to another area.
+- **Map behaviour (`apps/web/components/ListingMap.tsx`):**
+  - Removed the separate `zoomend` listener because Leaflet also emits
+    `moveend` after zooming, preventing duplicate viewport requests.
+  - Replaced truthy coordinate checks with explicit null checks so valid
+    latitude or longitude values of `0` are not discarded.
+- **Verified:**
+  - Viewport requests return `200 OK`.
+  - Puducherry and Auroville bounds return the expected three local listings.
+  - Markers update after map movement.
+  - TypeScript check passes with `tsc --noEmit`.
+  - Web production build completes successfully.
+- **Tooling note:** web lint was not run because the web package currently has
+  no ESLint configuration and `next lint` opens the deprecated setup wizard.
+
+---
+
+## 2026-07-17 — Discovery map bounds validation
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Problem:** `GET /api/listings/map` accepted missing or invalid query
+  parameters. `parseFloat()` converted missing values into `NaN`, which was
+  passed into Prisma as latitude and longitude bounds and caused a
+  `500 Internal Server Error`.
+- **Fix (`apps/api/src/listing/listing.service.ts`):**
+  `getListingsByBounds()` now checks that all four bounds are finite numbers
+  before querying Prisma. It also rejects latitude values outside `-90..90`
+  and longitude values outside `-180..180`.
+- **New behaviour:**
+  - Missing or non-numeric bounds → `400 Bad Request`
+  - Out-of-range coordinates → `400 Bad Request`
+  - Valid bounds → existing map query continues normally
+- **Test (`apps/api/src/listing/listing.service.spec.ts`):**
+  added coverage confirming invalid bounds are rejected before
+  `prisma.listing.findMany()` is called.
+- **Verified:**
+  - `GET /api/listings/map` without bounds returns `400`
+  - Valid bounds return `200`
+  - Backend lint passes
+  - 12 test suites pass
+  - 261 tests pass
 
 ---
 

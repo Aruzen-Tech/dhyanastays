@@ -16,7 +16,8 @@
     "prisma:migrate": "dotenv -e .env -- prisma migrate dev",
     "prisma:deploy": "dotenv -e .env -- prisma migrate deploy",
     "post-migrate": "dotenv -e .env -- prisma db execute --file prisma/post-migrate/01_booking_gist_index.sql --schema prisma/schema.prisma",
-    "seed": "dotenv -e .env -- ts-node src/prisma/seed.ts"
+    "seed": "dotenv -e .env -- ts-node src/prisma/seed.ts",
+    "meili:reindex": "dotenv -e .env -- ts-node src/scripts/reindex-meilisearch.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "^10.2.3",

@@ -270,8 +270,17 @@ export const listingsApi = {
   search: (q: string) =>
     request<Listing[]>(`/listings/search?q=${encodeURIComponent(q)}`),
 
-  getByBounds: (swLat: number, swLng: number, neLat: number, neLng: number) =>
-    request<Listing[]>(`/listings/map?swLat=${swLat}&swLng=${swLng}&neLat=${neLat}&neLng=${neLng}`),
+  getByBounds: (
+    swLat: number,
+    swLng: number,
+    neLat: number,
+    neLng: number,
+    signal?: AbortSignal,
+  ) =>
+    request<Listing[]>(
+      `/listings/map?swLat=${swLat}&swLng=${swLng}&neLat=${neLat}&neLng=${neLng}`,
+      { signal },
+    ),
 
   getById: (id: string) => request<Listing>(`/listings/${id}`),
 
