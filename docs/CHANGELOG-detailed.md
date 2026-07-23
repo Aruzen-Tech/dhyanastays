@@ -13,6 +13,78 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-23 — Stay Passport (Phase E, stamps) — guest profile as a passport
+
+**Commit:** _pending_ · **Migration:** `0035_passport_stamp_details` (idempotent)
+
+The guest profile becomes a Stay Passport: a stamp per stay, **inked at verified
+check-in and sealed at successful check-out**, with a backstop so never-scanned
+stays still earn their stamp at completion.
+
+### Schema (`0035`)
+`PassportStamp` extended to be self-contained + two-phase:
+`propertyName`, `city`, `stayStart`, `stayEnd`, `nights`, `checkedInAt?`
+(verified arrival), `completedAt?` (sealed at check-out). Idempotent
+`ADD COLUMN IF NOT EXISTS` with temporary defaults dropped to match the Prisma
+model (no defaults). One stamp per booking (`bookingId @unique`).
+
+### `PassportService`
+- `mintOnCheckin(bookingId)` — upsert ENTRY stamp (`checkedInAt = now`);
+  re-scan just refreshes it; `PASSPORT_STAMP_ENTRY` audit.
+- `sealOnComplete(bookingId)` — sets `completedAt`; if no stamp exists (never
+  scanned) it creates one with `checkedInAt = null` (backstop); returns false if
+  already sealed (idempotent); `PASSPORT_STAMP_SEALED` audit.
+- `sealCompletedSweep(limit)` — seals stamps for COMPLETED bookings that have a
+  Stay Pass ticket (feature-era scope); called from the render sweep.
+- `getPassport(guestId)` — stats (total/sealed stamps, nights, distinct themes),
+  the "Curator's Circuit" collection (all five core sanctuaries → collected/
+  required/missing), and per-stamp view models (theme name, stamp shape, state
+  PENDING|ENTRY|SEALED, memory line "3 nights · August 2026").
+
+### Wiring
+- `CheckinService.confirm` → `passport.mintOnCheckin` (non-fatal; the sweep
+  backstop seals regardless).
+- `StayPassService.sweep` → `passport.sealCompletedSweep(limit)` (30s cron), so
+  auto-completed never-scanned stays get sealed automatically.
+- `PassportController` `GET /me/passport` (`@FeatureGate('stay_pass')`), exported
+  from `StayPassModule`.
+- Passport never writes Booking state; stamps are its own append-once records.
+
+### Web
+- `apps/web/app/passport/page.tsx` — passport spread: brand-evergreen cover
+  header with live stats, Curator's Circuit progress bar + missing sanctuaries,
+  and a responsive grid of themed **stamp medallions** (per-theme accent colour,
+  dashed ring for ENTRY / solid filled ring for SEALED, property/city/memory
+  line), plus an empty state. Uses design tokens only.
+- `lib/api.ts` — `passportApi.get()` + `Passport`/`PassportStamp`/
+  `PassportCollection` types.
+- `Navbar.tsx` — flag-gated "Passport" link in the guest nav.
+
+### Verification
+- **Unit (+5):** entry stamp shape/audit; seal sets completedAt; re-seal no-op;
+  never-scanned backstop (checkedInAt null, completedAt set); passport
+  aggregation (stats + Curator's Circuit 2/5, stamp states, memory line). Full
+  suite **295/295**, integration **34/34**, lint + tsc clean; web compiles
+  (only the Windows `standalone` symlink EPERM remains — environmental).
+- **Live (dev):** isolated fixture (heritage theme) → `POST /checkin/confirm`
+  201 → passport shows the stamp `ENTRY` (checkedInAt set, completedAt null);
+  booking set COMPLETED → the 30s sweep **sealed it in ~27s** (completedAt set);
+  `GET /me/passport` → `{totalStamps:1, sealedStamps:1, totalNights:3,
+  distinctThemes:1}`, Curator's Circuit 1/5, memory line "3 nights · July 2026".
+  Fixture cleaned up.
+
+### Prisma-generate note (Windows)
+`prisma generate` EPERM-locks against the running dev server's query-engine DLL.
+Resolved by force-killing the port-3001 owner, generating cleanly, then
+relaunching `start:dev`. (The DLL is version-identical; only the JS client +
+embedded schema needed refreshing.)
+
+### Still deferred
+Collection-set *reward granting* (needs the coupon engine, per the approach doc);
+wallet passes; commemorative ticket re-render on completion; editions.
+
+---
+
 ## 2026-07-23 — Stay Pass Phases A+B implemented (themed tickets + QR check-in)
 
 **Commit:** _pending_ · **Migration:** `0034_stay_pass` (idempotent)

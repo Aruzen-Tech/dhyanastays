@@ -1693,14 +1693,24 @@ model CheckinScan {
   @@index([bookingId])
 }
 
-/// One commemorative stamp per completed stay.
+/// One stamp per stay, self-contained (survives listing edits/deletions).
+/// Lifecycle: minted at VERIFIED check-in (checkedInAt set) → sealed at
+/// successful check-out (completedAt set). Stays that are never QR-scanned
+/// still get a sealed stamp when the booking completes (backstop mint).
 model PassportStamp {
-  id        String   @id @default(cuid())
-  guestId   String
-  bookingId String   @unique
-  themeId   String
-  editionId String?
-  mintedAt  DateTime @default(now())
+  id           String    @id @default(cuid())
+  guestId      String
+  bookingId    String    @unique
+  themeId      String
+  editionId    String?
+  propertyName String
+  city         String
+  stayStart    DateTime
+  stayEnd      DateTime
+  nights       Int
+  checkedInAt  DateTime? // verified arrival (QR scan) — null when never scanned
+  completedAt  DateTime? // sealed at check-out — null while the stay is in progress
+  mintedAt     DateTime  @default(now())
 
   @@index([guestId, mintedAt])
 }
