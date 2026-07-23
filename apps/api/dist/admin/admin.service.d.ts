@@ -1,4 +1,4 @@
-import { ApplicationStatus, UserRole } from '@prisma/client';
+import { ApplicationStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/services/audit.service';
 import { ApplyStaffDto } from './dto/apply-staff.dto';
@@ -56,21 +56,21 @@ export declare class AdminService {
             createdAt: Date;
             updatedAt: Date;
             status: import("@prisma/client").$Enums.BookingStatus;
-            holdId: string;
-            listingId: string;
-            guestId: string;
-            plan: import("@prisma/client").$Enums.PaymentPlan;
             startsAt: Date;
             endsAt: Date;
-            priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-            guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-            checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-            checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+            listingId: string;
+            holdId: string;
+            guestId: string;
+            plan: import("@prisma/client").$Enums.PaymentPlan;
+            priceSnapshot: Prisma.JsonValue;
+            guestDetails: Prisma.JsonValue | null;
+            checkInData: Prisma.JsonValue | null;
+            checkOutData: Prisma.JsonValue | null;
             balanceDueAt: Date | null;
             payLaterMonths: number | null;
             acceptedTermsAt: Date | null;
-            statusHistory: import("@prisma/client/runtime/library").JsonValue;
-            cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+            statusHistory: Prisma.JsonValue;
+            cancellationPolicySnapshot: Prisma.JsonValue | null;
         })[];
         recentAudit: ({
             actor: {
@@ -83,16 +83,16 @@ export declare class AdminService {
             action: string;
             resourceType: string;
             resourceId: string;
-            metadata: import("@prisma/client/runtime/library").JsonValue;
+            metadata: Prisma.JsonValue;
             actorUserId: string | null;
         })[];
     }>;
     getUsers(page: number, limit: number, role?: UserRole, search?: string): Promise<{
         users: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             isActive: boolean;
             createdAt: Date;
             updatedAt: Date;
@@ -110,11 +110,11 @@ export declare class AdminService {
         limit: number;
     }>;
     deactivateUser(userId: string, actorId: string): Promise<{
-        role: import("@prisma/client").$Enums.UserRole;
         id: string;
         email: string;
         passwordHash: string | null;
         fullName: string;
+        role: import("@prisma/client").$Enums.UserRole;
         kind: import("@prisma/client").$Enums.UserKind | null;
         isActive: boolean;
         auth0Sub: string | null;
@@ -125,11 +125,11 @@ export declare class AdminService {
         referralCode: string | null;
     }>;
     activateUser(userId: string, actorId: string): Promise<{
-        role: import("@prisma/client").$Enums.UserRole;
         id: string;
         email: string;
         passwordHash: string | null;
         fullName: string;
+        role: import("@prisma/client").$Enums.UserRole;
         kind: import("@prisma/client").$Enums.UserKind | null;
         isActive: boolean;
         auth0Sub: string | null;
@@ -151,7 +151,7 @@ export declare class AdminService {
             action: string;
             resourceType: string;
             resourceId: string;
-            metadata: import("@prisma/client/runtime/library").JsonValue;
+            metadata: Prisma.JsonValue;
             actorUserId: string | null;
         })[];
         total: number;
@@ -188,11 +188,11 @@ export declare class AdminService {
                 fullName: string;
             };
             payments: {
-                type: import("@prisma/client").$Enums.PaymentPlan;
                 idempotencyKey: string;
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                type: import("@prisma/client").$Enums.PaymentPlan;
                 status: import("@prisma/client").$Enums.PaymentStatus;
                 amount: number;
                 bookingId: string;
@@ -206,29 +206,29 @@ export declare class AdminService {
             createdAt: Date;
             updatedAt: Date;
             status: import("@prisma/client").$Enums.BookingStatus;
-            holdId: string;
-            listingId: string;
-            guestId: string;
-            plan: import("@prisma/client").$Enums.PaymentPlan;
             startsAt: Date;
             endsAt: Date;
-            priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-            guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-            checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-            checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+            listingId: string;
+            holdId: string;
+            guestId: string;
+            plan: import("@prisma/client").$Enums.PaymentPlan;
+            priceSnapshot: Prisma.JsonValue;
+            guestDetails: Prisma.JsonValue | null;
+            checkInData: Prisma.JsonValue | null;
+            checkOutData: Prisma.JsonValue | null;
             balanceDueAt: Date | null;
             payLaterMonths: number | null;
             acceptedTermsAt: Date | null;
-            statusHistory: import("@prisma/client/runtime/library").JsonValue;
-            cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+            statusHistory: Prisma.JsonValue;
+            cancellationPolicySnapshot: Prisma.JsonValue | null;
         })[];
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -243,36 +243,36 @@ export declare class AdminService {
         seasonalRates: {
             id: string;
             createdAt: Date;
-            listingId: string;
             startsAt: Date;
             endsAt: Date;
             nightlyRate: number;
+            listingId: string;
         }[];
         availabilityBlocks: {
             id: string;
             createdAt: Date;
             reason: string;
-            listingId: string;
             startsAt: Date;
             endsAt: Date;
+            listingId: string;
         }[];
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
         latitude: number | null;
         longitude: number | null;
         timezone: string;
-        preparationGuide: import("@prisma/client/runtime/library").JsonValue | null;
-        propertyDirections: import("@prisma/client/runtime/library").JsonValue | null;
-        propertyManual: import("@prisma/client/runtime/library").JsonValue | null;
+        preparationGuide: Prisma.JsonValue | null;
+        propertyDirections: Prisma.JsonValue | null;
+        propertyManual: Prisma.JsonValue | null;
         experienceTags: string[];
         propertyType: string | null;
         dietaryOptions: string[];
@@ -303,21 +303,21 @@ export declare class AdminService {
                 createdAt: Date;
                 updatedAt: Date;
                 status: import("@prisma/client").$Enums.BookingStatus;
-                holdId: string;
-                listingId: string;
-                guestId: string;
-                plan: import("@prisma/client").$Enums.PaymentPlan;
                 startsAt: Date;
                 endsAt: Date;
-                priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-                guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-                checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-                checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+                listingId: string;
+                holdId: string;
+                guestId: string;
+                plan: import("@prisma/client").$Enums.PaymentPlan;
+                priceSnapshot: Prisma.JsonValue;
+                guestDetails: Prisma.JsonValue | null;
+                checkInData: Prisma.JsonValue | null;
+                checkOutData: Prisma.JsonValue | null;
                 balanceDueAt: Date | null;
                 payLaterMonths: number | null;
                 acceptedTermsAt: Date | null;
-                statusHistory: import("@prisma/client/runtime/library").JsonValue;
-                cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+                statusHistory: Prisma.JsonValue;
+                cancellationPolicySnapshot: Prisma.JsonValue | null;
             };
         } & {
             id: string;
@@ -349,8 +349,8 @@ export declare class AdminService {
         id: string;
         updatedAt: Date;
         key: string;
-        value: import("@prisma/client/runtime/library").JsonValue;
         updatedBy: string | null;
+        value: Prisma.JsonValue;
     }[]>;
     updateSettings(actorId: string, updates: Array<{
         key: string;
@@ -359,8 +359,8 @@ export declare class AdminService {
         id: string;
         updatedAt: Date;
         key: string;
-        value: import("@prisma/client/runtime/library").JsonValue;
         updatedBy: string | null;
+        value: Prisma.JsonValue;
     }[]>;
     getCalendarBookings(month: string, listingId?: string): Promise<{
         id: string;
@@ -394,10 +394,10 @@ export declare class AdminService {
     }>;
     globalSearch(q: string): Promise<{
         users: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
         }[];
         bookings: {
             id: string;
@@ -432,7 +432,7 @@ export declare class AdminService {
             action: string;
             resourceType: string;
             resourceId: string;
-            metadata: import("@prisma/client/runtime/library").JsonValue;
+            metadata: Prisma.JsonValue;
             actorUserId: string | null;
         })[];
         total: number;
@@ -497,7 +497,6 @@ export declare class AdminService {
     }>;
     getStaff(page: number, limit: number, search?: string): Promise<{
         staff: {
-            role: import("@prisma/client").$Enums.UserRole;
             staffRole: {
                 createdAt: Date;
                 level: import("@prisma/client").$Enums.AdminLevel;
@@ -509,6 +508,7 @@ export declare class AdminService {
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             kind: import("@prisma/client").$Enums.UserKind | null;
             isActive: boolean;
             createdAt: Date;
@@ -538,7 +538,6 @@ export declare class AdminService {
     }>;
     getUserRoleHistory(userId: string): Promise<{
         user: {
-            role: import("@prisma/client").$Enums.UserRole;
             staffRole: {
                 level: import("@prisma/client").$Enums.AdminLevel;
                 revokedAt: Date | null;
@@ -546,6 +545,7 @@ export declare class AdminService {
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             kind: import("@prisma/client").$Enums.UserKind | null;
             createdAt: Date;
         };
@@ -560,8 +560,8 @@ export declare class AdminService {
                 email: null;
                 fullName: null;
             };
-            before: import("@prisma/client/runtime/library").JsonValue;
-            after: import("@prisma/client/runtime/library").JsonValue;
+            before: Prisma.JsonValue;
+            after: Prisma.JsonValue;
             reason: string;
             createdAt: Date;
         }[];

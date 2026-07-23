@@ -20,7 +20,7 @@ const schedule_1 = require("@nestjs/schedule");
 const bullmq_2 = require("bullmq");
 const jobs_constants_1 = require("./jobs.constants");
 function bucketJobId(name, intervalMs) {
-    return `${name}:${Math.floor(Date.now() / intervalMs)}`;
+    return `${name}-${Math.floor(Date.now() / intervalMs)}`;
 }
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;

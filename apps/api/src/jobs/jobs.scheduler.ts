@@ -12,6 +12,7 @@ import {
   QUEUE_PAYMENT_RECON,
   QUEUE_PAYOUT_ELIGIBILITY,
   QUEUE_PAY_LATER_DUNNING,
+  QUEUE_TICKET_RENDER,
   QUEUE_WEEKLY_PAYOUT,
 } from './jobs.constants';
 
@@ -23,7 +24,10 @@ import {
  * This is the "distributed lock" for cron jobs in a multi-instance API.
  */
 function bucketJobId(name: string, intervalMs: number): string {
-  return `${name}:${Math.floor(Date.now() / intervalMs)}`;
+  // Separator MUST NOT be ':' — BullMQ reserves the colon as its Redis key
+  // delimiter and rejects any custom jobId containing one ("Custom Id cannot
+  // contain :"), which would make every scheduled enqueue throw.
+  return `${name}-${Math.floor(Date.now() / intervalMs)}`;
 }
 
 const MINUTE = 60 * 1000;
@@ -52,6 +56,8 @@ export class JobsScheduler {
     private readonly paymentReconQueue: Queue,
     @InjectQueue(QUEUE_AUTO_COMPLETE)
     private readonly autoCompleteQueue: Queue,
+    @InjectQueue(QUEUE_TICKET_RENDER)
+    private readonly ticketRenderQueue: Queue,
   ) {}
 
   /**
@@ -198,6 +204,19 @@ export class JobsScheduler {
       jobId: bucketJobId('auto-complete', HOUR),
       removeOnComplete: 100, removeOnFail: 50, attempts: 3,
       backoff: { type: 'exponential', delay: 5000 },
+    });
+  }
+
+  /**
+   * Stay Pass ticket sweep: every 30 seconds (same reconciliation pattern as
+   * the outbox). Renders tickets for newly-confirmed bookings, retries FAILED
+   * renders, voids tickets on cancelled bookings.
+   */
+  @Cron('*/30 * * * * *')
+  async scheduleTicketRender() {
+    await this.ticketRenderQueue.add('sweep', {}, {
+      jobId: bucketJobId('ticket-render', 30 * 1000),
+      removeOnComplete: 100, removeOnFail: 50, attempts: 1,
     });
   }
 }

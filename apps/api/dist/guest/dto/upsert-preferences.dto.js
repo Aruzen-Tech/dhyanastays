@@ -9,9 +9,9 @@ var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.UpsertPreferencesDto = void 0;
+exports.UpsertPreferencesDto = exports.WELLNESS_OPTIONS = exports.DIETARY_OPTIONS = void 0;
 const class_validator_1 = require("class-validator");
-const DIETARY_OPTIONS = [
+exports.DIETARY_OPTIONS = [
     'vegetarian',
     'vegan',
     'gluten-free',
@@ -20,7 +20,7 @@ const DIETARY_OPTIONS = [
     'raw',
     'no-preference',
 ];
-const WELLNESS_OPTIONS = [
+exports.WELLNESS_OPTIONS = [
     'yoga',
     'meditation',
     'ayurveda',

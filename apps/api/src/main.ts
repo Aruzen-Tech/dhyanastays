@@ -7,8 +7,13 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { CorrelationIdInterceptor } from './common/interceptors/correlation-id.interceptor';
+import { initSentry } from './common/observability/sentry';
 
 async function bootstrap() {
+  // Error tracking — inert unless SENTRY_DSN is set. Must run before the app
+  // is created so early errors are captured.
+  initSentry();
+
   // rawBody: true is required for Razorpay webhook HMAC-SHA256 signature verification
   const app = await NestFactory.create<NestExpressApplication>(
     await AppModule.forRoot(),

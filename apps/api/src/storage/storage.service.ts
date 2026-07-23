@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash, createHmac, randomUUID } from 'crypto';
+import * as fs from 'fs';
 import * as path from 'path';
 
 export interface UploadResult {
@@ -80,6 +81,58 @@ export class StorageService {
       return;
     }
     await this.s3Delete(key);
+  }
+
+  /**
+   * Server-side upload of rendered bytes (Stay Pass tickets, PDFs, etc.).
+   * Real providers: presigned SigV4 PUT executed from this process.
+   * Stub: bytes are written under `.stub-storage/` and served back by
+   * `GET /api/storage/stub/*` so local dev renders are actually viewable.
+   */
+  async putObject(
+    key: string,
+    bytes: Buffer,
+    contentType: string,
+  ): Promise<{ key: string; publicUrl: string }> {
+    if (this.provider === 'stub') {
+      const filePath = path.join(StorageService.stubDir(), key);
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, bytes);
+      this.logger.log(`[STORAGE STUB] putObject ${key} (${bytes.length} bytes)`);
+      const base = this.config.get<string>('API_URL', 'http://localhost:3001');
+      return { key, publicUrl: `${base.replace(/\/$/, '')}/api/storage/stub/${key}` };
+    }
+
+    const uploadUrl = await this.generatePresignedPutUrl(key, contentType, 300);
+    const res = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body: new Uint8Array(bytes),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`putObject failed for ${key}: ${res.status} ${text.slice(0, 300)}`);
+    }
+    return { key, publicUrl: this.buildPublicUrl(key) };
+  }
+
+  /** Read a stub-stored object (dev only). Returns null when absent. */
+  async readStubObject(key: string): Promise<Buffer | null> {
+    if (this.provider !== 'stub') return null;
+    const filePath = path.join(StorageService.stubDir(), key);
+    // Containment check — key comes from a URL wildcard.
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(StorageService.stubDir()))) return null;
+    try {
+      return await fs.promises.readFile(resolved);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Local directory backing stub storage (gitignored). */
+  static stubDir(): string {
+    return path.join(process.cwd(), '.stub-storage');
   }
 
   /**

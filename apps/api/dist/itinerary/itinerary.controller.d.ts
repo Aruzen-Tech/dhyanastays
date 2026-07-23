@@ -12,9 +12,9 @@ export declare class ItineraryController {
         updatedAt: Date;
         userId: string;
         status: import("@prisma/client").$Enums.ItineraryStatus;
-        listingId: string | null;
         startsAt: Date;
         endsAt: Date;
+        listingId: string | null;
         destination: string;
         travelers: number;
         interests: string[];
@@ -44,9 +44,9 @@ export declare class ItineraryController {
         updatedAt: Date;
         userId: string;
         status: import("@prisma/client").$Enums.ItineraryStatus;
-        listingId: string | null;
         startsAt: Date;
         endsAt: Date;
+        listingId: string | null;
         destination: string;
         travelers: number;
         interests: string[];
@@ -59,45 +59,45 @@ export declare class ItineraryController {
         tokensOutput: number;
     }>;
     listMessages(user: RequestUser, id: string): Promise<{
-        role: string;
         id: string;
+        role: string;
         createdAt: Date;
         tokensInput: number;
         tokensOutput: number;
-        itineraryId: string;
         content: string;
+        itineraryId: string;
         appliedPatch: import("@prisma/client/runtime/library").JsonValue | null;
     }[]>;
     sendMessage(user: RequestUser, id: string, dto: SendMessageDto): Promise<{
         userMessage: {
-            role: string;
             id: string;
+            role: string;
             createdAt: Date;
             tokensInput: number;
             tokensOutput: number;
-            itineraryId: string;
             content: string;
+            itineraryId: string;
             appliedPatch: import("@prisma/client/runtime/library").JsonValue | null;
         };
         assistantMessage: {
-            role: string;
             id: string;
+            role: string;
             createdAt: Date;
             tokensInput: number;
             tokensOutput: number;
-            itineraryId: string;
             content: string;
+            itineraryId: string;
             appliedPatch: import("@prisma/client/runtime/library").JsonValue | null;
         };
         updated: {
             messages: {
-                role: string;
                 id: string;
+                role: string;
                 createdAt: Date;
                 tokensInput: number;
                 tokensOutput: number;
-                itineraryId: string;
                 content: string;
+                itineraryId: string;
                 appliedPatch: import("@prisma/client/runtime/library").JsonValue | null;
             }[];
         } & {
@@ -106,9 +106,9 @@ export declare class ItineraryController {
             updatedAt: Date;
             userId: string;
             status: import("@prisma/client").$Enums.ItineraryStatus;
-            listingId: string | null;
             startsAt: Date;
             endsAt: Date;
+            listingId: string | null;
             destination: string;
             travelers: number;
             interests: string[];
@@ -123,13 +123,13 @@ export declare class ItineraryController {
     }>;
     getOne(user: RequestUser, id: string): Promise<{
         messages: {
-            role: string;
             id: string;
+            role: string;
             createdAt: Date;
             tokensInput: number;
             tokensOutput: number;
-            itineraryId: string;
             content: string;
+            itineraryId: string;
             appliedPatch: import("@prisma/client/runtime/library").JsonValue | null;
         }[];
     } & {
@@ -138,9 +138,9 @@ export declare class ItineraryController {
         updatedAt: Date;
         userId: string;
         status: import("@prisma/client").$Enums.ItineraryStatus;
-        listingId: string | null;
         startsAt: Date;
         endsAt: Date;
+        listingId: string | null;
         destination: string;
         travelers: number;
         interests: string[];
@@ -158,9 +158,9 @@ export declare class ItineraryController {
         updatedAt: Date;
         userId: string;
         status: import("@prisma/client").$Enums.ItineraryStatus;
-        listingId: string | null;
         startsAt: Date;
         endsAt: Date;
+        listingId: string | null;
         destination: string;
         travelers: number;
         interests: string[];

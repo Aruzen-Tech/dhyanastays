@@ -19,13 +19,6 @@ const current_user_decorator_1 = require("../common/decorators/current-user.deco
 const roles_decorator_1 = require("../common/decorators/roles.decorator");
 const admin_level_decorator_1 = require("../common/decorators/admin-level.decorator");
 const payout_service_1 = require("./payout.service");
-const class_validator_1 = require("class-validator");
-class MarkBatchPaidDto {
-}
-__decorate([
-    (0, class_validator_1.IsString)(),
-    __metadata("design:type", String)
-], MarkBatchPaidDto.prototype, "batchId", void 0);
 let PayoutController = class PayoutController {
     constructor(payoutService) {
         this.payoutService = payoutService;

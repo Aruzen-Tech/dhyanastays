@@ -70,7 +70,7 @@ exports.TRANSITIONS = [
     },
     {
         event: 'BALANCE_PAID',
-        from: ['BALANCE_DUE'],
+        from: ['BALANCE_DUE', 'CONFIRMED_DEPOSIT'],
         to: 'CONFIRMED_PAID',
     },
     {

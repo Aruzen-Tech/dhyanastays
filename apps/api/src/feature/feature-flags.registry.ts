@@ -56,6 +56,15 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false, // Phase 1: off until provider payouts ship
     audience: ['guest', 'host'],
   },
+  {
+    key: 'stay_pass',
+    label: 'Stay Pass',
+    description:
+      'Themed booking tickets (email/PDF/share image) with signed-QR check-in verification.',
+    category: 'Guest Experience',
+    defaultEnabled: false, // rollout-gated: enable per environment when storage is provisioned
+    audience: ['guest', 'host', 'admin'],
+  },
 
   // ── Guest Experience ──────────────────────────────────────────────────────
   {

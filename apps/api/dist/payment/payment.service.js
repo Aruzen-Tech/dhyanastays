@@ -65,7 +65,17 @@ let PaymentService = PaymentService_1 = class PaymentService {
             throw new common_1.GoneException('Price quote has expired. Please get a fresh quote and try again.');
         }
         let amountPaise;
-        if (dto.type === init_payment_dto_1.PaymentTypeDto.FULL) {
+        if (booking.plan === 'PAY_LATER') {
+            if (dto.type === init_payment_dto_1.PaymentTypeDto.BALANCE) {
+                throw new common_1.BadRequestException('Pay Later is settled as scheduled instalments, not a lump balance');
+            }
+            const first = snapshot.payLaterFirstInstalment?.find((i) => i.months === booking.payLaterMonths);
+            if (!first) {
+                throw new common_1.BadRequestException('Pay Later first instalment is unavailable for this booking');
+            }
+            amountPaise = first.amountMinor;
+        }
+        else if (dto.type === init_payment_dto_1.PaymentTypeDto.FULL) {
             if (booking.plan !== 'FULL') {
                 throw new common_1.BadRequestException('Booking plan is DEPOSIT_50, not FULL');
             }
@@ -88,7 +98,14 @@ let PaymentService = PaymentService_1 = class PaymentService {
             data: {
                 bookingId: dto.bookingId,
                 amount: amountPaise,
-                type: dto.type === init_payment_dto_1.PaymentTypeDto.FULL ? 'FULL' : dto.type === init_payment_dto_1.PaymentTypeDto.DEPOSIT ? 'DEPOSIT_50' : 'FULL',
+                type: booking.plan === 'PAY_LATER'
+                    ? 'PAY_LATER'
+                    : dto.type === init_payment_dto_1.PaymentTypeDto.FULL
+                        ? 'FULL'
+                        : dto.type === init_payment_dto_1.PaymentTypeDto.DEPOSIT
+                            ? 'DEPOSIT_50'
+                            : 'FULL',
+                payLaterSeq: booking.plan === 'PAY_LATER' ? 1 : null,
                 status: 'INITIATED',
                 gateway: 'razorpay',
                 gatewayOrderRef: order.id,
@@ -196,9 +213,20 @@ let PaymentService = PaymentService_1 = class PaymentService {
                 }
             }
             else {
-                const res = await this.bookingService.confirmPayment(tx, payment.bookingId, payment.id, amountPaise);
-                didConfirm = res.didConfirm;
-                confirmedBookingId = payment.bookingId;
+                const bk = await tx.booking.findUnique({
+                    where: { id: payment.bookingId },
+                    select: { status: true },
+                });
+                if (bk && (bk.status === 'CONFIRMED_DEPOSIT' || bk.status === 'BALANCE_DUE')) {
+                    const res = await this.bookingService.settleBalance(tx, payment.bookingId, payment.id, amountPaise);
+                    didConfirm = false;
+                    confirmedBookingId = res.didSettle ? null : confirmedBookingId;
+                }
+                else {
+                    const res = await this.bookingService.confirmPayment(tx, payment.bookingId, payment.id, amountPaise);
+                    didConfirm = res.didConfirm;
+                    confirmedBookingId = payment.bookingId;
+                }
             }
             await this.auditService.log(null, 'PAYMENT_CAPTURED', 'payment', payment.id, {
                 gatewayPaymentId,

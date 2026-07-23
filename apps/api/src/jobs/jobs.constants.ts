@@ -9,4 +9,5 @@ export const QUEUE_CONCIERGE_SLA = 'concierge-sla';
 export const QUEUE_INVESTOR_DISTRIBUTION = 'investor-distribution';
 export const QUEUE_PAYMENT_RECON = 'payment-recon';
 export const QUEUE_AUTO_COMPLETE = 'auto-complete';
+export const QUEUE_TICKET_RENDER = 'ticket-render';
 export const QUEUE_DEAD_LETTER = 'dead-letter';

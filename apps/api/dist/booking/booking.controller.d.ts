@@ -17,11 +17,11 @@ export declare class BookingController {
             country: string;
         };
         payments: {
-            type: import("@prisma/client").$Enums.PaymentPlan;
             idempotencyKey: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            type: import("@prisma/client").$Enums.PaymentPlan;
             status: import("@prisma/client").$Enums.PaymentStatus;
             amount: number;
             bookingId: string;
@@ -35,12 +35,12 @@ export declare class BookingController {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
         priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
         guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
         checkInData: import("@prisma/client/runtime/library").JsonValue | null;
@@ -60,11 +60,11 @@ export declare class BookingController {
             country: string;
         };
         payments: {
-            type: import("@prisma/client").$Enums.PaymentPlan;
             idempotencyKey: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            type: import("@prisma/client").$Enums.PaymentPlan;
             status: import("@prisma/client").$Enums.PaymentStatus;
             amount: number;
             bookingId: string;
@@ -78,12 +78,12 @@ export declare class BookingController {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
         priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
         guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
         checkInData: import("@prisma/client/runtime/library").JsonValue | null;
@@ -109,11 +109,11 @@ export declare class BookingController {
             country: string;
         };
         payments: {
-            type: import("@prisma/client").$Enums.PaymentPlan;
             idempotencyKey: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            type: import("@prisma/client").$Enums.PaymentPlan;
             status: import("@prisma/client").$Enums.PaymentStatus;
             amount: number;
             bookingId: string;
@@ -136,12 +136,12 @@ export declare class BookingController {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
         priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
         guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
         checkInData: import("@prisma/client/runtime/library").JsonValue | null;
@@ -163,12 +163,12 @@ export declare class BookingController {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
         priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
         guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
         checkInData: import("@prisma/client/runtime/library").JsonValue | null;
@@ -192,8 +192,8 @@ export declare class BookingController {
                 fullName: string;
             };
             payments: {
-                type: import("@prisma/client").$Enums.PaymentPlan;
                 id: string;
+                type: import("@prisma/client").$Enums.PaymentPlan;
                 status: import("@prisma/client").$Enums.PaymentStatus;
                 amount: number;
             }[];
@@ -202,12 +202,12 @@ export declare class BookingController {
             createdAt: Date;
             updatedAt: Date;
             status: import("@prisma/client").$Enums.BookingStatus;
-            holdId: string;
-            listingId: string;
-            guestId: string;
-            plan: import("@prisma/client").$Enums.PaymentPlan;
             startsAt: Date;
             endsAt: Date;
+            listingId: string;
+            holdId: string;
+            guestId: string;
+            plan: import("@prisma/client").$Enums.PaymentPlan;
             priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
             guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
             checkInData: import("@prisma/client/runtime/library").JsonValue | null;

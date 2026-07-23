@@ -30,6 +30,9 @@ RUN pnpm --filter @dhyana/api build
 # breaks module resolution (Cannot find module '@nestjs/common').
 FROM node:22-alpine AS runtime
 RUN addgroup -g 1001 -S appgroup && adduser -S appuser -u 1001 -G appgroup
+# Fonts for the Stay Pass renderer (resvg loads system fonts; none are fetched
+# at render time). Noto covers Latin + Tamil + Devanagari guest names.
+RUN apk add --no-cache fontconfig ttf-dejavu font-noto font-noto-tamil font-noto-devanagari
 WORKDIR /app
 
 COPY --from=build --chown=appuser:appgroup /app/node_modules ./node_modules

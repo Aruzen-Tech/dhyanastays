@@ -180,12 +180,10 @@ let StorageService = StorageService_1 = class StorageService {
         return (0, crypto_1.createHash)('sha256').update(data).digest('hex');
     }
     hmacHex(key, data) {
-        const { createHmac } = require('crypto');
-        return createHmac('sha256', key).update(data).digest('hex');
+        return (0, crypto_1.createHmac)('sha256', key).update(data).digest('hex');
     }
     hmacBuffer(key, data) {
-        const { createHmac } = require('crypto');
-        return createHmac('sha256', key).update(data).digest();
+        return (0, crypto_1.createHmac)('sha256', key).update(data).digest();
     }
     getSigningKey(dateStamp, region, service) {
         const kDate = this.hmacBuffer(`AWS4${this.secretAccessKey}`, dateStamp);

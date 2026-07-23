@@ -231,7 +231,10 @@ let BookingService = class BookingService {
       WHERE "listingId" = ${booking.listingId}
         AND id <> ${bookingId}
         AND status IN ('CONFIRMED_DEPOSIT','CONFIRMED_PAID','BALANCE_DUE','PAYMENT_PENDING')
-        AND tsrange("startsAt","endsAt",'[)') && tsrange(${booking.startsAt},${booking.endsAt},'[)')
+        AND tsrange("startsAt","endsAt",'[)') && tsrange(
+              (${booking.startsAt}::timestamptz AT TIME ZONE 'UTC'),
+              (${booking.endsAt}::timestamptz AT TIME ZONE 'UTC'),
+              '[)')
     `;
         if (conflicts.length > 0) {
             throw new common_2.ConflictException('Dates no longer available');
@@ -295,6 +298,66 @@ let BookingService = class BookingService {
             }
         }
         return { booking: updated, didConfirm: true };
+    }
+    async settleBalance(tx, bookingId, paymentId, amountCaptured) {
+        await tx.$queryRaw `SELECT id FROM "Booking" WHERE id = ${bookingId} FOR UPDATE`;
+        const booking = await tx.booking.findUnique({ where: { id: bookingId } });
+        if (!booking)
+            throw new common_1.NotFoundException('Booking not found');
+        const alreadySettled = ['CONFIRMED_PAID', 'COMPLETED', 'REFUNDED'];
+        if (alreadySettled.includes(booking.status)) {
+            return { booking: booking, didSettle: false };
+        }
+        if (!['CONFIRMED_DEPOSIT', 'BALANCE_DUE'].includes(booking.status)) {
+            throw new common_2.ConflictException(`Cannot settle balance in status ${booking.status}`);
+        }
+        const snapshot = booking.priceSnapshot;
+        if (snapshot.hmac) {
+            const { hmac, ...withoutHmac } = snapshot;
+            if (!this.snapshotSigner.verify(withoutHmac, hmac)) {
+                throw new confirm_payment_exceptions_1.TamperedSnapshotException(bookingId);
+            }
+        }
+        const expected = snapshot.balanceAmount;
+        if (expected != null && amountCaptured !== expected) {
+            throw new confirm_payment_exceptions_1.AmountMismatchException(amountCaptured, expected, bookingId, paymentId);
+        }
+        const updated = await this.stateMachine.transition(tx, booking, 'BALANCE_PAID', {
+            actorId: 'system:razorpay',
+            metadata: { paymentId, amountCapturedPaise: amountCaptured, kind: 'balance' },
+        });
+        await this.ledgerService.record({
+            type: 'PAYMENT_CAPTURED',
+            amount: amountCaptured,
+            bookingId,
+            metadata: { paymentId, nextStatus: updated.status, kind: 'balance' },
+            tx,
+        });
+        await this.auditService.log(null, 'BOOKING_BALANCE_SETTLED', 'booking', bookingId, { paymentId, amountCaptured, nextStatus: updated.status }, tx);
+        const listing = await tx.listing.findUnique({
+            where: { id: booking.listingId },
+            select: { hostId: true },
+        });
+        if (listing) {
+            const accommodationTotal = (snapshot.subtotal ?? 0) + (snapshot.cleaningFee ?? 0);
+            const hostShare = snapshot.total > 0
+                ? Math.round((accommodationTotal * amountCaptured) / snapshot.total)
+                : 0;
+            if (hostShare > 0) {
+                const eligibleAt = new Date(new Date(booking.startsAt).getTime() + 24 * 60 * 60 * 1000);
+                await tx.payoutLine.create({
+                    data: {
+                        hostId: listing.hostId,
+                        listingId: booking.listingId,
+                        bookingId,
+                        amount: hostShare,
+                        eligibleAt,
+                        status: 'NOT_ELIGIBLE',
+                    },
+                });
+            }
+        }
+        return { booking: updated, didSettle: true };
     }
     computeExpectedFirstCapturePaise(booking, snapshot) {
         if (booking.plan === 'FULL')
@@ -708,8 +771,10 @@ let BookingService = class BookingService {
                 metadata: { previousStatus: fresh.status },
             });
         });
-        await this.auditService.log(actorId, 'BOOKING_COMPLETE', 'booking', bookingId, {
+        const isSystemActor = actorId === 'SYSTEM_AUTO_COMPLETE';
+        await this.auditService.log(isSystemActor ? null : actorId, 'BOOKING_COMPLETE', 'booking', bookingId, {
             previousStatus: booking.status,
+            ...(isSystemActor ? { systemActor: actorId } : {}),
         });
         const snapshot = booking.priceSnapshot;
         const accommodationPaise = (snapshot.subtotal ?? 0) + (snapshot.cleaningFee ?? 0);

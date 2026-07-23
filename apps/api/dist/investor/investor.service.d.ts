@@ -91,9 +91,9 @@ export declare class InvestorService {
             fullName: string;
         };
     } & {
-        url: string;
         id: string;
         kind: import("@prisma/client").$Enums.InvestorDocumentKind;
+        url: string;
         title: string;
         investorUserId: string;
         uploadedById: string;
@@ -192,9 +192,9 @@ export declare class InvestorService {
         dueAt: Date;
     })[]>;
     uploadDocument(dto: UploadInvestorDocumentDto, actorUserId: string): Promise<{
-        url: string;
         id: string;
         kind: import("@prisma/client").$Enums.InvestorDocumentKind;
+        url: string;
         title: string;
         investorUserId: string;
         uploadedById: string;
@@ -212,9 +212,9 @@ export declare class InvestorService {
             fullName: string;
         };
     } & {
-        url: string;
         id: string;
         kind: import("@prisma/client").$Enums.InvestorDocumentKind;
+        url: string;
         title: string;
         investorUserId: string;
         uploadedById: string;

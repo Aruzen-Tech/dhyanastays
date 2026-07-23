@@ -10,11 +10,11 @@ export declare class PaymentController {
     private readonly paymentService;
     constructor(paymentService: PaymentService);
     init(user: RequestUser, dto: InitPaymentDto): Promise<{
-        type: import("@prisma/client").$Enums.PaymentPlan;
         idempotencyKey: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        type: import("@prisma/client").$Enums.PaymentPlan;
         status: import("@prisma/client").$Enums.PaymentStatus;
         amount: number;
         bookingId: string;
@@ -37,11 +37,11 @@ export declare class PaymentController {
         deduped?: undefined;
     }>;
     payBalance(user: RequestUser, bookingId: string, dto: PayBalanceDto): Promise<{
-        type: import("@prisma/client").$Enums.PaymentPlan;
         idempotencyKey: string;
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        type: import("@prisma/client").$Enums.PaymentPlan;
         status: import("@prisma/client").$Enums.PaymentStatus;
         amount: number;
         bookingId: string;

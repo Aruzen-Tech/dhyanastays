@@ -8,15 +8,15 @@ export declare class HoldService {
     private readonly auditService;
     constructor(prisma: PrismaService, pricingService: PricingService, auditService: AuditService);
     createHold(guestId: string, dto: CreateHoldDto): Promise<{
-        id: string;
         idempotencyKey: string;
-        listingId: string;
-        guestId: string;
+        id: string;
+        createdAt: Date;
+        expiresAt: Date;
         startsAt: Date;
         endsAt: Date;
-        expiresAt: Date;
+        listingId: string;
+        guestId: string;
         priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-        createdAt: Date;
     }>;
     releaseHold(guestId: string, holdId: string): Promise<{
         released: boolean;

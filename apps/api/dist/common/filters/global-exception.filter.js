@@ -9,6 +9,7 @@ var GlobalExceptionFilter_1;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GlobalExceptionFilter = void 0;
 const common_1 = require("@nestjs/common");
+const sentry_1 = require("../observability/sentry");
 let GlobalExceptionFilter = GlobalExceptionFilter_1 = class GlobalExceptionFilter {
     constructor() {
         this.logger = new common_1.Logger(GlobalExceptionFilter_1.name);
@@ -43,6 +44,7 @@ let GlobalExceptionFilter = GlobalExceptionFilter_1 = class GlobalExceptionFilte
             status = common_1.HttpStatus.INTERNAL_SERVER_ERROR;
             message = 'Internal server error';
             this.logger.error(`Unhandled exception [${correlationId}]: ${exception instanceof Error ? exception.stack : String(exception)}`);
+            (0, sentry_1.captureException)(exception, { correlationId, path: request.url });
         }
         response.status(status).json({
             statusCode: status,

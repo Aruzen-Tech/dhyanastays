@@ -32,6 +32,7 @@ import { ExperienceModule } from './experience/experience.module';
 import { TripGroupModule } from './trip-group/trip-group.module';
 import { ItineraryModule } from './itinerary/itinerary.module';
 import { FeatureModule } from './feature/feature.module';
+import { StayPassModule } from './stay-pass/stay-pass.module';
 import { HostSettingsModule } from './host-settings/host-settings.module';
 import { ThrottleTrackerInterceptor } from './common/interceptors/throttle-tracker.interceptor';
 import { LoggerModule } from './common/logger/logger.module';
@@ -104,6 +105,17 @@ export class AppModule {
                 port: config.get<number>('REDIS_PORT', 6379),
                 password: config.get<string>('REDIS_PASSWORD') ?? undefined,
                 maxRetriesPerRequest: null,
+              },
+              // Default job options for every queue. All processors are
+              // idempotent (status-gated crons + dedup-guarded dispatchers), so
+              // retrying transient failures is safe. removeOnComplete/Fail caps
+              // stop finished jobs accumulating forever in Redis (the managed
+              // Key Value store is small — an unbounded job history would OOM it).
+              defaultJobOptions: {
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 2000 },
+                removeOnComplete: { count: 1000, age: 24 * 3600 },
+                removeOnFail: { count: 5000, age: 7 * 24 * 3600 },
               },
             }),
           }),
@@ -200,6 +212,9 @@ export class AppModule {
 
         // AI Itinerary Planner (Phase 3 §5.9)
         ItineraryModule,
+
+        // Stay Pass — themed tickets + signed-QR check-in (feature-flagged)
+        StayPassModule,
 
         // Platform control panel — feature flags (global service for FeatureGuard)
         FeatureModule,

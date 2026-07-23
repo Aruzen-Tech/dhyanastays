@@ -27,8 +27,8 @@ export declare class PayoutController {
         updatedAt: Date;
         status: import("@prisma/client").$Enums.PayoutStatus;
         amount: number;
-        listingId: string;
         hostId: string;
+        listingId: string;
         bookingId: string;
         eligibleAt: Date;
         batchId: string | null;
@@ -85,8 +85,8 @@ export declare class PayoutController {
             updatedAt: Date;
             status: import("@prisma/client").$Enums.PayoutStatus;
             amount: number;
-            listingId: string;
             hostId: string;
+            listingId: string;
             bookingId: string;
             eligibleAt: Date;
             batchId: string | null;

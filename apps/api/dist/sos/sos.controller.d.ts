@@ -80,8 +80,8 @@ export declare class SosController {
         createdAt: Date;
         senderId: string;
         senderRole: string;
-        content: string;
         incidentId: string;
+        content: string;
     }[]>;
     sendMessage(user: RequestUser, id: string, body: {
         content: string;
@@ -90,38 +90,38 @@ export declare class SosController {
         createdAt: Date;
         senderId: string;
         senderRole: string;
-        content: string;
         incidentId: string;
+        content: string;
     }>;
     listContacts(user: RequestUser): Promise<{
-        name: string;
         id: string;
         email: string | null;
         createdAt: Date;
         updatedAt: Date;
         phone: string | null;
+        name: string;
         userId: string;
         relation: string;
         primary: boolean;
     }[]>;
     createContact(user: RequestUser, dto: UpsertTrustedContactDto): Promise<{
-        name: string;
         id: string;
         email: string | null;
         createdAt: Date;
         updatedAt: Date;
         phone: string | null;
+        name: string;
         userId: string;
         relation: string;
         primary: boolean;
     }>;
     updateContact(user: RequestUser, id: string, dto: UpsertTrustedContactDto): Promise<{
-        name: string;
         id: string;
         email: string | null;
         createdAt: Date;
         updatedAt: Date;
         phone: string | null;
+        name: string;
         userId: string;
         relation: string;
         primary: boolean;

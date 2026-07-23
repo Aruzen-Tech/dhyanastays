@@ -15,6 +15,13 @@ import { AddMediaDto } from './dto/add-media.dto';
 import { AddSeasonalRateDto } from './dto/add-seasonal-rate.dto';
 import { AddAvailabilityBlockDto } from './dto/add-availability-block.dto';
 import { UpdatePreparationDto } from './dto/update-preparation.dto';
+import {
+  toMeiliListingDocument,
+  type MeiliListingSource,
+} from './meili-listing-document';
+
+const MAP_LISTING_LIMIT = 200;
+const SEARCH_LISTING_LIMIT = 50;
 
 @Injectable()
 export class ListingService {
@@ -300,7 +307,41 @@ export class ListingService {
     return listings;
   }
 
-  async getListingsByBounds(swLat: number, swLng: number, neLat: number, neLng: number) {
+  async getListingsByBounds(
+    swLat: number,
+    swLng: number,
+    neLat: number,
+    neLng: number,
+  ) {
+    const bounds = [swLat, swLng, neLat, neLng];
+
+    if (!bounds.every(Number.isFinite)) {
+      throw new BadRequestException('Map bounds must be valid numbers');
+    }
+
+    if (
+      swLat < -90 ||
+      swLat > 90 ||
+      neLat < -90 ||
+      neLat > 90 ||
+      swLng < -180 ||
+      swLng > 180 ||
+      neLng < -180 ||
+      neLng > 180
+    ) {
+      throw new BadRequestException('Map bounds are outside the valid coordinate range');
+    }
+
+    if (neLat < swLat) {
+      throw new BadRequestException('Map bounds must have north greater than or equal to south');
+    }
+
+    if (swLng > neLng) {
+      throw new BadRequestException(
+        'Map bounds must have west less than or equal to east; antimeridian-crossing bounds are not supported by this endpoint',
+      );
+    }
+
     return this.prisma.listing.findMany({
       where: {
         status: ListingStatus.APPROVED,
@@ -313,6 +354,7 @@ export class ListingService {
       },
       include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
       orderBy: { createdAt: 'desc' },
+      take: MAP_LISTING_LIMIT,
     });
   }
 
@@ -343,19 +385,36 @@ export class ListingService {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${meiliKey}`,
           },
-          body: JSON.stringify({ q: q.trim(), limit: 50 }),
+          body: JSON.stringify({ q: q.trim(), limit: SEARCH_LISTING_LIMIT }),
         });
         if (res.ok) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const data = await res.json() as { hits: any[] };
           const ids: string[] = data.hits.map((h: { id: string }) => h.id);
           if (ids.length > 0) {
-            return this.prisma.listing.findMany({
-              where: { id: { in: ids }, status: ListingStatus.APPROVED },
-              include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
+            const listings = await this.prisma.listing.findMany({
+              where: {
+                id: { in: ids },
+                status: ListingStatus.APPROVED,
+              },
+              include: {
+                rateRules: true,
+                media: {
+                  orderBy: { sortOrder: 'asc' },
+                  take: 1,
+                },
+              },
+            });
+
+            const listingsById = new Map(
+              listings.map((listing) => [listing.id, listing]),
+            );
+
+            return ids.flatMap((id) => {
+              const listing = listingsById.get(id);
+              return listing ? [listing] : [];
             });
           }
-          return [];
         }
       } catch (err) {
         this.logger.warn(`Meilisearch search failed, falling back to DB: ${String(err)}`);
@@ -376,6 +435,7 @@ export class ListingService {
       },
       include: { rateRules: true, media: { orderBy: { sortOrder: 'asc' }, take: 1 } },
       orderBy: { createdAt: 'desc' },
+      take: SEARCH_LISTING_LIMIT,
     });
   }
 
@@ -672,20 +732,13 @@ export class ListingService {
     });
   }
 
-  private async meiliIndex(listing: {
-    id: string; title: string; description: string;
-    city: string; state: string; country: string; status: string;
-    rateRules?: Array<{ baseNightlyRate: number; maxGuests: number }>;
-  }): Promise<void> {
+  private async meiliIndex(
+    listing: MeiliListingSource,
+  ): Promise<void> {
     const meiliUrl = this.config.get<string>('MEILI_URL', '');
     const meiliKey = this.config.get<string>('MEILI_MASTER_KEY', '');
     if (!meiliUrl || !meiliKey) return;
-    const rr = listing.rateRules?.[0];
-    const doc = {
-      id: listing.id, title: listing.title, description: listing.description,
-      city: listing.city, state: listing.state, country: listing.country,
-      baseNightlyRate: rr?.baseNightlyRate ?? 0, maxGuests: rr?.maxGuests ?? 2,
-    };
+    const doc = toMeiliListingDocument(listing);
     try {
       await fetch(`${meiliUrl}/indexes/listings/documents`, {
         method: 'POST',

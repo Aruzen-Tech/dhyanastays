@@ -25,7 +25,8 @@ function ListingPlaceholder({ id, title }: { id: string; title: string }) {
       viewBox="0 0 600 400"
       xmlns="http://www.w3.org/2000/svg"
       className="w-full h-full"
-      aria-label={title}
+      aria-hidden="true"
+      focusable="false"
     >
       <defs>
         <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
@@ -70,8 +71,11 @@ export default function ListingCard({ listing }: Props) {
   const maxGuests = rateRule?.maxGuests;
 
   return (
-    <Link href={`/listings/${listing.id}`} className="block group animate-fade-in">
-      <div className="card-hover h-full flex flex-col">
+    <article className="card-hover group relative h-full overflow-hidden animate-fade-in focus-within:ring-2 focus-within:ring-brand-700/30 focus-within:ring-inset">
+      <Link
+        href={`/listings/${listing.id}`}
+        className="block h-full rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/30 focus-visible:ring-inset"
+      >
         {/* Image / placeholder */}
         <div className="relative h-52 overflow-hidden rounded-t-2xl">
           <div className="w-full h-full group-hover:scale-105 transition-transform duration-500 ease-out">
@@ -79,11 +83,6 @@ export default function ListingCard({ listing }: Props) {
           </div>
           {/* Gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-
-          {/* Wishlist */}
-          <div className="absolute top-3 right-3">
-            <WishlistButton listingId={listing.id} size="sm" />
-          </div>
 
           {/* Location pill */}
           <div className="absolute bottom-3 left-3">
@@ -97,7 +96,8 @@ export default function ListingCard({ listing }: Props) {
                 border: '1px solid rgba(255,255,255,0.15)',
               }}
             >
-              📍 {listing.city}, {listing.state}
+              <span aria-hidden="true">📍</span>{' '}
+              {listing.city}, {listing.state}
             </span>
           </div>
         </div>
@@ -124,11 +124,18 @@ export default function ListingCard({ listing }: Props) {
               <span className="text-gray-400 text-sm">Price on request</span>
             )}
             {maxGuests && (
-              <span className="text-gray-400 text-xs">👥 Up to {maxGuests}</span>
+              <span className="text-gray-400 text-xs">
+                <span aria-hidden="true">👥</span>{' '}
+                Up to {maxGuests}
+              </span>
             )}
           </div>
         </div>
+      </Link>
+
+      <div className="absolute top-3 right-3 z-10 rounded-full focus-within:ring-2 focus-within:ring-brand-700/30 focus-within:ring-offset-2">
+        <WishlistButton listingId={listing.id} size="sm" />
       </div>
-    </Link>
+    </article>
   );
 }

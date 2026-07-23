@@ -73,6 +73,7 @@ enum BookingStatus {
   CONFIRMED_DEPOSIT
   BALANCE_DUE
   CONFIRMED_PAID
+  CHECKED_IN
   CANCELLED
   REFUNDED
   COMPLETED
@@ -241,6 +242,7 @@ model Listing {
   experienceTags      String[]             @default([])
   propertyType        String?
   dietaryOptions      String[]             @default([])
+  stayThemeId         String?              // Stay Pass visual identity (§Stay Pass module)
   needsReapproval     Boolean              @default(false)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
@@ -262,6 +264,7 @@ model Listing {
   investments         Investment[]
   capitalCalls        CapitalCall[]
   experiences         Experience[]         @relation("ListingExperiences")
+  stayTheme           StayTheme?           @relation(fields: [stayThemeId], references: [id])
 
   @@index([hostId])
   @@index([status, createdAt])
@@ -393,6 +396,7 @@ model Booking {
   addOns           BookingAddOn[]
   payLaterPlan     PayLaterPlan?
   sosIncidents     SosIncident[]
+  ticket           Ticket?
 
   @@index([listingId, status])
   @@index([guestId, status])
@@ -1612,4 +1616,108 @@ model ItineraryUsage {
 
   @@unique([userId, monthBucket])
   @@index([monthBucket])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stay Pass module — themed tickets, signed-QR check-in, Stay Passport
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum TicketStatus {
+  PENDING
+  RENDERED
+  FAILED
+  VOIDED
+  COMMEMORATIVE
+}
+
+/// A visual identity bundle assigned to a listing. `id` is the theme key
+/// (e.g. 'forest_villa'); `version` bumps on publish. Tickets snapshot the
+/// version they were issued under; rendered assets are frozen immutably in S3.
+model StayTheme {
+  id          String    @id            // 'forest_villa', 'heritage', ...
+  version     Int       @default(1)
+  displayName String
+  status      String    @default("ACTIVE") // DRAFT | ACTIVE | RETIRED
+  tokens      Json                          // palette, motif, mood_line, stamp_shape…
+  assets      Json      @default("{}")      // S3 keys: motif, pattern, icon, wallet strips
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  listings    Listing[]
+}
+
+/// A scarce, campaign-bound theme overlay. Serials claimed atomically.
+model TicketEdition {
+  id           String   @id            // 'pongal_2027'
+  themeOverlay Json                    // palette/motif/border overrides
+  windowStart  DateTime                // bookings confirmed in [start, end) get the edition
+  windowEnd    DateTime
+  scope        Json?                   // optional { propertyIds?, themeIds? } filter
+  maxIssue     Int?                    // NULL = unlimited
+  issuedCount  Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([windowStart, windowEnd])
+}
+
+/// One ticket per booking. `assets` is the render manifest (format → key).
+model Ticket {
+  id              String       @id @default(cuid())
+  bookingId       String       @unique
+  themeId         String
+  themeVersion    Int
+  editionId       String?
+  editionSerial   Int?
+  templateVersion Int          @default(1)
+  status          TicketStatus @default(PENDING)
+  assets          Json         @default("{}")
+  qrJti           String       @unique      // single-issue id, supports revocation
+  qrRevoked       Boolean      @default(false)
+  wallet          Json         @default("{}") // apple serial / google object id, issued flags
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  booking         Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([themeId])
+}
+
+/// Append-only log of every check-in scan attempt (success and failure).
+model CheckinScan {
+  id        String   @id @default(cuid())
+  bookingId String
+  ticketId  String?
+  scannedBy String   // host/admin userId
+  result    String   // OK | INVALID_SIG | EXPIRED | NOT_YET | REVOKED | ALREADY_CHECKED_IN | NOT_OWNER | BAD_STATE
+  scannedAt DateTime @default(now())
+
+  @@index([bookingId])
+}
+
+/// One commemorative stamp per completed stay.
+model PassportStamp {
+  id        String   @id @default(cuid())
+  guestId   String
+  bookingId String   @unique
+  themeId   String
+  editionId String?
+  mintedAt  DateTime @default(now())
+
+  @@index([guestId, mintedAt])
+}
+
+/// Data-defined collection sets (e.g. "The Curator's Circuit").
+model CollectionSet {
+  id         String   @id            // 'all_stay_types_v1'
+  definition Json                    // required theme/edition predicates
+  reward     Json                    // { couponRef | tierBump | perk }
+  createdAt  DateTime @default(now())
+}
+
+/// A guest's award for completing a collection set (idempotent per set).
+model CollectionAward {
+  guestId   String
+  setId     String
+  awardedAt DateTime @default(now())
+
+  @@id([guestId, setId])
 }

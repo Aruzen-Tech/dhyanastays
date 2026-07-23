@@ -1,3 +1,5 @@
+export declare const DIETARY_OPTIONS: string[];
+export declare const WELLNESS_OPTIONS: string[];
 export declare class UpsertPreferencesDto {
     dietaryNeeds?: string[];
     wellnessInterests?: string[];

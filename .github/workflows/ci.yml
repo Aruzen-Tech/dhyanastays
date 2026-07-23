@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: ["main", "develop"]
+    branches: ["main", "dev"]
   pull_request:
 
 concurrency:
@@ -84,6 +84,53 @@ jobs:
       - run: pnpm --filter @dhyana/api prisma:generate
       - run: pnpm --filter @dhyana/api test
       - run: pnpm --filter @dhyana/api build
+
+  # ── API integration tests (real Postgres) ───────────────────────────────────
+  # Runs the booking-engine integration suite + concurrency proofs — the tests
+  # that caught the money-integrity bugs. Needs a real DB with migrations applied.
+  integration:
+    name: API integration tests
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: dhyana_stays
+          POSTGRES_USER: dhyana
+          POSTGRES_PASSWORD: dhyana
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://dhyana:dhyana@localhost:5432/dhyana_stays?schema=public
+      DIRECT_URL: postgresql://dhyana:dhyana@localhost:5432/dhyana_stays?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret-min-16-chars
+      JWT_REFRESH_SECRET: ci-refresh-secret-min-16-chars
+      PRICE_SNAPSHOT_SECRET: ci-snapshot-secret-must-be-32-characters!
+      # Keep concurrency proofs quick in CI (default is 25).
+      INT_CONCURRENCY_ITERATIONS: "10"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.2.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile=false
+      - run: pnpm --filter @dhyana/api prisma:generate
+      # Apply migrations + the booking-overlap GiST index (env-provided DATABASE_URL,
+      # so call prisma directly rather than the dotenv-wrapped package scripts).
+      - run: pnpm --filter @dhyana/api exec prisma migrate deploy
+      - run: pnpm --filter @dhyana/api exec prisma db execute --file prisma/post-migrate/01_booking_gist_index.sql --schema prisma/schema.prisma
+      - name: Integration suite
+        run: pnpm --filter @dhyana/api exec jest --config jest-integration.config.json --runInBand --forceExit
 
   # ── Web build ───────────────────────────────────────────────────────────────
   web:

@@ -140,10 +140,11 @@ let PayoutService = PayoutService_1 = class PayoutService {
                 existing.amount += line.amount;
             }
             else {
+                const hostUser = line.host.user;
                 byHost.set(line.hostId, {
                     hostId: line.hostId,
-                    hostName: line.host.user.fullName ?? '',
-                    hostEmail: line.host.user.email,
+                    hostName: hostUser.fullName ?? '',
+                    hostEmail: hostUser.email,
                     lineCount: 1,
                     amount: line.amount,
                 });

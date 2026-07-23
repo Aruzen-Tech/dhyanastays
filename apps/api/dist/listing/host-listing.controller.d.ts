@@ -29,12 +29,12 @@ export declare class HostListingController {
     }>;
     getMyListings(user: RequestUser): Promise<({
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -50,11 +50,11 @@ export declare class HostListingController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -71,12 +71,12 @@ export declare class HostListingController {
     })[]>;
     create(user: RequestUser, dto: CreateListingDto): Promise<({
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -92,11 +92,11 @@ export declare class HostListingController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -113,12 +113,12 @@ export declare class HostListingController {
     }) | null>;
     update(user: RequestUser, id: string, dto: UpdateListingDto): Promise<({
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -134,11 +134,11 @@ export declare class HostListingController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -175,27 +175,27 @@ export declare class HostListingController {
         propertyManual: import("@prisma/client/runtime/library").JsonValue;
     }>;
     addMedia(user: RequestUser, id: string, dto: AddMediaDto): Promise<{
-        url: string;
         id: string;
         createdAt: Date;
-        listingId: string;
-        sortOrder: number;
+        url: string;
         mediaType: string;
+        sortOrder: number;
+        listingId: string;
     }>;
     deleteMedia(user: RequestUser, id: string, mediaId: string): Promise<{
         deleted: boolean;
     }>;
     getAllTags(): Promise<{
-        name: string;
         id: string;
         createdAt: Date;
+        name: string;
         category: string;
     }[]>;
     getListingTags(id: string): Promise<({
         tag: {
-            name: string;
             id: string;
             createdAt: Date;
+            name: string;
             category: string;
         };
     } & {
@@ -207,9 +207,9 @@ export declare class HostListingController {
     }): Promise<({
         tags: ({
             tag: {
-                name: string;
                 id: string;
                 createdAt: Date;
+                name: string;
                 category: string;
             };
         } & {
@@ -230,11 +230,11 @@ export declare class HostListingController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -252,18 +252,18 @@ export declare class HostListingController {
     addSeasonalRate(user: RequestUser, id: string, dto: AddSeasonalRateDto): Promise<{
         id: string;
         createdAt: Date;
-        listingId: string;
         startsAt: Date;
         endsAt: Date;
         nightlyRate: number;
+        listingId: string;
     }>;
     getSeasonalRates(user: RequestUser, id: string): Promise<{
         id: string;
         createdAt: Date;
-        listingId: string;
         startsAt: Date;
         endsAt: Date;
         nightlyRate: number;
+        listingId: string;
     }[]>;
     deleteSeasonalRate(user: RequestUser, id: string, rateId: string): Promise<{
         deleted: boolean;
@@ -272,17 +272,17 @@ export declare class HostListingController {
         id: string;
         createdAt: Date;
         reason: string;
-        listingId: string;
         startsAt: Date;
         endsAt: Date;
+        listingId: string;
     }>;
     getAvailabilityBlocks(user: RequestUser, id: string): Promise<{
         id: string;
         createdAt: Date;
         reason: string;
-        listingId: string;
         startsAt: Date;
         endsAt: Date;
+        listingId: string;
     }[]>;
     deleteAvailabilityBlock(user: RequestUser, id: string, blockId: string): Promise<{
         deleted: boolean;

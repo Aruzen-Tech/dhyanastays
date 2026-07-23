@@ -98,6 +98,14 @@ export const envValidationSchema = Joi.object({
   SOS_OPS_PHONE: Joi.string().allow('').default(''),
   SOS_OPS_EMAIL: Joi.string().allow('').default(''),
 
+  // ── Stay Pass QR signing (falls back to PRICE_SNAPSHOT_SECRET in dev) ─────
+  QR_SIGNING_SECRET: Joi.string().allow('').default(''),
+
+  // ── Error tracking (optional — inert without a DSN) ───────────────────────
+  SENTRY_DSN: Joi.string().allow('').default(''),
+  SENTRY_TRACES_SAMPLE_RATE: Joi.number().min(0).max(1).default(0),
+  SENTRY_RELEASE: Joi.string().allow('').default(''),
+
   // ── Anthropic (AI itinerary planner §5.9) ─────────────────────────────────
   // Required in production — see env.validation.ts production block. The
   // itinerary service refuses to start without it (no silent stub fallback).
@@ -112,6 +120,8 @@ export const envValidationSchema = Joi.object({
       JWT_ACCESS_SECRET: Joi.string().min(32).required(),
       JWT_REFRESH_SECRET: Joi.string().min(32).required(),
       PRICE_SNAPSHOT_SECRET: Joi.string().min(32).invalid('dev-snapshot-secret-min-32-characters!').required(),
+      QR_SIGNING_SECRET: Joi.string().min(32).required()
+        .messages({ 'string.empty': 'QR_SIGNING_SECRET is required in production — Stay Pass check-in tokens must not share the dev fallback' }),
       RAZORPAY_KEY_ID: Joi.string().min(1).required()
         .messages({ 'string.empty': 'RAZORPAY_KEY_ID is required in production (no stub mode)' }),
       RAZORPAY_KEY_SECRET: Joi.string().min(1).required(),

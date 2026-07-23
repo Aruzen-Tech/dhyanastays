@@ -5,11 +5,21 @@ export declare class GuestConciergeController {
     private readonly messaging;
     constructor(messaging: MessagingService);
     getThread(user: RequestUser, bookingId: string): Promise<{
+        listing: {
+            id: string;
+            title: string;
+        } | null;
+        booking: {
+            id: string;
+            status: import("@prisma/client").$Enums.BookingStatus;
+            startsAt: Date;
+            endsAt: Date;
+        } | null;
         messages: ({
             sender: {
-                role: import("@prisma/client").$Enums.UserRole;
                 id: string;
                 fullName: string;
+                role: import("@prisma/client").$Enums.UserRole;
                 avatarUrl: string | null;
             };
         } & {
@@ -22,34 +32,24 @@ export declare class GuestConciergeController {
             body: string;
             isSystem: boolean;
         })[];
-        listing: {
-            id: string;
-            title: string;
-        } | null;
-        booking: {
-            id: string;
-            status: import("@prisma/client").$Enums.BookingStatus;
-            startsAt: Date;
-            endsAt: Date;
-        } | null;
         userOne: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
         userTwo: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
     } & {
-        type: string;
         id: string;
         kind: import("@prisma/client").$Enums.ConversationKind;
         createdAt: Date;
         updatedAt: Date;
+        type: string;
         status: import("@prisma/client").$Enums.ConversationStatus;
         listingId: string | null;
         bookingId: string | null;
@@ -64,9 +64,9 @@ export declare class GuestConciergeController {
     }>;
     send(user: RequestUser, bookingId: string, dto: SendMessageDto): Promise<{
         sender: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             avatarUrl: string | null;
         };
     } & {

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PricingService } from '../pricing/pricing.service';
 import { AuditService } from '../common/services/audit.service';
@@ -37,11 +38,11 @@ export declare class BookingService {
             country: string;
         };
         payments: {
-            type: import("@prisma/client").$Enums.PaymentPlan;
             idempotencyKey: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            type: import("@prisma/client").$Enums.PaymentPlan;
             status: import("@prisma/client").$Enums.PaymentStatus;
             amount: number;
             bookingId: string;
@@ -55,21 +56,21 @@ export declare class BookingService {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
-        priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-        guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-        checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-        checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
+        priceSnapshot: Prisma.JsonValue;
+        guestDetails: Prisma.JsonValue | null;
+        checkInData: Prisma.JsonValue | null;
+        checkOutData: Prisma.JsonValue | null;
         balanceDueAt: Date | null;
         payLaterMonths: number | null;
         acceptedTermsAt: Date | null;
-        statusHistory: import("@prisma/client/runtime/library").JsonValue;
-        cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+        statusHistory: Prisma.JsonValue;
+        cancellationPolicySnapshot: Prisma.JsonValue | null;
     })[]>;
     getHostBookings(userId: string): Promise<({
         listing: {
@@ -80,11 +81,11 @@ export declare class BookingService {
             country: string;
         };
         payments: {
-            type: import("@prisma/client").$Enums.PaymentPlan;
             idempotencyKey: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            type: import("@prisma/client").$Enums.PaymentPlan;
             status: import("@prisma/client").$Enums.PaymentStatus;
             amount: number;
             bookingId: string;
@@ -98,21 +99,21 @@ export declare class BookingService {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
-        priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-        guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-        checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-        checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
+        priceSnapshot: Prisma.JsonValue;
+        guestDetails: Prisma.JsonValue | null;
+        checkInData: Prisma.JsonValue | null;
+        checkOutData: Prisma.JsonValue | null;
         balanceDueAt: Date | null;
         payLaterMonths: number | null;
         acceptedTermsAt: Date | null;
-        statusHistory: import("@prisma/client/runtime/library").JsonValue;
-        cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+        statusHistory: Prisma.JsonValue;
+        cancellationPolicySnapshot: Prisma.JsonValue | null;
     })[]>;
     getBookingById(bookingId: string, requesterId: string, requesterRole: string): Promise<{
         listing: {
@@ -129,11 +130,11 @@ export declare class BookingService {
             country: string;
         };
         payments: {
-            type: import("@prisma/client").$Enums.PaymentPlan;
             idempotencyKey: string;
             id: string;
             createdAt: Date;
             updatedAt: Date;
+            type: import("@prisma/client").$Enums.PaymentPlan;
             status: import("@prisma/client").$Enums.PaymentStatus;
             amount: number;
             bookingId: string;
@@ -156,21 +157,21 @@ export declare class BookingService {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
-        priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-        guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-        checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-        checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
+        priceSnapshot: Prisma.JsonValue;
+        guestDetails: Prisma.JsonValue | null;
+        checkInData: Prisma.JsonValue | null;
+        checkOutData: Prisma.JsonValue | null;
         balanceDueAt: Date | null;
         payLaterMonths: number | null;
         acceptedTermsAt: Date | null;
-        statusHistory: import("@prisma/client/runtime/library").JsonValue;
-        cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+        statusHistory: Prisma.JsonValue;
+        cancellationPolicySnapshot: Prisma.JsonValue | null;
     }>;
     getAllBookings(page?: number, limit?: number, status?: string, search?: string): Promise<{
         bookings: ({
@@ -185,8 +186,8 @@ export declare class BookingService {
                 fullName: string;
             };
             payments: {
-                type: import("@prisma/client").$Enums.PaymentPlan;
                 id: string;
+                type: import("@prisma/client").$Enums.PaymentPlan;
                 status: import("@prisma/client").$Enums.PaymentStatus;
                 amount: number;
             }[];
@@ -195,21 +196,21 @@ export declare class BookingService {
             createdAt: Date;
             updatedAt: Date;
             status: import("@prisma/client").$Enums.BookingStatus;
-            holdId: string;
-            listingId: string;
-            guestId: string;
-            plan: import("@prisma/client").$Enums.PaymentPlan;
             startsAt: Date;
             endsAt: Date;
-            priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-            guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-            checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-            checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+            listingId: string;
+            holdId: string;
+            guestId: string;
+            plan: import("@prisma/client").$Enums.PaymentPlan;
+            priceSnapshot: Prisma.JsonValue;
+            guestDetails: Prisma.JsonValue | null;
+            checkInData: Prisma.JsonValue | null;
+            checkOutData: Prisma.JsonValue | null;
             balanceDueAt: Date | null;
             payLaterMonths: number | null;
             acceptedTermsAt: Date | null;
-            statusHistory: import("@prisma/client/runtime/library").JsonValue;
-            cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+            statusHistory: Prisma.JsonValue;
+            cancellationPolicySnapshot: Prisma.JsonValue | null;
         })[];
         total: number;
         page: number;
@@ -220,6 +221,12 @@ export declare class BookingService {
             status: string;
         };
         didConfirm: boolean;
+    }>;
+    settleBalance(tx: TxClient, bookingId: string, paymentId: string, amountCaptured: number): Promise<{
+        booking: BookingLike & {
+            status: string;
+        };
+        didSettle: boolean;
     }>;
     private computeExpectedFirstCapturePaise;
     sendBookingConfirmedNotificationPublic(bookingId: string): Promise<void>;
@@ -236,21 +243,21 @@ export declare class BookingService {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
-        priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
-        guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
-        checkInData: import("@prisma/client/runtime/library").JsonValue | null;
-        checkOutData: import("@prisma/client/runtime/library").JsonValue | null;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
+        priceSnapshot: Prisma.JsonValue;
+        guestDetails: Prisma.JsonValue | null;
+        checkInData: Prisma.JsonValue | null;
+        checkOutData: Prisma.JsonValue | null;
         balanceDueAt: Date | null;
         payLaterMonths: number | null;
         acceptedTermsAt: Date | null;
-        statusHistory: import("@prisma/client/runtime/library").JsonValue;
-        cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
+        statusHistory: Prisma.JsonValue;
+        cancellationPolicySnapshot: Prisma.JsonValue | null;
     }>;
 }
 export {};

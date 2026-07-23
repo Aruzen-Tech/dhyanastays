@@ -7,12 +7,12 @@ export declare class GuestExperienceController {
     listBookings(user: RequestUser): Promise<({
         experience: {
             id: string;
+            category: string;
             startsAt: Date;
             endsAt: Date;
             title: string;
             city: string;
             state: string;
-            category: string;
             imageUrl: string | null;
         };
     } & {

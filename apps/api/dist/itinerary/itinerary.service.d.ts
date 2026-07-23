@@ -24,9 +24,9 @@ export declare class ItineraryService {
         updatedAt: Date;
         userId: string;
         status: import("@prisma/client").$Enums.ItineraryStatus;
-        listingId: string | null;
         startsAt: Date;
         endsAt: Date;
+        listingId: string | null;
         destination: string;
         travelers: number;
         interests: string[];
@@ -40,13 +40,13 @@ export declare class ItineraryService {
     }[]>;
     getById(userId: string, id: string): Promise<{
         messages: {
-            role: string;
             id: string;
+            role: string;
             createdAt: Date;
             tokensInput: number;
             tokensOutput: number;
-            itineraryId: string;
             content: string;
+            itineraryId: string;
             appliedPatch: Prisma.JsonValue | null;
         }[];
     } & {
@@ -55,9 +55,9 @@ export declare class ItineraryService {
         updatedAt: Date;
         userId: string;
         status: import("@prisma/client").$Enums.ItineraryStatus;
-        listingId: string | null;
         startsAt: Date;
         endsAt: Date;
+        listingId: string | null;
         destination: string;
         travelers: number;
         interests: string[];
@@ -75,9 +75,9 @@ export declare class ItineraryService {
         updatedAt: Date;
         userId: string;
         status: import("@prisma/client").$Enums.ItineraryStatus;
-        listingId: string | null;
         startsAt: Date;
         endsAt: Date;
+        listingId: string | null;
         destination: string;
         travelers: number;
         interests: string[];
@@ -101,9 +101,9 @@ export declare class ItineraryService {
         updatedAt: Date;
         userId: string;
         status: import("@prisma/client").$Enums.ItineraryStatus;
-        listingId: string | null;
         startsAt: Date;
         endsAt: Date;
+        listingId: string | null;
         destination: string;
         travelers: number;
         interests: string[];
@@ -116,45 +116,45 @@ export declare class ItineraryService {
         tokensOutput: number;
     }>;
     listMessages(userId: string, itineraryId: string): Promise<{
-        role: string;
         id: string;
+        role: string;
         createdAt: Date;
         tokensInput: number;
         tokensOutput: number;
-        itineraryId: string;
         content: string;
+        itineraryId: string;
         appliedPatch: Prisma.JsonValue | null;
     }[]>;
     sendMessage(userId: string, itineraryId: string, content: string): Promise<{
         userMessage: {
-            role: string;
             id: string;
+            role: string;
             createdAt: Date;
             tokensInput: number;
             tokensOutput: number;
-            itineraryId: string;
             content: string;
+            itineraryId: string;
             appliedPatch: Prisma.JsonValue | null;
         };
         assistantMessage: {
-            role: string;
             id: string;
+            role: string;
             createdAt: Date;
             tokensInput: number;
             tokensOutput: number;
-            itineraryId: string;
             content: string;
+            itineraryId: string;
             appliedPatch: Prisma.JsonValue | null;
         };
         updated: {
             messages: {
-                role: string;
                 id: string;
+                role: string;
                 createdAt: Date;
                 tokensInput: number;
                 tokensOutput: number;
-                itineraryId: string;
                 content: string;
+                itineraryId: string;
                 appliedPatch: Prisma.JsonValue | null;
             }[];
         } & {
@@ -163,9 +163,9 @@ export declare class ItineraryService {
             updatedAt: Date;
             userId: string;
             status: import("@prisma/client").$Enums.ItineraryStatus;
-            listingId: string | null;
             startsAt: Date;
             endsAt: Date;
+            listingId: string | null;
             destination: string;
             travelers: number;
             interests: string[];

@@ -58,12 +58,12 @@ export declare class AdminController {
             createdAt: Date;
             updatedAt: Date;
             status: import("@prisma/client").$Enums.BookingStatus;
-            holdId: string;
-            listingId: string;
-            guestId: string;
-            plan: import("@prisma/client").$Enums.PaymentPlan;
             startsAt: Date;
             endsAt: Date;
+            listingId: string;
+            holdId: string;
+            guestId: string;
+            plan: import("@prisma/client").$Enums.PaymentPlan;
             priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
             guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
             checkInData: import("@prisma/client/runtime/library").JsonValue | null;
@@ -91,10 +91,10 @@ export declare class AdminController {
     }>;
     getUsers(page?: string, limit?: string, role?: string, search?: string): Promise<{
         users: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             isActive: boolean;
             createdAt: Date;
             updatedAt: Date;
@@ -119,7 +119,6 @@ export declare class AdminController {
     }>;
     getUserRoleHistory(id: string): Promise<{
         user: {
-            role: import("@prisma/client").$Enums.UserRole;
             staffRole: {
                 level: import("@prisma/client").$Enums.AdminLevel;
                 revokedAt: Date | null;
@@ -127,6 +126,7 @@ export declare class AdminController {
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             kind: import("@prisma/client").$Enums.UserKind | null;
             createdAt: Date;
         };
@@ -148,11 +148,11 @@ export declare class AdminController {
         }[];
     }>;
     deactivateUser(actor: RequestUser, id: string): Promise<{
-        role: import("@prisma/client").$Enums.UserRole;
         id: string;
         email: string;
         passwordHash: string | null;
         fullName: string;
+        role: import("@prisma/client").$Enums.UserRole;
         kind: import("@prisma/client").$Enums.UserKind | null;
         isActive: boolean;
         auth0Sub: string | null;
@@ -163,11 +163,11 @@ export declare class AdminController {
         referralCode: string | null;
     }>;
     activateUser(actor: RequestUser, id: string): Promise<{
-        role: import("@prisma/client").$Enums.UserRole;
         id: string;
         email: string;
         passwordHash: string | null;
         fullName: string;
+        role: import("@prisma/client").$Enums.UserRole;
         kind: import("@prisma/client").$Enums.UserKind | null;
         isActive: boolean;
         auth0Sub: string | null;
@@ -226,11 +226,11 @@ export declare class AdminController {
                 fullName: string;
             };
             payments: {
-                type: import("@prisma/client").$Enums.PaymentPlan;
                 idempotencyKey: string;
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                type: import("@prisma/client").$Enums.PaymentPlan;
                 status: import("@prisma/client").$Enums.PaymentStatus;
                 amount: number;
                 bookingId: string;
@@ -244,12 +244,12 @@ export declare class AdminController {
             createdAt: Date;
             updatedAt: Date;
             status: import("@prisma/client").$Enums.BookingStatus;
-            holdId: string;
-            listingId: string;
-            guestId: string;
-            plan: import("@prisma/client").$Enums.PaymentPlan;
             startsAt: Date;
             endsAt: Date;
+            listingId: string;
+            holdId: string;
+            guestId: string;
+            plan: import("@prisma/client").$Enums.PaymentPlan;
             priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
             guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
             checkInData: import("@prisma/client/runtime/library").JsonValue | null;
@@ -261,12 +261,12 @@ export declare class AdminController {
             cancellationPolicySnapshot: import("@prisma/client/runtime/library").JsonValue | null;
         })[];
         media: {
-            url: string;
             id: string;
             createdAt: Date;
-            listingId: string;
-            sortOrder: number;
+            url: string;
             mediaType: string;
+            sortOrder: number;
+            listingId: string;
         }[];
         rateRules: {
             id: string;
@@ -281,27 +281,27 @@ export declare class AdminController {
         seasonalRates: {
             id: string;
             createdAt: Date;
-            listingId: string;
             startsAt: Date;
             endsAt: Date;
             nightlyRate: number;
+            listingId: string;
         }[];
         availabilityBlocks: {
             id: string;
             createdAt: Date;
             reason: string;
-            listingId: string;
             startsAt: Date;
             endsAt: Date;
+            listingId: string;
         }[];
         id: string;
         createdAt: Date;
         updatedAt: Date;
+        description: string;
         status: import("@prisma/client").$Enums.ListingStatus;
         hostId: string;
         createdById: string;
         title: string;
-        description: string;
         city: string;
         state: string;
         country: string;
@@ -341,12 +341,12 @@ export declare class AdminController {
                 createdAt: Date;
                 updatedAt: Date;
                 status: import("@prisma/client").$Enums.BookingStatus;
-                holdId: string;
-                listingId: string;
-                guestId: string;
-                plan: import("@prisma/client").$Enums.PaymentPlan;
                 startsAt: Date;
                 endsAt: Date;
+                listingId: string;
+                holdId: string;
+                guestId: string;
+                plan: import("@prisma/client").$Enums.PaymentPlan;
                 priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
                 guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
                 checkInData: import("@prisma/client/runtime/library").JsonValue | null;
@@ -383,15 +383,15 @@ export declare class AdminController {
         id: string;
         updatedAt: Date;
         key: string;
-        value: import("@prisma/client/runtime/library").JsonValue;
         updatedBy: string | null;
+        value: import("@prisma/client/runtime/library").JsonValue;
     }[]>;
     updateSettings(actor: RequestUser, dto: UpdateSettingsDto): Promise<{
         id: string;
         updatedAt: Date;
         key: string;
-        value: import("@prisma/client/runtime/library").JsonValue;
         updatedBy: string | null;
+        value: import("@prisma/client/runtime/library").JsonValue;
     }[]>;
     getCalendarBookings(month: string, listingId?: string): Promise<{
         id: string;
@@ -415,19 +415,19 @@ export declare class AdminController {
         avgBookingValue: number;
     }[]>;
     getNotifications(unreadOnly?: string): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
+        type: string;
         metadata: import("@prisma/client/runtime/library").JsonValue;
         title: string;
         isRead: boolean;
     }[]>;
     markNotificationRead(id: string): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
+        type: string;
         metadata: import("@prisma/client/runtime/library").JsonValue;
         title: string;
         isRead: boolean;
@@ -446,10 +446,10 @@ export declare class AdminController {
     }>;
     globalSearch(q: string): Promise<{
         users: {
-            role: import("@prisma/client").$Enums.UserRole;
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
         }[];
         bookings: {
             id: string;
@@ -564,7 +564,6 @@ export declare class AdminController {
     }>;
     getStaff(search?: string, page?: string, limit?: string): Promise<{
         staff: {
-            role: import("@prisma/client").$Enums.UserRole;
             staffRole: {
                 createdAt: Date;
                 level: import("@prisma/client").$Enums.AdminLevel;
@@ -576,6 +575,7 @@ export declare class AdminController {
             id: string;
             email: string;
             fullName: string;
+            role: import("@prisma/client").$Enums.UserRole;
             kind: import("@prisma/client").$Enums.UserKind | null;
             isActive: boolean;
             createdAt: Date;

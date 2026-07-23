@@ -8,20 +8,19 @@ export declare class AddOnController {
     constructor(addOnService: AddOnService);
     listForListing(listingId: string): Promise<({
         provider: {
-            name: string;
             id: string;
             kind: import("@prisma/client").$Enums.ServiceType;
+            name: string;
         };
     } & {
-        scope: import("@prisma/client").$Enums.AddOnScope;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         clusterId: string | null;
-        status: import("@prisma/client").$Enums.AddOnStatus;
-        listingId: string | null;
-        title: string;
         description: string;
+        status: import("@prisma/client").$Enums.AddOnStatus;
+        title: string;
+        listingId: string | null;
         currency: string;
         priceMinor: number;
         reviewedBy: string | null;
@@ -33,6 +32,7 @@ export declare class AddOnController {
         minLeadHours: number;
         maxPerBooking: number;
         availability: import("@prisma/client/runtime/library").JsonValue | null;
+        scope: import("@prisma/client").$Enums.AddOnScope;
     })[]>;
     listProviders(activeOnly?: string): Promise<({
         _count: {
@@ -44,11 +44,11 @@ export declare class AddOnController {
             fullName: string;
         };
     } & {
-        name: string;
         id: string;
         kind: import("@prisma/client").$Enums.ServiceType;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         ownerUserId: string;
         contactEmail: string | null;
         contactPhone: string | null;
@@ -56,11 +56,11 @@ export declare class AddOnController {
         active: boolean;
     })[]>;
     createProvider(actor: RequestUser, dto: CreateServiceProviderDto): Promise<{
-        name: string;
         id: string;
         kind: import("@prisma/client").$Enums.ServiceType;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         ownerUserId: string;
         contactEmail: string | null;
         contactPhone: string | null;
@@ -68,11 +68,11 @@ export declare class AddOnController {
         active: boolean;
     }>;
     activateProvider(actor: RequestUser, id: string): Promise<{
-        name: string;
         id: string;
         kind: import("@prisma/client").$Enums.ServiceType;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         ownerUserId: string;
         contactEmail: string | null;
         contactPhone: string | null;
@@ -80,11 +80,11 @@ export declare class AddOnController {
         active: boolean;
     }>;
     deactivateProvider(actor: RequestUser, id: string): Promise<{
-        name: string;
         id: string;
         kind: import("@prisma/client").$Enums.ServiceType;
         createdAt: Date;
         updatedAt: Date;
+        name: string;
         ownerUserId: string;
         contactEmail: string | null;
         contactPhone: string | null;
@@ -97,20 +97,19 @@ export declare class AddOnController {
             title: string;
         } | null;
         provider: {
-            name: string;
             id: string;
             kind: import("@prisma/client").$Enums.ServiceType;
+            name: string;
         };
     } & {
-        scope: import("@prisma/client").$Enums.AddOnScope;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         clusterId: string | null;
-        status: import("@prisma/client").$Enums.AddOnStatus;
-        listingId: string | null;
-        title: string;
         description: string;
+        status: import("@prisma/client").$Enums.AddOnStatus;
+        title: string;
+        listingId: string | null;
         currency: string;
         priceMinor: number;
         reviewedBy: string | null;
@@ -122,17 +121,17 @@ export declare class AddOnController {
         minLeadHours: number;
         maxPerBooking: number;
         availability: import("@prisma/client/runtime/library").JsonValue | null;
+        scope: import("@prisma/client").$Enums.AddOnScope;
     })[]>;
     create(actor: RequestUser, dto: CreateAddOnDto): Promise<{
-        scope: import("@prisma/client").$Enums.AddOnScope;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         clusterId: string | null;
-        status: import("@prisma/client").$Enums.AddOnStatus;
-        listingId: string | null;
-        title: string;
         description: string;
+        status: import("@prisma/client").$Enums.AddOnStatus;
+        title: string;
+        listingId: string | null;
         currency: string;
         priceMinor: number;
         reviewedBy: string | null;
@@ -144,17 +143,17 @@ export declare class AddOnController {
         minLeadHours: number;
         maxPerBooking: number;
         availability: import("@prisma/client/runtime/library").JsonValue | null;
+        scope: import("@prisma/client").$Enums.AddOnScope;
     }>;
     approve(actor: RequestUser, id: string, dto: ReviewAddOnDto): Promise<{
-        scope: import("@prisma/client").$Enums.AddOnScope;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         clusterId: string | null;
-        status: import("@prisma/client").$Enums.AddOnStatus;
-        listingId: string | null;
-        title: string;
         description: string;
+        status: import("@prisma/client").$Enums.AddOnStatus;
+        title: string;
+        listingId: string | null;
         currency: string;
         priceMinor: number;
         reviewedBy: string | null;
@@ -166,17 +165,17 @@ export declare class AddOnController {
         minLeadHours: number;
         maxPerBooking: number;
         availability: import("@prisma/client/runtime/library").JsonValue | null;
+        scope: import("@prisma/client").$Enums.AddOnScope;
     }>;
     reject(actor: RequestUser, id: string, dto: ReviewAddOnDto): Promise<{
-        scope: import("@prisma/client").$Enums.AddOnScope;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         clusterId: string | null;
-        status: import("@prisma/client").$Enums.AddOnStatus;
-        listingId: string | null;
-        title: string;
         description: string;
+        status: import("@prisma/client").$Enums.AddOnStatus;
+        title: string;
+        listingId: string | null;
         currency: string;
         priceMinor: number;
         reviewedBy: string | null;
@@ -188,17 +187,17 @@ export declare class AddOnController {
         minLeadHours: number;
         maxPerBooking: number;
         availability: import("@prisma/client/runtime/library").JsonValue | null;
+        scope: import("@prisma/client").$Enums.AddOnScope;
     }>;
     retire(actor: RequestUser, id: string): Promise<{
-        scope: import("@prisma/client").$Enums.AddOnScope;
         id: string;
         createdAt: Date;
         updatedAt: Date;
         clusterId: string | null;
-        status: import("@prisma/client").$Enums.AddOnStatus;
-        listingId: string | null;
-        title: string;
         description: string;
+        status: import("@prisma/client").$Enums.AddOnStatus;
+        title: string;
+        listingId: string | null;
         currency: string;
         priceMinor: number;
         reviewedBy: string | null;
@@ -210,15 +209,16 @@ export declare class AddOnController {
         minLeadHours: number;
         maxPerBooking: number;
         availability: import("@prisma/client/runtime/library").JsonValue | null;
+        scope: import("@prisma/client").$Enums.AddOnScope;
     }>;
     listForBooking(bookingId: string): Promise<({
         addOn: {
-            title: string;
             description: string;
+            title: string;
             cancellationTier: import("@prisma/client").$Enums.CancellationTier;
             provider: {
-                name: string;
                 kind: import("@prisma/client").$Enums.ServiceType;
+                name: string;
             };
         };
     } & {

@@ -16,6 +16,468 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-23 — Stay Pass Phases A+B: themed tickets + signed-QR check-in
+
+Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_pass`, default OFF).
+
+### Added
+- **Phase A — themed booking tickets.** New `stay-pass` module: theme registry
+  (6 launch themes seeded; per-listing `stayThemeId` with guaranteed default
+  fallback), deterministic SVG master template rendered to **OG / story / email
+  hero / full(QR) PNGs + A5 PDF voucher** (resvg + pdf-lib + qrcode), uploaded
+  via new server-side `StorageService.putObject` (SigV4; stub mode writes to
+  `.stub-storage/` and serves via `GET /api/storage/stub/*` so local dev is
+  fully functional). Rendering runs as a **30s reconciliation sweep**
+  (`ticket-render` queue — outbox pattern; renders confirmed bookings, retries
+  FAILED, voids on cancel; flag-gated). Share-safe variants strip QR/ref/surname.
+  Endpoints: `GET /bookings/:id/ticket` (owner/admin) + `/ticket/share`.
+- **Phase B — signed-QR check-in.** `QrTokenSignerService` (HMAC-SHA256,
+  `nbf`/`exp` window, single-issue `jti`, dedicated `QR_SIGNING_SECRET` —
+  required ≥32 chars in production). `POST /checkin/scan` + `/checkin/confirm`
+  (host/admin, ownership-checked, rate-limited 10/min, append-only `CheckinScan`
+  log). New booking sub-state **`CHECKED_IN`** via the guarded state machine;
+  confirm **re-anchors payout eligibility to verified arrival + 24h**.
+- Schema: `StayTheme`, `TicketEdition`, `Ticket`, `CheckinScan`,
+  `PassportStamp`, `CollectionSet`, `CollectionAward` (editions/passport tables
+  ready for later phases), `Listing.stayThemeId`, `BookingStatus.CHECKED_IN`.
+- Dockerfile: Noto fonts (Latin/Tamil/Devanagari) baked into the runtime image.
+
+### Verified
+- 18 new unit tests (token security, renderer determinism + privacy, check-in
+  guards + payout re-anchor); suites green: **290/290 unit, 34/34 integration**.
+- Live end-to-end on dev: sweep rendered a real ticket (all 5 formats, viewable
+  via stub route), scan/confirm over HTTP → `CHECKED_IN` with correct
+  `NOT_YET`/`ALREADY_CHECKED_IN` rejections logged.
+
+---
+
+## 2026-07-23 — Docs: Stay Pass module implementation approach
+
+### Added
+- **[`docs/STAY-PASS-IMPLEMENTATION-APPROACH.md`](docs/STAY-PASS-IMPLEMENTATION-APPROACH.md)**
+  — grounded implementation approach for the Stay Pass spec (themed tickets,
+  wallet passes, signed-QR check-in, Stay Passport), mapped against the actual
+  codebase: spec→repo table, reuse of outbox+BullMQ/HMAC signer/storage/state
+  machine, the real gaps (no coupon engine, no curated inspection, stub storage,
+  no render/wallet libs, no CHECKED_IN state), module structure, additive data
+  model (migration 0034), 6-phase build order, testing strategy, risks, and a
+  recommended feature-flagged first slice (Phase A+B).
+
+---
+
+## 2026-07-22 — Docs: booking-engine end-to-end test plan (Word + Markdown)
+
+### Added
+- **[`docs/BOOKING-ENGINE-TEST-PLAN.md`](docs/BOOKING-ENGINE-TEST-PLAN.md)** +
+  **`docs/Dhyana-Stays-Booking-Engine-Test-Plan.docx`** — focused deep-dive on the
+  booking flow + confirmation correctness: ~40 scenarios across quote/pricing,
+  hold lifecycle, FULL / DEPOSIT_50+balance / PAY_LATER paths, confirmation
+  integrity (status + statusHistory + ledger + payout + policy snapshot +
+  notifications), webhook idempotency, refund tiers, concurrency/overlap, crons,
+  and negative cases. Defines "confirmed correctly" (7 checks), the state-machine
+  reference, exact expected paise at each step, read-only verification SQL, and a
+  regression smoke test.
+
+---
+
+## 2026-07-22 — Docs: manual test plan (Word + Markdown)
+
+### Added
+- **[`docs/MANUAL-TEST-PLAN.md`](docs/MANUAL-TEST-PLAN.md)** +
+  **`docs/Dhyana-Stays-Manual-Test-Plan.docx`** — ~55 end-to-end manual test
+  scenarios across 20 modules (auth, discovery/map, booking full/deposit/
+  pay-later, add-ons, cancellation tiers, host onboarding, admin console, SOS,
+  AI itinerary, experiences, messaging, trip groups, rewards, investor,
+  notifications/jobs, RBAC/health), with setup (test accounts, Razorpay test
+  cards, money reference), a regression smoke test, and a defect-log template.
+
+---
+
+## 2026-07-22 — Fix: all background jobs failed to enqueue (BullMQ colon in jobId)
+
+### Fixed
+- **Every scheduled job threw `Custom Id cannot contain :` and never enqueued.**
+  `jobs.scheduler.ts`'s `bucketJobId()` built job IDs as `${name}:${bucket}` —
+  BullMQ reserves `:` as its Redis key delimiter and rejects any custom jobId
+  containing one. So hold-expiry, balance-due, payout eligibility, notification
+  outbox (every 30s), payment recon, auto-complete, etc. **all failed silently
+  wherever Redis is running — including the live Render deployment** (holds never
+  expired, outbox never dispatched, payouts never ran). Latent locally because
+  Redis was usually down, and the crons are unit/integration-tested by calling
+  the service directly, never through the queue. Changed the separator to `-`.
+
+---
+
+## 2026-07-19 — Fix schema drift: 3 tables missing from migrations (0033)
+
+### Fixed
+- **Migration/schema drift — `SystemConfig`, `AdminNotification`, `HostNotification`
+  were in `schema.prisma` but no migration created them.** Local/dev DBs had them
+  (added ad-hoc via `db push`/`migrate dev`), but a fresh `prisma migrate deploy`
+  — CI **and the live Render database** — never created them, so host/admin
+  notifications and platform system-config were silently failing in production
+  (the writes are wrapped in try/catch). Caught by the new CI integration-test
+  job. Added **`0033_sync_config_notification_tables`** (idempotent: `IF NOT
+  EXISTS` + DO-block FK, so it's a no-op where the tables already exist and a
+  create where they don't).
+- **Action required:** run `prisma migrate deploy` against the live Render DB to
+  create these tables there (they're currently missing).
+
+---
+
+## 2026-07-19 — Production hardening pass: AI itinerary, jobs, CI, error tracking
+
+### Fixed
+- **AI itinerary — Anthropic call had no timeout.** A stalled connection would
+  hang the request (and the guest's HTTP call) indefinitely. Added a 30s
+  per-attempt `AbortController` timeout; timeout/network errors now surface as
+  status 0 and retry once (like a 429/5xx), then fail cleanly.
+- **CI never ran on `dev`.** The workflow triggered on `push` to `main`/`develop`,
+  but the working branch is `dev` — so direct pushes to it were never checked.
+  Trigger is now `main`/`dev`.
+
+### Added
+- **CI integration-test job.** New `integration` job spins up Postgres 16,
+  applies migrations + the GiST index, and runs the 34-test booking-engine
+  integration suite + concurrency proofs — the tests that caught the
+  money-integrity bugs now gate every PR.
+- **Sentry error tracking (opt-in, inert by default).** Wired `@sentry/node`:
+  `initSentry()` in bootstrap + capture of genuine 500s in the global exception
+  filter. Completely no-op until `SENTRY_DSN` is set (SDK is free; only the
+  hosted project needs an account). New optional env: `SENTRY_DSN`,
+  `SENTRY_TRACES_SAMPLE_RATE`, `SENTRY_RELEASE`.
+
+### Changed
+- **BullMQ default job options (all 11 queues).** Added `attempts: 3` +
+  exponential backoff (transient failures now retry — all processors are
+  idempotent) and `removeOnComplete`/`removeOnFail` caps so finished jobs stop
+  accumulating forever in the managed Redis (protects SOS broadcast, booking
+  crons, notification outbox from an unbounded-history OOM).
+- **`render.yaml` health check → `/api/health/ready`** (DB-aware readiness probe
+  that returns 503 when Postgres is down) instead of `/api/listings`.
+
+---
+
+## 2026-07-19 — Discovery tag URL validation
+
+### Fixed
+- Prevented unvalidated listing-tag IDs from filtering Discovery results before metadata loads.
+- Added metadata-aware validation and canonicalization for tag IDs in shared URLs.
+- Preserved raw tag URLs when metadata is unavailable while keeping those tags inactive.
+- Prevented unknown and duplicate tag IDs from emptying results or creating invalid filter state.
+- Preserved user-driven tag selection and browser Back/Forward behavior.
+
+---
+
+## 2026-07-19 — Discovery URL-state hardening
+
+### Fixed
+- Prevented malformed guest and maximum-price URL values from corrupting Discovery results.
+- Added canonical handling for numeric, text, enum, experience, and dietary URL parameters.
+- Removed duplicate and invalid fixed-filter values from shareable URLs.
+- Preserved browser Back/Forward behavior without adding history entries during URL normalization.
+- Preserved unrelated parameters and deferred metadata-dependent listing-tag validation.
+
+---
+
+## 2026-07-19 — Discovery request-state hardening
+
+### Fixed
+- Prevented stale search responses from replacing newer Discovery results.
+- Prevented older requests from clearing the active searching state.
+- Invalidated in-flight search updates when the Discovery page unmounts.
+- Cleared stale hover highlights when a listing disappears from the current map results.
+
+---
+
+## 2026-07-19 — Discovery edge-case hardening
+
+### Improved
+- Added validation for reversed map latitude and longitude bounds.
+- Added consistent 50-result limits for Meilisearch and database search fallback.
+- Added regression coverage for zero-area map bounds and search fallback behavior.
+- Added dense-marker tests for threshold boundaries, long connected clusters, and 200 identical coordinates.
+
+---
+
+## 2026-07-19 — Discovery frontend tests
+
+### Added
+- Added a dedicated Vitest setup for the web application.
+- Added deterministic unit tests for dense map-marker grouping.
+- Added component tests protecting the listing-card link and wishlist structure.
+- Added accessibility checks for decorative placeholders and card metadata.
+- Added frontend test and watch commands for local development.
+
+---
+
+## 2026-07-18 — Docs: production feature checklist (vs. all-modules PDF)
+
+### Added
+- **[`docs/PRODUCTION-CHECKLIST.md`](docs/PRODUCTION-CHECKLIST.md)** — full audit
+  of the 34-module "Complete Module Breakdown (V1→V3)" PDF against the codebase
+  (grep-verified): per-module ✅/🟡/❌ tables, phase scorecard, and a prioritized
+  to-be-done list — P0 launch blockers (forgot-password, host bank details, GST
+  invoices, backups, live providers, monitoring), P1 core-journey polish (coupons,
+  modify booking, review upgrades, inspection module, discovery), P2 partner
+  operations, P3 platform maturity.
+
+---
+
+## 2026-07-18 — Discovery listing-card accessibility
+
+### Improved
+- Removed invalid nested interactive content from Discovery listing cards.
+- Preserved native card-link navigation while making the wishlist control independent.
+- Added clearer keyboard focus treatment for card and wishlist interactions.
+- Improved placeholder-image and decorative emoji semantics.
+- Preserved Grid, Split-view, wishlist, hover-sync, and responsive behavior.
+
+---
+
+## 2026-07-18 — Discovery map accessibility
+
+### Improved
+- Added labelled and busy-state semantics to Map and Split map regions.
+- Improved map loading, error, and empty-state accessibility.
+- Added accessible names and keyboard metadata to individual stay markers.
+- Improved selected-state semantics inside clustered-stay popups.
+- Removed disruptive automatic focus from cluster popups.
+- Improved Split-view list-region and map-popup accessibility.
+
+---
+
+## 2026-07-18 — Discovery controls accessibility
+
+### Improved
+- Added accessible names and selected-state semantics to Grid, Map, and Split
+  view controls.
+- Added expanded-state semantics to the Discovery filter panel.
+- Added programmatic selected states to filter buttons.
+- Added explicit labels for filter form controls.
+- Improved search result announcements and keyboard focus visibility.
+- Improved error and empty-result semantics without changing search behavior.
+
+---
+
+## 2026-07-18 — Dense map marker grouping
+
+### Improved
+- Grouped nearby map markers using deterministic client-side clustering.
+- Added cluster markers showing the number of stays in dense areas.
+- Added selectable, scrollable stay lists for exact-coordinate and
+  maximum-zoom clusters.
+- Preserved marker-to-card selection and added direct listing-detail links
+  inside cluster popups.
+- Added selected-cluster styling and keyboard-accessible cluster interactions.
+- Added the solution without introducing new dependencies or lockfile changes.
+
+---
+
+## 2026-07-18 — Discovery map viewport result limit
+
+### Improved
+- Limited map viewport queries to 200 approved listings.
+- Prevented very large map responses from slowing the Discovery page.
+- Kept the existing newest-first ordering and response format unchanged.
+
+---
+
+## 2026-07-18 — Discovery selection-state cleanup
+
+### Improved
+- Cleared selected listings when they are removed by filters or map movement.
+- Prevented stale marker highlights after switching away from Split view.
+- Kept marker and card selection synchronized with currently visible results.
+
+---
+
+## 2026-07-18 — Discovery map request cancellation
+
+### Improved
+- Cancelled outdated map viewport requests when users move or zoom the map.
+- Prevented cancelled requests from showing map error states.
+- Kept stale-response protection so only the latest viewport updates markers.
+- Cancelled active map requests when leaving the page.
+
+---
+
+## 2026-07-18 — Discovery marker and card selection
+
+### Improved
+- Clicking a map marker now selects the matching listing.
+- In Split view, the matching listing card scrolls into view automatically.
+- Selected listing cards and markers remain visually highlighted.
+- Card hover continues to provide temporary marker highlighting.
+
+---
+
+## 2026-07-18 — Discovery browser history support
+
+### Improved
+- Added browser Back and Forward support for Discovery search state.
+- Search text, filters, and view mode are restored from the URL without
+  refreshing the page.
+- Autocomplete closes and resets when navigating through browser history.
+- Discovery changes now create meaningful browser-history entries.
+
+---
+
+## 2026-07-18 — Responsive Discovery map views
+
+### Improved
+- Made the Discovery Grid and Map controls available on mobile devices.
+- Kept Split view available on tablet and desktop layouts.
+- Added responsive map heights for smaller screens.
+- Updated Split view to stack vertically on tablets and return to a
+  side-by-side layout on desktop.
+- Improved responsive loading, error, and empty-state panels.
+
+---
+
+## 2026-07-18 — Discovery autocomplete keyboard navigation
+
+### Improved
+- Search autocomplete now supports Arrow Up and Arrow Down navigation.
+- Pressing Enter selects the active suggestion, while Escape closes the list.
+- Added visible active-suggestion styling and improved combobox accessibility
+  attributes.
+
+---
+
+## 2026-07-18 — Discovery Meilisearch reindexing
+
+### Added
+- Added a reusable mapper for generating consistent Meilisearch listing
+  documents.
+- Added a `meili:reindex` command that rebuilds the listings index from all
+  approved PostgreSQL listings.
+- The reindex command creates the index when missing, removes stale documents,
+  waits for asynchronous tasks, and configures searchable, filterable, and
+  sortable attributes.
+- Discovery fields, pricing, capacity, coordinates, and creation date are now
+  included in indexed documents.
+- Added unit tests for Meilisearch document generation.
+
+---
+
+## 2026-07-18 — Discovery search relevance ordering
+
+### Fixed
+- Discovery search results now preserve the relevance order returned by
+  Meilisearch.
+- Listings missing from PostgreSQL or no longer approved are safely excluded
+  without disturbing the order of remaining results.
+- Added backend test coverage for relevance-order preservation.
+
+---
+
+## 2026-07-18 — Discovery filter URL state
+
+### Added
+- All Discovery filters are now synchronized with the browser URL.
+- Shared links and page refreshes now preserve state, guests, maximum price,
+  tags, experiences, property type, dietary options, sorting, search text, and
+  selected view.
+- The filter panel opens automatically when restored URL filters are active.
+
+---
+
+## 2026-07-18 — Discovery URL state
+
+### Added
+- Search text and selected Discovery view are now synchronized with the browser
+  URL.
+- Search and Map/Split view selections survive page refreshes and can be shared
+  through links.
+- Default Grid view and empty search state keep the homepage URL clean.
+
+---
+
+## 2026-07-18 — Discovery search autocomplete
+
+### Added
+- Added client-side search suggestions for listing names, cities, and states.
+- Suggestions appear after two characters, remove duplicates, and close after
+  selection or when clicking outside the search box.
+- Autocomplete reuses already-loaded approved listings and does not create
+  additional API requests while typing.
+
+---
+
+## 2026-07-18 — Discovery search database fallback
+
+### Fixed
+- Discovery search now falls back to PostgreSQL when Meilisearch is available
+  but returns no matching documents.
+- Added backend tests covering Meilisearch results and zero-result fallback
+  behaviour.
+
+---
+
+## 2026-07-18 — Discovery split-view status panel
+
+### Added
+- Added dedicated loading, error, and empty-area states to the listing panel in
+  Split view, so it no longer appears blank when the current map viewport has
+  no matching stays.
+
+---
+
+## 2026-07-17 — Discovery map loading and empty states
+
+### Added
+- Added non-blocking loading, error, and empty-area overlays for Map and Split
+  views while keeping the Leaflet map visible and interactive.
+- Map viewport errors are now handled separately from page-level Discovery
+  errors, and stale requests cannot incorrectly change the loading state.
+
+---
+
+## 2026-07-17 — Discovery map price markers
+
+### Changed
+- Replaced standard Leaflet pins with theme-aware nightly-price markers and
+  improved listing popups with property type, location, guest capacity,
+  experience, price, and listing links.
+- Selected markers now receive a highlighted state when their matching card is
+  hovered in split view.
+
+---
+
+## 2026-07-17 — Discovery map viewport loading
+
+### Changed
+- Map and split views now load approved listings for the current Leaflet
+  viewport through `GET /api/listings/map`, ignore stale responses, and keep
+  active search and filter results applied to visible markers and split cards.
+- Removed duplicate map requests by relying on Leaflet's `moveend` event, and
+  corrected coordinate checks so valid zero latitude or longitude values are
+  supported.
+
+---
+
+## 2026-07-17 — Discovery map bounds validation
+
+### Fixed
+- `GET /api/listings/map` now rejects missing, non-numeric, or out-of-range
+  coordinates with `400 Bad Request` instead of allowing invalid `NaN` values
+  to reach Prisma and return `500 Internal Server Error`. Added unit coverage
+  in `apps/api/src/listing/listing.service.spec.ts`.
+
+---
+
+## 2026-07-16 — Docs: discovery/map handoff brief
+
+### Added
+- **[`docs/HANDOFF-discovery-map.md`](docs/HANDOFF-discovery-map.md)** — brief
+  for the developer taking over discovery/search + map work: setup pointer,
+  scope, file map (both apps), project conventions (paise, Meili-fallback,
+  design tokens, changelog), guardrails (booking/payment engine off-limits),
+  definition of done. Work happens on `feature/discovery-map`, PRs to `dev`.
+
+---
+
 ## 2026-07-16 — CORS: graceful denial + wildcard origins (fixes login 500)
 
 ### Fixed

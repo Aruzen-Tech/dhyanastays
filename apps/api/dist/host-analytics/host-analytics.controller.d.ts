@@ -50,12 +50,12 @@ export declare class HostAnalyticsController {
         createdAt: Date;
         updatedAt: Date;
         status: import("@prisma/client").$Enums.BookingStatus;
-        holdId: string;
-        listingId: string;
-        guestId: string;
-        plan: import("@prisma/client").$Enums.PaymentPlan;
         startsAt: Date;
         endsAt: Date;
+        listingId: string;
+        holdId: string;
+        guestId: string;
+        plan: import("@prisma/client").$Enums.PaymentPlan;
         priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
         guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
         checkInData: import("@prisma/client/runtime/library").JsonValue | null;
@@ -79,11 +79,11 @@ export declare class HostAnalyticsController {
                 fullName: string;
             };
             payments: {
-                type: import("@prisma/client").$Enums.PaymentPlan;
                 idempotencyKey: string;
                 id: string;
                 createdAt: Date;
                 updatedAt: Date;
+                type: import("@prisma/client").$Enums.PaymentPlan;
                 status: import("@prisma/client").$Enums.PaymentStatus;
                 amount: number;
                 bookingId: string;
@@ -97,12 +97,12 @@ export declare class HostAnalyticsController {
             createdAt: Date;
             updatedAt: Date;
             status: import("@prisma/client").$Enums.BookingStatus;
-            holdId: string;
-            listingId: string;
-            guestId: string;
-            plan: import("@prisma/client").$Enums.PaymentPlan;
             startsAt: Date;
             endsAt: Date;
+            listingId: string;
+            holdId: string;
+            guestId: string;
+            plan: import("@prisma/client").$Enums.PaymentPlan;
             priceSnapshot: import("@prisma/client/runtime/library").JsonValue;
             guestDetails: import("@prisma/client/runtime/library").JsonValue | null;
             checkInData: import("@prisma/client/runtime/library").JsonValue | null;
@@ -118,20 +118,20 @@ export declare class HostAnalyticsController {
         limit: number;
     }>;
     getNotifications(user: RequestUser, unreadOnly?: string): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
+        type: string;
         metadata: import("@prisma/client/runtime/library").JsonValue;
         hostId: string;
         title: string;
         isRead: boolean;
     }[]>;
     markNotificationRead(user: RequestUser, id: string): Promise<{
-        type: string;
         message: string;
         id: string;
         createdAt: Date;
+        type: string;
         metadata: import("@prisma/client/runtime/library").JsonValue;
         hostId: string;
         title: string;
