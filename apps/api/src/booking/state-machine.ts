@@ -41,6 +41,8 @@ export type BookingEvent =
   | 'ADMIN_CANCELLED'
   | 'AUTO_CANCEL_UNPAID_BALANCE'
   | 'AUTO_CANCEL_PAY_LATER_DEFAULT'
+  // Verified arrival (Stay Pass QR scan by host/admin)
+  | 'CHECKED_IN'
   // Completion
   | 'STAY_COMPLETED'
   | 'AUTO_COMPLETED'
@@ -178,12 +180,12 @@ export const TRANSITIONS: readonly Transition[] = [
   // CANCELLED vs REFUNDED chosen by guard: refundAmountPaise > 0 ⇒ REFUNDED.
   {
     event: 'GUEST_CANCELLED',
-    from: ['PAYMENT_PENDING', 'CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE'],
+    from: ['PAYMENT_PENDING', 'CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE', 'CHECKED_IN'],
     to: cancelTarget,
   },
   {
     event: 'ADMIN_CANCELLED',
-    from: ['PAYMENT_PENDING', 'CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE'],
+    from: ['PAYMENT_PENDING', 'CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE', 'CHECKED_IN'],
     to: cancelTarget,
   },
   {
@@ -197,15 +199,25 @@ export const TRANSITIONS: readonly Transition[] = [
     to: cancelTarget,
   },
 
+  // ── Verified arrival (Stay Pass check-in scan) ──────────────────────────
+  // Optional-graceful: a booking that is never scanned still auto-completes at
+  // checkout from CONFIRMED_*; scanning records ground-truth arrival + re-anchors
+  // the payout clock (handled in CheckinService).
+  {
+    event: 'CHECKED_IN',
+    from: ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'],
+    to: 'CHECKED_IN',
+  },
+
   // ── Completion ──────────────────────────────────────────────────────────
   {
     event: 'STAY_COMPLETED',
-    from: ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'],
+    from: ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT', 'CHECKED_IN'],
     to: 'COMPLETED',
   },
   {
     event: 'AUTO_COMPLETED',
-    from: ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'],
+    from: ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT', 'CHECKED_IN'],
     to: 'COMPLETED',
   },
 
@@ -215,7 +227,7 @@ export const TRANSITIONS: readonly Transition[] = [
   // services may have been rendered (e.g., booking already COMPLETED).
   {
     event: 'ADMIN_FULL_REFUND_ISSUED',
-    from: ['CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE', 'COMPLETED', 'CANCELLED'],
+    from: ['CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE', 'CHECKED_IN', 'COMPLETED', 'CANCELLED'],
     to: 'REFUNDED',
   },
 ];

@@ -34,7 +34,10 @@ import {
   QUEUE_INVESTOR_DISTRIBUTION,
   QUEUE_PAYMENT_RECON,
   QUEUE_AUTO_COMPLETE,
+  QUEUE_TICKET_RENDER,
 } from './jobs.constants';
+import { TicketRenderProcessor } from './ticket-render.processor';
+import { StayPassModule } from '../stay-pass/stay-pass.module';
 
 export {
   QUEUE_HOLD_EXPIRY,
@@ -65,6 +68,7 @@ export {
       { name: QUEUE_INVESTOR_DISTRIBUTION },
       { name: QUEUE_PAYMENT_RECON },
       { name: QUEUE_AUTO_COMPLETE },
+      { name: QUEUE_TICKET_RENDER },
     ),
     HoldModule,
     BookingModule,
@@ -75,6 +79,7 @@ export {
     SosModule,
     MessagingModule,
     InvestorModule,
+    StayPassModule,
   ],
   providers: [
     HoldExpiryProcessor,
@@ -88,6 +93,7 @@ export {
     InvestorDistributionProcessor,
     PaymentReconProcessor,
     AutoCompleteProcessor,
+    TicketRenderProcessor,
     JobsScheduler,
   ],
 })

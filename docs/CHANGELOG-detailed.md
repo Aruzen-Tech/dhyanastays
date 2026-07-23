@@ -13,6 +13,198 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-23 — Stay Pass Phases A+B implemented (themed tickets + QR check-in)
+
+**Commit:** _pending_ · **Migration:** `0034_stay_pass` (idempotent)
+
+### Gaps filled (from the approach doc §2)
+1. **No render stack** → `@resvg/resvg-js` + `pdf-lib` + `qrcode` (all
+   smoke-tested on Windows before building). satori was skipped — the master
+   template is hand-built deterministic SVG, so no JSX runtime is needed in the
+   API build; fonts come from the OS (Dockerfile now bakes `font-noto`,
+   `font-noto-tamil`, `font-noto-devanagari`, `ttf-dejavu` into the runtime
+   stage — nothing fetched at render time).
+2. **No server-side storage write** → `StorageService.putObject(key, bytes,
+   contentType)` (SigV4 presigned PUT executed in-process) + `readStubObject` +
+   `GET /api/storage/stub/*` (Express-4-safe wildcard, path-containment check,
+   immutable cache headers) so stub mode is *functional*, not decorative.
+   `.stub-storage/` gitignored.
+3. **No CHECKED_IN state** → enum value + transitions
+   (`CONFIRMED_PAID|CONFIRMED_DEPOSIT → CHECKED_IN → COMPLETED`), threaded into
+   cancel/refund from-sets. Check-in goes through `BookingStateMachine` — the
+   module never writes Booking state directly.
+4. **Theme assignment without the inspection module** → `Listing.stayThemeId`
+   (nullable) + `ThemeService.resolveForListing` with the launch-theme registry
+   as guaranteed fallback; curator assignment can attach to admin approval later
+   without schema changes.
+5. **Coupon-engine dependency** → passport/collection tables shipped (schema
+   only); reward granting deferred exactly as planned.
+
+### Module (`apps/api/src/stay-pass/`)
+- `theme/themes.registry.ts` — 6 launch bundles (forest_villa, heritage,
+  beachfront, treehouse, retreat, farm_stay) with palette/motif/mood/stamp
+  tokens; `DEFAULT_THEME` fallback. `theme/theme.service.ts` — resolve (never
+  throws), list, `seedLaunchThemes` (also wired into `src/prisma/seed.ts`),
+  `assignToListing`.
+- `qr/qr-token.signer.ts` — `base64url(payload).base64url(HMAC_SHA256)` with
+  `v/bid/typ/nbf/exp/jti`; secret chain `QR_SIGNING_SECRET →
+  PRICE_SNAPSHOT_SECRET → dev placeholder`; production Joi block requires a
+  dedicated ≥32-char `QR_SIGNING_SECRET`.
+- `ticket/render/ticket-renderer.ts` — ONE master SVG (escaped inputs, pattern
+  texture, curated badge, edition line, QR as vector group) → derivations:
+  og 1200×630 / story 1080×1920 (both share-safe: no QR/ref/surname) /
+  hero 1200×480 / full 1200×630 (QR) / A5-landscape PDF (embeds full PNG).
+  Deterministic: byte-identical SVG per context (golden-file property).
+- `stay-pass.service.ts` — sweep (flag-gated): renders confirmed bookings
+  missing/FAILED tickets (creates the `Ticket` row + mints `qrJti` once,
+  race-safe), uploads to `tickets/{bookingId}/{templateVersion}/{format}`,
+  writes the manifest, `STAY_PASS_RENDERED` audit; voids + revokes on
+  CANCELLED/REFUNDED.
+- `qr/checkin.service.ts` — verify order: signature → ticket-by-jti (cross-
+  booking substitution lands as UNKNOWN_TICKET) → revocation → `nbf`/`exp` →
+  state (BAD_STATE / ALREADY_CHECKED_IN) → ownership (host-owns-listing or
+  admin). Every attempt logged append-only to `CheckinScan` with distinct
+  reasons. Confirm: `$transaction` → state machine `CHECKED_IN` → **payout
+  re-anchor**: `payoutLine.updateMany({status: NOT_ELIGIBLE} → eligibleAt =
+  scanAt + 24h)` — verified-arrival anchoring per spec §5.2, backward-compatible
+  (never-scanned bookings keep existing behavior).
+- Controllers: `bookings/:id/ticket` + `/share` (owner/admin), `checkin/scan` +
+  `confirm` (`@Roles(HOST, ADMIN)`, `@Throttle(10/min)`), all
+  `@FeatureGate('stay_pass')`.
+- Jobs: `QUEUE_TICKET_RENDER` + `TicketRenderProcessor` + 30s scheduler cron
+  (hyphen jobId — colon lesson applied). `JobsModule` imports `StayPassModule`;
+  `AppModule` registers it unconditionally (HTTP works without Redis; sweep is
+  Redis-gated like all jobs).
+- Feature flag `stay_pass` added to the registry (**defaultEnabled: false**) —
+  gates controllers via FeatureGuard AND the sweep via `FeatureFlagService`.
+
+### Migration `0034_stay_pass`
+`ALTER TYPE BookingStatus ADD VALUE IF NOT EXISTS 'CHECKED_IN'`; `TicketStatus`
+enum (guarded DO-block); `Listing.stayThemeId` column + FK; tables StayTheme /
+TicketEdition / Ticket (unique bookingId + qrJti) / CheckinScan / PassportStamp /
+CollectionSet / CollectionAward — all `IF NOT EXISTS`, FKs guarded. Applied to
+the local DB; client regenerated.
+
+### Verification
+- **Unit:** 18 new tests — signer round-trip/tamper/cross-secret/malformed;
+  renderer determinism, share-safe privacy (no QR/ref/surname), XML escaping,
+  PNG/PDF magic bytes; check-in revoked/window/substitution/state/ownership +
+  happy-path transition & payout re-anchor. Full suite **290/290**; integration
+  **34/34**; lint + tsc clean.
+- **Live (dev, stub storage):** enabled the flag, created a CONFIRMED_PAID
+  smoke booking → sweep rendered within one tick; all 5 assets on disk; served
+  PNG visually verified (theme, badge, QR). HTTP scan with real host JWT:
+  correctly `NOT_YET` before the window; after date shift → scan 201, confirm
+  201 → booking `CHECKED_IN` (statusHistory event recorded), replay →
+  `ALREADY_CHECKED_IN`; scan log shows `NOT_YET×3, OK, OK`.
+- Smoke fixtures left in the dev DB under the `smoketest_staypass_*` prefix
+  (flag enabled locally) so the ticket is viewable at
+  `/api/storage/stub/tickets/smoketest_staypass_bk/1/full.png`.
+
+### Deliberately deferred (per approach doc)
+Wallet passes (Phase C), lifecycle faces (D), passport minting + rewards (E),
+editions serial-claiming (F), email hero attachment (needs notification-adapter
+wiring), and web UI surfaces for the ticket/scanner.
+
+---
+
+## 2026-07-23 — Docs: Stay Pass module implementation approach
+
+**Commit:** _pending_ · **Migration:** none (design doc)
+
+- **`docs/STAY-PASS-IMPLEMENTATION-APPROACH.md`** (new) — analysis + approach for
+  the Stay Pass module spec, verified against `apps/api` (greps of
+  `OutboxService`, `BookingStateMachine`/`BookingStatus` enum,
+  `PriceSnapshotSignerService`, `StorageService`, `package.json` deps,
+  coupon-model absence). Key adaptation: the spec's "message broker + async
+  consumers" maps to this repo's **transactional outbox + BullMQ** — trigger via
+  a `ticket-render` job enqueued at the same commit as `outbox.enqueue(
+  'booking.confirmed')`. Documents reuse (QR signer cloned from the price-snapshot
+  signer with a new `QR_SIGNING_SECRET`; server-side `putObject` added to
+  StorageService; `CHECKED_IN` enum + state-machine transition; edition-serial
+  claiming via the existing SERIALIZABLE race discipline), the additive data
+  model (StayTheme/TicketEdition/Ticket/CheckinScan/PassportStamp/CollectionSet/
+  CollectionAward + `Listing.stayThemeId` + `BookingStatus.CHECKED_IN`, migration
+  0034), prerequisites (provision R2 — storage is stub today; coupon engine P1
+  gates only passport rewards; bundle fonts), a 6-phase build order, a testing
+  strategy mapped to the existing jest/integration harness (golden-file renders,
+  QR token-security cases, edition-serial concurrency test), risks (render worker
+  footprint on free tier, PassKit ops, payout-eligibility re-anchor), and a
+  feature-flagged Phase A+B first slice.
+
+---
+
+## 2026-07-22 — Docs: booking-engine end-to-end test plan (Word + Markdown)
+
+**Commit:** _pending_ · **Migration:** none
+
+- **`docs/BOOKING-ENGINE-TEST-PLAN.md`** + **`docs/Dhyana-Stays-Booking-Engine-Test-Plan.docx`**
+  — a booking-only, confirmation-focused test plan (converted via the repo's
+  `docx` lib). Opens with a 7-point definition of "confirmed correctly" (status,
+  statusHistory, ledger, payout, frozen policy snapshot, notifications,
+  idempotency) and a state-machine transition table, so testers verify the
+  *data*, not just the screen. Sections: A quote/pricing (exact paise), B hold
+  lifecycle (countdown/release/expiry/expired-hold reject), C FULL path +
+  confirmation integrity, D DEPOSIT_50 deposit→balance settlement (explicit
+  regression guards for the settleBalance and PAY_LATER-init bugs fixed earlier),
+  E PAY_LATER first instalment, F confirmation deep-dive (ledger reconciliation,
+  payout = 1,600,000 eligible at check-in+24h), G webhook idempotency/replay/bad-
+  signature, H refund tiers 100/50/0 + frozen policy + admin refund, I
+  concurrency/overlap/back-to-back, J crons, K negatives. Appendix A = read-only
+  SELECTs (Booking/LedgerEvent/PayoutLine/Refund/ProcessedRazorpayEvent);
+  Appendix B = defect log. Word package validated (Content_Types present, 4
+  tables, money figures + SQL rendered).
+
+---
+
+## 2026-07-22 — Docs: manual test plan (Word + Markdown)
+
+**Commit:** _pending_ · **Migration:** none
+
+- **`docs/MANUAL-TEST-PLAN.md`** (source) + **`docs/Dhyana-Stays-Manual-Test-Plan.docx`**
+  (Word, converted via the repo's `docx` lib — same pipeline as the test report).
+  ~55 scenarios (TC-AUTH/DISC/PROP/BOOK/DEP/ADD/CANCEL/HOST/ADMIN/PAY/GUEST/SOS/
+  ITIN/EXP/MSG/TRIP/REW/INV/JOB/X) each with ID, preconditions, numbered steps,
+  expected result, and a Pass/Fail+Notes slot. Includes environment setup
+  (seeded admin, register-flow guest/host, Razorpay test instruments, the
+  ₹17,888 3-night money reference), a §23 8-step regression smoke test, and a
+  §24 copy-per-issue defect log. Grounded in the actual delivered features
+  (cross-checked against `PRODUCTION-CHECKLIST.md`). Word package validated
+  (Content_Types present, 3 tables, all scenario IDs rendered).
+
+---
+
+## 2026-07-22 — Fix: all background jobs failed to enqueue (BullMQ colon in jobId)
+
+**Commit:** _pending_ · **Migration:** none
+
+- **Symptom:** repeating `ERROR (Scheduler): Custom Id cannot contain :` every
+  30s (and at the other cron intervals) once Memurai/Redis was running locally.
+- **Root cause:** `src/jobs/jobs.scheduler.ts` → `bucketJobId(name, intervalMs)`
+  returned `` `${name}:${Math.floor(Date.now()/intervalMs)}` ``. BullMQ 5.70.1
+  `Job.validateOptions` does `if (opts.jobId.includes(':')) throw new Error('Custom
+  Id cannot contain :')` (confirmed in installed source, `job.js:1036`) — the
+  colon is Redis's key delimiter. Every `queue.add(..., { jobId: bucketJobId(...) })`
+  therefore threw, so **no scheduled job ever enqueued** whenever Redis was
+  reachable — the live Render deployment included (hold expiry, balance-due,
+  payout eligibility, weekly payout, pay-later dunning/reminders, notification
+  outbox, concierge SLA, investor distribution, payment recon, auto-complete).
+- **Why it stayed hidden:** locally Redis was usually down (jobs disabled, so the
+  scheduler no-op'd); and the cron *logic* is covered by unit/integration tests
+  that invoke the service methods directly (e.g. `booking.autoCompleteCheckedOut()`),
+  never the BullMQ enqueue path.
+- **Fix:** separator `:` → `-` (`${name}-${bucket}`), preserving the
+  deterministic per-window bucketing that dedupes multi-instance scheduler ticks.
+  `name-number` is neither colon-bearing nor a pure integer, so it clears both
+  BullMQ jobId rules. The only other `jobId:` sites are the DLQ service
+  (`jobId: job.id`, a numeric/colon-free id) — unaffected.
+- **Verified:** `tsc` 0 errors, `build` OK; BullMQ source inspected to confirm
+  `:` is the sole forbidden character.
+- **Prod note:** deploying this restores the entire background-job system on
+  Render (and any Redis-backed environment).
+
+---
+
 ## 2026-07-19 — Fix schema drift: 3 tables missing from migrations (0033)
 
 **Commit:** _pending_ · **Migration:** `0033_sync_config_notification_tables`

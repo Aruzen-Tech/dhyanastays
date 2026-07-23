@@ -1,5 +1,6 @@
 import { HostVerificationStatus, PrismaClient, UserRole } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { LAUNCH_THEMES } from '../stay-pass/theme/themes.registry';
 
 const prisma = new PrismaClient();
 
@@ -154,7 +155,27 @@ async function main() {
    
   console.log(`  ✓ Tags upserted: ${tagsCreated} tags across 6 categories.`);
 
-   
+  // ── Stay Pass launch themes (idempotent; never clobbers curator edits) ────
+  let themesUpserted = 0;
+  for (const t of LAUNCH_THEMES) {
+    await prisma.stayTheme.upsert({
+      where: { id: t.id },
+      create: {
+        id: t.id,
+        version: t.version,
+        displayName: t.displayName,
+        status: 'ACTIVE',
+        tokens: t.tokens as unknown as object,
+        assets: {},
+      },
+      update: {},
+    });
+    themesUpserted++;
+  }
+
+  console.log(`  ✓ Stay Pass themes upserted: ${themesUpserted}.`);
+
+
   console.log('\n🎉 Seed complete.');
 }
 
