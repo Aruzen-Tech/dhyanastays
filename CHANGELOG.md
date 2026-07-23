@@ -16,6 +16,39 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-23 — Stay Passport: the guest profile becomes a stamp collection
+
+Migration `0035_passport_stamp_details`. Feature-flagged (`stay_pass`).
+
+### Added
+- **The Stay Passport** — every guest profile is now a passport whose pages are
+  their stays. **Two-phase stamping:** an ENTRY stamp is inked at **verified
+  check-in** (QR scan → `PassportStamp` with `checkedInAt`), then **sealed at
+  successful check-out** (booking COMPLETED → `completedAt`). A backstop in the
+  Stay Pass sweep seals stamps for stays that were never scanned, so **every
+  completed stay earns exactly one stamp**.
+- `PassportService` (`mintOnCheckin` / `sealOnComplete` / `sealCompletedSweep`
+  backstop / `getPassport`), wired into `CheckinService.confirm` (entry) and the
+  `ticket-render` sweep (seal). Self-contained stamps (property/city/nights/dates
+  copied in) so they survive listing edits. `GET /me/passport` returns stamps,
+  stats (stamps/nights/sanctuaries), and collection-set progress
+  ("The Curator's Circuit" — all five core sanctuaries).
+- **Web:** `/passport` page — a themed passport spread (per-theme stamp
+  medallions with entry/sealed states, Curator's Circuit progress bar, stats
+  header), linked in the guest nav (flag-gated).
+- Schema: `PassportStamp` gains `propertyName/city/stayStart/stayEnd/nights/
+  checkedInAt/completedAt` (migration 0035).
+
+### Verified
+- 5 new unit tests (two-phase stamping, idempotency, never-scanned backstop,
+  passport aggregation). Suites: **295/295 unit, 34/34 integration**, lint + tsc
+  clean, web compiles.
+- **Live end-to-end:** confirm check-in → ENTRY stamp (`checkedInAt` set);
+  booking COMPLETED → sweep **sealed it in ~27s** (`completedAt` set);
+  `GET /me/passport` → correct stats + Curator's Circuit 1/5 + memory line.
+
+---
+
 ## 2026-07-23 — Stay Pass Phases A+B: themed tickets + signed-QR check-in
 
 Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_pass`, default OFF).

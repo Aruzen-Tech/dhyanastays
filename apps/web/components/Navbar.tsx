@@ -165,6 +165,9 @@ export default function Navbar() {
             </Link>
           )}
           <Link href="/guest/wishlist"    onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/guest/wishlist')}`}>Wishlist</Link>
+          {isEnabled('stay_pass') && (
+            <Link href="/passport"        onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActive('/passport')}`}>Passport</Link>
+          )}
           {isEnabled('guest_host_messaging') && (
             <Link href="/guest/messages"    onClick={() => setMenuOpen(false)} className={`text-sm transition-colors ${isActivePrefix('/guest/messages')}`}>Messages</Link>
           )}

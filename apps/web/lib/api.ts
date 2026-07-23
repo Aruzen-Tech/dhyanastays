@@ -1804,3 +1804,47 @@ export function generateUUID(): string {
     return v.toString(16);
   });
 }
+
+// ── Stay Passport ───────────────────────────────────────────────────────────
+
+export interface PassportStamp {
+  id: string;
+  bookingId: string;
+  themeId: string;
+  theme: string;
+  stampShape: string;
+  propertyName: string;
+  city: string;
+  nights: number;
+  stayStart: string;
+  stayEnd: string;
+  checkedInAt: string | null;
+  completedAt: string | null;
+  state: 'PENDING' | 'ENTRY' | 'SEALED';
+  memoryLine: string;
+}
+
+export interface PassportCollection {
+  id: string;
+  name: string;
+  description: string;
+  required: number;
+  collected: number;
+  complete: boolean;
+  missing: { themeId: string; displayName: string }[];
+}
+
+export interface Passport {
+  stats: {
+    totalStamps: number;
+    sealedStamps: number;
+    totalNights: number;
+    distinctThemes: number;
+  };
+  collections: PassportCollection[];
+  stamps: PassportStamp[];
+}
+
+export const passportApi = {
+  get: () => request<Passport>('/me/passport'),
+};
