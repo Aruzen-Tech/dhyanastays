@@ -12,6 +12,7 @@ import {
   BookingStateMachine,
 } from '../../booking/state-machine';
 import { QrTokenSignerService } from './qr-token.signer';
+import { PassportService } from '../passport/passport.service';
 
 /**
  * Signed-QR check-in (spec §5). Scanning grants nothing client-side — every
@@ -57,6 +58,7 @@ export class CheckinService {
     private readonly signer: QrTokenSignerService,
     private readonly stateMachine: BookingStateMachine,
     private readonly audit: AuditService,
+    private readonly passport: PassportService,
   ) {}
 
   /** Verify a scanned token and return the booking summary for visual confirmation. */
@@ -120,6 +122,16 @@ export class CheckinService {
       evidence: 'scan',
       ticketId,
     });
+
+    // Stamp the passport with the ENTRY mark (non-fatal — the sweep backstop
+    // seals it at completion regardless).
+    await this.passport
+      .mintOnCheckin(booking.id)
+      .catch((err) =>
+        this.logger.warn(
+          `passport entry stamp failed for ${booking.id}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
 
     return { checkedIn: true, bookingId: booking.id, status: updated.status };
   }

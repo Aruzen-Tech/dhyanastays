@@ -5,6 +5,7 @@ import { StorageService } from '../storage/storage.service';
 import { AuditService } from '../common/services/audit.service';
 import { FeatureFlagService } from '../feature/feature-flag.service';
 import { ThemeService } from './theme/theme.service';
+import { PassportService } from './passport/passport.service';
 import { QrTokenSignerService } from './qr/qr-token.signer';
 import {
   renderAll,
@@ -45,6 +46,7 @@ export class StayPassService {
     private readonly qrSigner: QrTokenSignerService,
     private readonly audit: AuditService,
     private readonly featureFlags: FeatureFlagService,
+    private readonly passport: PassportService,
   ) {}
 
   /**
@@ -102,9 +104,18 @@ export class StayPassService {
       voided++;
     }
 
-    if (rendered || voided || failed) {
+    // Backstop: seal passport stamps for completed stays (covers auto-complete
+    // of never-scanned bookings — every completed stay earns its stamp).
+    const sealed = await this.passport.sealCompletedSweep(limit).catch((err) => {
+      this.logger.warn(
+        `passport seal sweep failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return 0;
+    });
+
+    if (rendered || voided || failed || sealed) {
       this.logger.log(
-        `Stay Pass sweep: rendered=${rendered} voided=${voided} failed=${failed}`,
+        `Stay Pass sweep: rendered=${rendered} voided=${voided} sealed=${sealed} failed=${failed}`,
       );
     }
     return { rendered, voided, failed };

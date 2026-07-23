@@ -71,13 +71,15 @@ function makeService(ticket: unknown) {
     $transaction: jest.fn().mockImplementation(async (fn: (t: unknown) => unknown) => fn(tx)),
   };
   const audit = { log: jest.fn().mockResolvedValue(undefined) };
+  const passport = { mintOnCheckin: jest.fn().mockResolvedValue(undefined) };
   const svc = new CheckinService(
     prisma as never,
     signer,
     new BookingStateMachine(),
     audit as never,
+    passport as never,
   );
-  return { svc, prisma, tx, scanLogs, payoutUpdates, audit };
+  return { svc, prisma, tx, scanLogs, payoutUpdates, audit, passport };
 }
 
 function tokenFor(bookingId = 'booking-1', jti = 'jti-1') {
@@ -151,10 +153,11 @@ describe('CheckinService', () => {
     await expect(svc2.scan(HOST, tokenFor())).rejects.toThrow(/ALREADY_CHECKED_IN/);
   });
 
-  it('confirm executes the CHECKED_IN transition and re-anchors the payout clock', async () => {
-    const { svc, tx, payoutUpdates, audit } = makeService(makeTicket());
+  it('confirm executes the CHECKED_IN transition, re-anchors payout, and stamps the passport', async () => {
+    const { svc, tx, payoutUpdates, audit, passport } = makeService(makeTicket());
     const res = await svc.confirm(HOST, tokenFor());
     expect(res.checkedIn).toBe(true);
+    expect(passport.mintOnCheckin).toHaveBeenCalledWith('booking-1');
 
     // State machine wrote the transition through booking.update
     expect(tx.booking.update).toHaveBeenCalled();
