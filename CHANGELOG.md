@@ -16,6 +16,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-25 — Calendar: only confirmed bookings read as "booked"
+
+### Fixed
+- **Held / pending dates showed as BOOKED.** The availability endpoint counted
+  `PAYMENT_PENDING` in the same bucket as confirmed bookings, so a date you were
+  merely holding (or that had an unpaid booking) rendered as *booked* before any
+  payment. Now only **confirmed** stays (`CONFIRMED_DEPOSIT`, `CONFIRMED_PAID`,
+  `BALANCE_DUE`, `CHECKED_IN`) render **BOOKED**; a `PAYMENT_PENDING` booking and
+  an active `Hold` render as the transient **HELD** ("on hold") state. Both still
+  occupy the dates for overlap (no double-booking), so the calendar stays in sync
+  with what the engine accepts — only the displayed state changed. (+2 tests.)
+
+---
+
 ## 2026-07-24 — Date holds: resume-on-return + own-hold fix
 
 15-min hold TTL and release-on-abandon were already in place; this makes a hold

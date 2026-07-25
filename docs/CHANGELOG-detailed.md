@@ -13,6 +13,32 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-25 — Calendar: only confirmed bookings read as "booked"
+
+**Commit:** _pending_ · **Migration:** none
+
+- **`apps/api/src/listing/availability.service.ts`** — the single
+  `OCCUPIED_STATUSES` set (which included `PAYMENT_PENDING`) drove the `BOOKED`
+  state, so unconfirmed/held dates showed as booked. Split into:
+  - `CONFIRMED_STATUSES = [CONFIRMED_DEPOSIT, CONFIRMED_PAID, BALANCE_DUE,
+    CHECKED_IN]` → `BOOKED`.
+  - `PENDING_STATUSES = [PAYMENT_PENDING]` → folded into `HELD` alongside active
+    `Hold`s (transient, "on hold"; no `heldUntil` badge for a pending booking).
+  - `OCCUPIED_STATUSES = CONFIRMED ∪ PENDING` still drives the booking query,
+    turnover day-keys and the ICS busy feed, so overlap/no-double-book and
+    engine-parity are unchanged — only the rendered state differs.
+  The booking query now selects `status`; the fold filters into
+  `confirmedBookings` / `pendingBookings`; state precedence is
+  `PAST > BOOKED(confirmed) > BLOCKED > HELD(pending|hold) > AVAILABLE`, and
+  `isTurnover` is now `checkoutDays.has(day) && state === 'AVAILABLE'`.
+- No frontend change — `DayState` unchanged; the guest calendar already renders
+  `HELD` amber ("on hold") and `BOOKED` grey.
+- **Tests:** `availability.service.spec.ts` +2 (`PAYMENT_PENDING` → `HELD`;
+  `CONFIRMED_DEPOSIT` → `BOOKED`); existing booking mocks now carry `status`.
+  Full API suite **309/309**.
+
+---
+
 ## 2026-07-24 — Date holds: resume-on-return + own-hold fix
 
 **Commit:** _pending_ · **Migration:** none

@@ -44,7 +44,7 @@ describe('AvailabilityService.getAvailability', () => {
   it('folds bookings, seasons, blocks, holds and past days over the window', async () => {
     // booking occupies nights 12,13,14; checkout 15 == turnover.
     prismaMock.booking.findMany.mockResolvedValue([
-      { startsAt: d('2026-08-12'), endsAt: d('2026-08-15') },
+      { startsAt: d('2026-08-12'), endsAt: d('2026-08-15'), status: 'CONFIRMED_PAID' },
     ]);
     // seasonal covers nights 16,17 (endsAt 18 exclusive).
     prismaMock.seasonalRate.findMany.mockResolvedValue([
@@ -104,7 +104,7 @@ describe('AvailabilityService.getAvailability', () => {
 
   it('booking takes priority over an overlapping block on the same night', async () => {
     prismaMock.booking.findMany.mockResolvedValue([
-      { startsAt: d('2026-08-12'), endsAt: d('2026-08-13') },
+      { startsAt: d('2026-08-12'), endsAt: d('2026-08-13'), status: 'CONFIRMED_PAID' },
     ]);
     prismaMock.availabilityBlock.findMany.mockResolvedValue([
       { startsAt: d('2026-08-12'), endsAt: d('2026-08-13') },
@@ -117,12 +117,28 @@ describe('AvailabilityService.getAvailability', () => {
   it('does not mark a turnover when another booking starts the same day', async () => {
     // back-to-back: one ends 08-15, another starts 08-15
     prismaMock.booking.findMany.mockResolvedValue([
-      { startsAt: d('2026-08-12'), endsAt: d('2026-08-15') },
-      { startsAt: d('2026-08-15'), endsAt: d('2026-08-18') },
+      { startsAt: d('2026-08-12'), endsAt: d('2026-08-15'), status: 'CONFIRMED_PAID' },
+      { startsAt: d('2026-08-15'), endsAt: d('2026-08-18'), status: 'CONFIRMED_PAID' },
     ]);
     const res = await svc().getAvailability('L1', '2026-08-15', '2026-08-16');
     expect(res.days[0].state).toBe('BOOKED');
     expect(res.days[0].isTurnover).toBe(false);
+  });
+
+  it('shows a PAYMENT_PENDING booking as HELD, not BOOKED (only confirmed reads booked)', async () => {
+    prismaMock.booking.findMany.mockResolvedValue([
+      { startsAt: d('2026-08-12'), endsAt: d('2026-08-14'), status: 'PAYMENT_PENDING' },
+    ]);
+    const res = await svc().getAvailability('L1', '2026-08-12', '2026-08-14');
+    expect(res.days.map((x) => x.state)).toEqual(['HELD', 'HELD']);
+  });
+
+  it('shows a confirmed-deposit booking as BOOKED', async () => {
+    prismaMock.booking.findMany.mockResolvedValue([
+      { startsAt: d('2026-08-12'), endsAt: d('2026-08-14'), status: 'CONFIRMED_DEPOSIT' },
+    ]);
+    const res = await svc().getAvailability('L1', '2026-08-12', '2026-08-14');
+    expect(res.days.map((x) => x.state)).toEqual(['BOOKED', 'BOOKED']);
   });
 
   it('defaults minNights to 1 when the listing has no rate rule', async () => {
