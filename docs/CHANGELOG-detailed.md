@@ -13,6 +13,164 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-24 — Date holds: resume-on-return + own-hold fix
+
+**Commit:** _pending_ · **Migration:** none
+
+Context: `HOLD_TTL_MINUTES = 15` and release-on-abandon (`pagehide`/unmount →
+`holdsApi.releaseBeacon` keepalive DELETE, plus the `expireStaleHolds` reaper)
+already existed. This change makes a hold **resumable** and fixes a self-block.
+
+- **`apps/api/src/hold/hold.service.ts`**:
+  - `createHold` — after date validation and before pricing, a pre-transaction
+    read returns the guest's own live hold for the **exact** dates
+    (`guestId`, `booking: null`, `expiresAt > now`, `startsAt`/`endsAt` match) →
+    resume, logged `HOLD_RESUMED`, no re-quote / no duplicate row.
+  - Inside the SERIALIZABLE transaction: `tx.hold.deleteMany({ listingId,
+    guestId, booking: null })` clears the guest's earlier un-booked holds when
+    they move to different dates (single live hold per guest per listing), and
+    the overlapping-hold 409 now filters `guestId: { not: guestId }` — a guest
+    can no longer be told their own dates are _"held by another guest."_
+  - New `getActiveHold(guestId, listingId)` → the caller's most-recent live
+    un-booked hold (with frozen `priceSnapshot`) or null.
+- **`hold.controller.ts`** — `@Get('active')` (`GET /api/holds/active?listingId=`,
+  GUEST role), declared before the `:id` DELETE route.
+- **`apps/web/lib/api.ts`** — `holdsApi.getActive(listingId) → Hold | null`.
+- **`apps/web/app/listings/[id]/page.tsx`** — resume-on-load `useEffect`
+  (guarded by `resumeAttemptedRef`): if `getActive` returns a hold, restores
+  `hold`, `quote` (from `priceSnapshot`), `checkIn`/`checkOut`/`guests`, sets a
+  `resumed` banner and jumps to the `guestdetails` step. `resumed` cleared on
+  release-and-back and on hold-expiry.
+- **Tests:** `hold.service.spec.ts` (new, 3 cases — resume returns existing hold
+  without calling `pricingService.quote`; idempotency-key replay; `getActiveHold`
+  where-clause). Full API suite **307/307**; web vitest **50/50**; tsc clean.
+
+---
+
+## 2026-07-24 — Interactive availability calendars (P1–P4)
+
+**Commit:** _pending_ · **Migration:** none (no schema change) ·
+**Flag:** `interactive_calendar` (`defaultEnabled: true` — toggle off in the
+control panel to restore the native inputs / read-only calendars)
+
+Implements the plan in `docs/CALENDAR-ENHANCEMENT-IDEAS.md` end-to-end, entirely
+behind one feature flag. When the flag is off (the default), the listing page's
+native date inputs, the read-only host month grid, and the single-listing admin
+grid are unchanged — nothing breaks. When an admin enables it, all four surfaces
+switch to the shared interactive calendar.
+
+### Backend — availability aggregation
+
+- **`apps/api/src/listing/availability.service.ts`** (new). `AvailabilityService`:
+  - `getAvailability(listingId, fromStr, toStr)` → `{ listingId, from, to, days[] }`.
+    Each day: `{ date, state: PAST|AVAILABLE|BOOKED|HELD|BLOCKED, priceMinor,
+    isSeasonal, isTurnover, minNights, heldUntil? }`.
+  - **Occupied definition reuses the engine's rule exactly** — status set
+    `CONFIRMED_DEPOSIT/CONFIRMED_PAID/BALANCE_DUE/PAYMENT_PENDING` (matching
+    `booking.service.ts` confirm-time overlap query) **+ `CHECKED_IN`**, with the
+    half-open range `floorDay(start) ≤ day < floorDay(end)`. The checkout day is
+    a **turnover** day (`isTurnover`), bookable as an arrival.
+  - Priority PAST > BOOKED > BLOCKED > HELD > AVAILABLE. Price = latest seasonal
+    range covering the day, else `RateRule.baseNightlyRate`. Holds filtered by
+    `expiresAt > now`. Four parallel queries (booking/hold/block/seasonal), folded
+    per day. Window capped at **120 days**; validates `to > from` and date parse.
+  - `buildIcsFeed(listingId)` → RFC-5545 `.ics` string. Merges booking + block
+    busy spans (next 366d) into disjoint all-day `VEVENT`s (`DTEND` exclusive =
+    half-open). PII-free (`SUMMARY:Unavailable` only).
+- **`public-listing.controller.ts`** — `@Public() @Get(':id/availability')`
+  (defaults to a 60-day window when from/to omitted) and `@Public()
+  @Get(':id/calendar.ics')` with `Content-Type: text/calendar`. Registered
+  before `@Get(':id')`; distinct segment depth so no route conflict.
+- **`listing.module.ts`** — provides/exports `AvailabilityService`.
+- **`feature-flags.registry.ts`** — new `interactive_calendar` flag
+  (Guest Experience, `defaultEnabled: false`, audience guest/host/admin). Surfaces
+  in the admin control panel + the public `GET /platform/features` enabled map.
+- **`listing.service.ts`** — `addSeasonalRate`/`deleteSeasonalRate`/
+  `addAvailabilityBlock`/`deleteAvailabilityBlock` now `writeAudit(...)`
+  (`SEASONAL_RATE_CREATE/DELETE`, `AVAILABILITY_BLOCK_CREATE/DELETE`).
+  `getPublicListingById` includes `stayTheme: { id, tokens }` for the P4 tint.
+- **`admin.service.ts` / `admin.controller.ts`** — `getCalendarTimeline(month)`
+  behind `GET /admin/bookings/timeline?month=` (L2 guard). Returns all APPROVED
+  listings (rows) plus bookings with `subtotalMinor`/`nights` (read defensively
+  from the frozen `priceSnapshot` JSON) for ADR; guest display-name only.
+- **Tests:** `availability.service.spec.ts` — 9 cases (day-fold priority,
+  seasonal precedence, turnover incl. back-to-back suppression, booking>block,
+  minNights default, window/parse rejection, missing listing; ICS merge + PII
+  absence + empty feed). Full API suite **304/304**.
+
+### Frontend — shared calendar + three skins
+
+- **`components/calendar/calendarUtils.ts`** (new, pure) — `dayIndex`/`indexToStr`/
+  `localDayStr`/`monthCells`/`nights`/`datesInclusive`, `toDayMap`,
+  `isSelectableRange` (mirrors server: every night AVAILABLE + minNights),
+  `sumNightly`, `estimateTotal` (mirrors `PricingService`:
+  fee = round((subtotal＋cleaning)×0.10), gst = round(fee×0.18)),
+  `cheapestWindow`. **11 vitest cases.**
+- **`components/calendar/MonthGrid.tsx`** (new) — presentational weekday header +
+  7-col day matrix with leading blanks, `renderDay` prop. Extracted geometry
+  shared by all skins.
+- **`components/calendar/AvailabilityCalendar.tsx`** (P1 guest) — fetches the
+  window (merges into a day map), range-select state machine (anchor → hover
+  preview → commit), invalid-range styling, live estimate panel, per-day held
+  MM:SS (ticks only while a held day is visible), price-in-cell (seasonal in
+  gold), turnover corner, dual-month on desktop / single via `dualMonth`,
+  accent tint via `accentColor`, price-heatmap toggle, flexible-date chips.
+  Wired into `listings/[id]/page.tsx` behind `useFeature('interactive_calendar')`
+  (`dualMonth={false}`, `accentColor` from `listing.stayTheme.tokens.palette.primary`).
+- **`components/calendar/HostAvailabilityCalendar.tsx`** (P2) — modes
+  view/block/price; pointer-drag selection committed on `window` pointerup;
+  block validation refuses booked/held/past days; `window.prompt` for reason /
+  ₹ rate (→ paise); overlay none/occupancy/revenue; month KPIs (occupancy, booked
+  nights, payout = 0.9×(subtotal+cleaning), ADR); seasonal-rate chips (removable);
+  booking popover; **Export .ics** link. Wired into `host/calendar/page.tsx`
+  behind the flag (read-only grid retained when off).
+- **`components/calendar/AdminTimelineCalendar.tsx`** (P3) — Gantt (rows =
+  listings, absolute-positioned status bars clamped to the month), today marker
+  line + arrivals/departures/turnovers rail, city filter, occupancy/ADR/bookings
+  KPIs, anomaly dots. Wired into `admin/calendar/page.tsx` behind the flag
+  (early return; hooks unconditional).
+- **Types/api:** `DayAvailability`/`ListingAvailability`,
+  `AdminCalendarTimeline`/`AdminTimelineBooking`, `listingsApi.getAvailability`,
+  `adminApi.getCalendarTimeline`, `Listing.stayTheme`, `BookingStatus` +
+  `CHECKED_IN`.
+
+### Verification
+
+`tsc --noEmit` clean (api + web); API eslint clean on changed files; `next build`
+compiled + typechecked + generated 77/77 pages (only the Windows-symlink
+`output: standalone` copy step fails — environmental, not code). API jest
+**304/304**, web vitest **50/50**.
+
+---
+
+## 2026-07-24 — Docs: interactive-calendar research + implementation plan
+
+**Commit:** _pending_ · **Migration:** none (proposal)
+
+- **`docs/CALENDAR-ENHANCEMENT-IDEAS.md`** (new). Research verified against the
+  code: three calendar surfaces — guest (`listings/[id]/page.tsx`, bare
+  `<input type="date">`, no availability), host (`host/calendar/page.tsx`,
+  read-only status-coloured month grid), admin (`admin/calendar/page.tsx`,
+  single-listing month). Confirmed **no public availability endpoint** exists
+  (public routes: `/`, `/search`, `/map`, `/:id`, `/meta/tags`, `/meta/facets`)
+  — the flagship gap. Catalogued the colourable data (Booking status, active
+  Hold `expiresAt`, AvailabilityBlock+reason, SeasonalRate paise, RateRule
+  minNights/base) and that the booking-overlap rule (GiST half-open) can be
+  reused. Doc contents: unified availability colour language (incl. turnover
+  split-cell encoding the half-open rule); per-surface interaction + creative
+  ideas (guest range-select with live total + price-in-cell + hold countdown +
+  theme-tinted calendar via `stayThemeId` + flexible-dates + price heatmap; host
+  paint-to-block + drag-to-price + occupancy overlay + iCal sync; admin
+  multi-listing Gantt + today rail + KPIs + anomaly dots); implementation plan
+  (new `GET /listings/:id/availability?from=&to=` per-day payload — states +
+  paise prices only, no PII, window-capped; shared custom `<MonthGrid>` over a
+  library; P1 guest → P2 host → P3 admin → P4 delight/iCal); correctness notes
+  (match the engine's overlap exactly, IST boundaries, minNights); house-rule
+  constraints. Recommends P1 (availability endpoint + colour-coded guest
+  calendar) as the first, self-contained, no-schema-change slice.
+
+---
+
 ## 2026-07-23 — Stay Passport (Phase E, stamps) — guest profile as a passport
 
 **Commit:** _pending_ · **Migration:** `0035_passport_stamp_details` (idempotent)

@@ -68,6 +68,15 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
 
   // ── Guest Experience ──────────────────────────────────────────────────────
   {
+    key: 'interactive_calendar',
+    label: 'Interactive Availability Calendar',
+    description:
+      'Colour-coded booking calendar with price-per-night, range-select and live totals (replaces the plain date inputs). Host paint-to-block / seasonal pricing and admin ops timeline build on the same surface.',
+    category: 'Guest Experience',
+    defaultEnabled: true, // live by default; admins can still toggle off via the control panel
+    audience: ['guest', 'host', 'admin'],
+  },
+  {
     key: 'experiences',
     label: 'Wellness Experiences',
     description: 'Host-led yoga, meditation and wellness sessions guests can book.',

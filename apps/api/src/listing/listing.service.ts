@@ -367,6 +367,7 @@ export class ListingService {
         seasonalRates: { orderBy: { startsAt: 'asc' } },
         host: { select: { userId: true, user: { select: { fullName: true } } } },
         tags: { include: { tag: true } },
+        stayTheme: { select: { id: true, tokens: true } },
       },
     });
     if (!listing) throw new NotFoundException('Listing not found');
@@ -459,9 +460,16 @@ export class ListingService {
     const startsAt = new Date(dto.startsAt);
     const endsAt = new Date(dto.endsAt);
     if (endsAt <= startsAt) throw new BadRequestException('endsAt must be after startsAt');
-    return this.prisma.seasonalRate.create({
+    const rate = await this.prisma.seasonalRate.create({
       data: { listingId, startsAt, endsAt, nightlyRate: dto.nightlyRate },
     });
+    await this.writeAudit(userId, 'SEASONAL_RATE_CREATE', 'listing', listingId, {
+      rateId: rate.id,
+      startsAt: dto.startsAt,
+      endsAt: dto.endsAt,
+      nightlyRate: dto.nightlyRate,
+    });
+    return rate;
   }
 
   async getSeasonalRates(userId: string, listingId: string) {
@@ -474,6 +482,9 @@ export class ListingService {
     const rate = await this.prisma.seasonalRate.findFirst({ where: { id: rateId, listingId } });
     if (!rate) throw new NotFoundException('Seasonal rate not found');
     await this.prisma.seasonalRate.delete({ where: { id: rateId } });
+    await this.writeAudit(userId, 'SEASONAL_RATE_DELETE', 'listing', listingId, {
+      rateId,
+    });
     return { deleted: true };
   }
 
@@ -482,9 +493,16 @@ export class ListingService {
     const startsAt = new Date(dto.startsAt);
     const endsAt = new Date(dto.endsAt);
     if (endsAt <= startsAt) throw new BadRequestException('endsAt must be after startsAt');
-    return this.prisma.availabilityBlock.create({
+    const block = await this.prisma.availabilityBlock.create({
       data: { listingId, startsAt, endsAt, reason: dto.reason },
     });
+    await this.writeAudit(userId, 'AVAILABILITY_BLOCK_CREATE', 'listing', listingId, {
+      blockId: block.id,
+      startsAt: dto.startsAt,
+      endsAt: dto.endsAt,
+      reason: dto.reason,
+    });
+    return block;
   }
 
   async getAvailabilityBlocks(userId: string, listingId: string) {
@@ -500,6 +518,9 @@ export class ListingService {
     const block = await this.prisma.availabilityBlock.findFirst({ where: { id: blockId, listingId } });
     if (!block) throw new NotFoundException('Availability block not found');
     await this.prisma.availabilityBlock.delete({ where: { id: blockId } });
+    await this.writeAudit(userId, 'AVAILABILITY_BLOCK_DELETE', 'listing', listingId, {
+      blockId,
+    });
     return { deleted: true };
   }
 

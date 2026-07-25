@@ -4,8 +4,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
+import { useFeature } from '../../../context/FeatureContext';
 import { adminApi } from '../../../lib/api';
 import type { CalendarBooking } from '../../../lib/types';
+import AdminTimelineCalendar from '../../../components/calendar/AdminTimelineCalendar';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -67,6 +69,7 @@ function dateOverlaps(startsAt: string, endsAt: string, year: number, monthIdx: 
 export default function AdminCalendarPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const interactiveCalendar = useFeature('interactive_calendar');
 
   const [month, setMonth] = useState(getCurrentMonth);
   const [listingFilter, setListingFilter] = useState('');
@@ -143,6 +146,20 @@ export default function AdminCalendarPage() {
     return (
       <div className="container-page py-16 text-center">
         <span className="spinner text-brand-700 w-8 h-8" />
+      </div>
+    );
+  }
+
+  if (interactiveCalendar) {
+    return (
+      <div className="container-page py-10">
+        <div className="mb-6">
+          <h1 className="page-title">Ops Calendar</h1>
+          <p className="text-gray-500 text-sm mt-1">
+            Portfolio-wide booking timeline with today&apos;s arrivals, departures and anomaly flags.
+          </p>
+        </div>
+        <AdminTimelineCalendar />
       </div>
     );
   }

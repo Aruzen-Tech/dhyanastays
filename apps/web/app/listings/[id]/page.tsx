@@ -5,7 +5,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
+import { useFeature } from '../../../context/FeatureContext';
 import WishlistButton from '../../../components/WishlistButton';
+import AvailabilityCalendar from '../../../components/calendar/AvailabilityCalendar';
 
 const ListingMap = dynamic(() => import('../../../components/ListingMap'), {
   ssr: false,
@@ -208,6 +210,7 @@ export default function ListingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const router = useRouter();
+  const interactiveCalendar = useFeature('interactive_calendar');
 
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
@@ -236,6 +239,9 @@ export default function ListingDetailPage() {
   const [listingReviews, setListingReviews] = useState<ListingReviews | null>(null);
   // Hold status for the selected dates when held by ANOTHER guest.
   const [othersHold, setOthersHold] = useState<HoldStatus | null>(null);
+  // True when we restored a still-live hold on return (resume banner).
+  const [resumed, setResumed] = useState(false);
+  const resumeAttemptedRef = useRef(false);
 
   // Kept in refs so the unmount/pagehide cleanup reads the latest values
   // without re-subscribing the listener on every hold change.
@@ -256,6 +262,33 @@ export default function ListingDetailPage() {
       .then(setListingReviews)
       .catch(() => {});
   }, [id]);
+
+  // Resume-on-return: if this account still has a live (un-booked, non-expired)
+  // hold on this listing, restore it — dates, frozen price and all — and drop
+  // the guest straight back into the booking flow. Combined with the 15-min TTL
+  // and release-on-abandon, a hold either survives to be resumed or is cleared.
+  useEffect(() => {
+    if (!user) return;
+    if (resumeAttemptedRef.current) return;
+    resumeAttemptedRef.current = true;
+    let cancelled = false;
+    holdsApi
+      .getActive(id)
+      .then((h) => {
+        if (cancelled || !h || holdConsumedRef.current) return;
+        setHold(h);
+        setQuote(h.priceSnapshot);
+        setCheckIn(h.startsAt.slice(0, 10));
+        setCheckOut(h.endsAt.slice(0, 10));
+        if (h.priceSnapshot?.guests) setGuests(h.priceSnapshot.guests);
+        setResumed(true);
+        setStep('guestdetails');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user, id]);
 
   // Release-on-abandon: if the guest leaves with an active (un-booked) hold,
   // free the dates immediately for others instead of blocking for the full
@@ -371,6 +404,7 @@ export default function ListingDetailPage() {
   const handleReleaseAndBack = async () => {
     const h = hold;
     setHold(null);
+    setResumed(false);
     setStep('quote');
     if (h) {
       try {
@@ -693,16 +727,35 @@ export default function ListingDetailPage() {
             {/* Step: Details */}
             {step === 'details' && (
               <div className="space-y-4">
-                <div>
-                  <label className="label">Check-in</label>
-                  <input type="date" min={today} value={checkIn}
-                    onChange={(e) => setCheckIn(e.target.value)} className="input" />
-                </div>
-                <div>
-                  <label className="label">Check-out</label>
-                  <input type="date" min={checkIn || today} value={checkOut}
-                    onChange={(e) => setCheckOut(e.target.value)} className="input" />
-                </div>
+                {interactiveCalendar ? (
+                  <div>
+                    <label className="label">Choose your dates</label>
+                    <AvailabilityCalendar
+                      listingId={id}
+                      value={{ checkIn, checkOut }}
+                      onChange={(ci, co) => {
+                        setCheckIn(ci);
+                        setCheckOut(co);
+                      }}
+                      cleaningFee={listing.rateRules?.[0]?.cleaningFee ?? 0}
+                      accentColor={listing.stayTheme?.tokens?.palette?.primary}
+                      dualMonth={false}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="label">Check-in</label>
+                      <input type="date" min={today} value={checkIn}
+                        onChange={(e) => setCheckIn(e.target.value)} className="input" />
+                    </div>
+                    <div>
+                      <label className="label">Check-out</label>
+                      <input type="date" min={checkIn || today} value={checkOut}
+                        onChange={(e) => setCheckOut(e.target.value)} className="input" />
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="label">Guests</label>
                   <input type="number" min={1}
@@ -801,10 +854,17 @@ export default function ListingDetailPage() {
             {/* Step: Guest details */}
             {step === 'guestdetails' && hold && (
               <div className="space-y-4">
+                {resumed && (
+                  <div className="alert-info text-xs">
+                    ↩ Welcome back — we resumed your held dates. Finish your booking
+                    before the timer runs out.
+                  </div>
+                )}
                 <HoldCountdown
                   expiresAt={hold.expiresAt}
                   onExpire={() => {
                     setHold(null);
+                    setResumed(false);
                     setActionError('Hold expired. Please get a fresh quote.');
                     setStep('quote');
                   }}

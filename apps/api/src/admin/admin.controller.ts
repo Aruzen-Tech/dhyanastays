@@ -155,6 +155,12 @@ export class AdminController {
     return this.adminService.getCalendarBookings(month, listingId);
   }
 
+  /** GET /api/admin/bookings/timeline?month=YYYY-MM — multi-listing ops timeline */
+  @Get('bookings/timeline')
+  getCalendarTimeline(@Query('month') month: string) {
+    return this.adminService.getCalendarTimeline(month);
+  }
+
   // ── Feature 7: Host Performance ──
   @Get('hosts/performance')
   getHostPerformance() {

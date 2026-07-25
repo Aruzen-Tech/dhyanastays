@@ -39,6 +39,30 @@ export class HoldService {
       throw new BadRequestException('checkOut must be after checkIn');
     }
 
+    // ── Resume the guest's own live hold for the same dates ───────────────────
+    // If this account already holds exactly these dates (not yet a booking, not
+    // expired), return that hold instead of erroring or minting a duplicate — so
+    // re-selecting the same dates seamlessly resumes the booking flow, and a
+    // guest is never blocked by their own hold.
+    const ownExisting = await this.prisma.hold.findFirst({
+      where: {
+        listingId: dto.listingId,
+        guestId,
+        booking: null,
+        expiresAt: { gt: new Date() },
+        startsAt: checkIn,
+        endsAt: checkOut,
+      },
+    });
+    if (ownExisting) {
+      await this.auditService.log(guestId, 'HOLD_RESUMED', 'hold', ownExisting.id, {
+        listingId: dto.listingId,
+        checkIn: dto.checkIn,
+        checkOut: dto.checkOut,
+      });
+      return ownExisting;
+    }
+
     // Get price snapshot (includes add-ons + loyalty discount for the guest)
     const snapshot = await this.pricingService.quote({
       listingId: dto.listingId,
@@ -87,10 +111,21 @@ export class HoldService {
         );
       }
 
-      // Check for active holds (not expired) that overlap
+      // A guest moving to different dates on the same listing carries a single
+      // live hold — drop any of their own earlier un-booked holds here so the
+      // old dates free up immediately (exact-date re-selection already resumed
+      // above and never reaches this point).
+      await tx.hold.deleteMany({
+        where: { listingId: dto.listingId, guestId, booking: null },
+      });
+
+      // Check for active holds (not expired) that overlap — OTHER guests only.
+      // The caller's own holds were just cleared, so they can never be blocked
+      // by themselves.
       const overlappingHold = await tx.hold.findFirst({
         where: {
           listingId: dto.listingId,
+          guestId: { not: guestId },
           expiresAt: { gt: new Date() },
           booking: null, // no booking yet (still a raw hold)
           AND: [
@@ -157,6 +192,23 @@ export class HoldService {
     });
 
     return hold;
+  }
+
+  /**
+   * The requesting guest's current live (un-booked, non-expired) hold for a
+   * listing, if any — so the UI can resume the booking flow on return. Returns
+   * the full hold (with its frozen price snapshot) or null.
+   */
+  async getActiveHold(guestId: string, listingId: string) {
+    return this.prisma.hold.findFirst({
+      where: {
+        listingId,
+        guestId,
+        booking: null,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { expiresAt: 'desc' },
+    });
   }
 
   /**

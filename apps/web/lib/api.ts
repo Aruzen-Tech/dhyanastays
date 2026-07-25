@@ -11,6 +11,7 @@ import type {
   BookingDirections,
   BookingManual,
   BookingPreparation,
+  AdminCalendarTimeline,
   CalendarBooking,
   CheckInOutStatus,
   ConciergeAdminThread,
@@ -39,6 +40,7 @@ import type {
   IssueStatus,
   IssueUrgency,
   Listing,
+  ListingAvailability,
   ListingMedia,
   ListingReviews,
   PayoutBatch,
@@ -284,6 +286,12 @@ export const listingsApi = {
 
   getById: (id: string) => request<Listing>(`/listings/${id}`),
 
+  /** Public per-day availability for a listing's booking calendar (PII-free). */
+  getAvailability: (id: string, from: string, to: string) =>
+    request<ListingAvailability>(
+      `/listings/${id}/availability?from=${from}&to=${to}`,
+    ),
+
   getHostListings: () => request<Listing[]>('/host/listings'),
 
   create: (body: {
@@ -479,6 +487,10 @@ export const holdsApi = {
     request<HoldStatus>(
       `/holds/status?listingId=${encodeURIComponent(listingId)}&checkIn=${encodeURIComponent(checkIn)}&checkOut=${encodeURIComponent(checkOut)}`,
     ),
+
+  /** The caller's own live hold for this listing (or null) — used to resume booking. */
+  getActive: (listingId: string) =>
+    request<Hold | null>(`/holds/active?listingId=${encodeURIComponent(listingId)}`),
 
   /** Release a hold when the guest abandons the flow (SPA navigation / cancel). */
   release: (id: string) =>
@@ -741,6 +753,10 @@ export const adminApi = {
     if (listingId) params.set('listingId', listingId);
     return request<CalendarBooking[]>(`/admin/bookings/calendar?${params}`);
   },
+
+  /** Multi-listing ops timeline for a month (Gantt + today rail + KPIs). */
+  getCalendarTimeline: (month: string) =>
+    request<AdminCalendarTimeline>(`/admin/bookings/timeline?month=${month}`),
 
   // Host performance
   getHostPerformance: () => request<HostPerformance[]>('/admin/hosts/performance'),

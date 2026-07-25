@@ -3,8 +3,10 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
+import { useFeature } from '../../../context/FeatureContext';
 import { hostAnalyticsApi, listingsApi, formatDate } from '../../../lib/api';
 import type { HostCalendarBooking } from '../../../lib/types';
+import HostAvailabilityCalendar from '../../../components/calendar/HostAvailabilityCalendar';
 
 interface ListingOption {
   id: string;
@@ -48,6 +50,7 @@ function bookingOverlapsDay(booking: HostCalendarBooking, day: Date): boolean {
 export default function HostCalendarPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const interactiveCalendar = useFeature('interactive_calendar');
 
   const [currentMonth, setCurrentMonth] = useState(() => {
     const now = new Date();
@@ -72,10 +75,15 @@ export default function HostCalendarPage() {
     listingsApi
       .getHostListings()
       .then((data) => {
-        setListings(data.map((l) => ({ id: l.id, title: l.title })));
+        const opts = data.map((l) => ({ id: l.id, title: l.title }));
+        setListings(opts);
+        // The editing calendar manages one listing at a time — default to the first.
+        if (interactiveCalendar && opts.length > 0) {
+          setSelectedListingId((cur) => cur || opts[0].id);
+        }
       })
       .catch(() => {});
-  }, [user]);
+  }, [user, interactiveCalendar]);
 
   // Load calendar bookings when month or filter changes
   useEffect(() => {
@@ -141,30 +149,34 @@ export default function HostCalendarPage() {
         </button>
         <h1 className="page-title">Booking Calendar</h1>
         <p className="text-gray-500 text-sm mt-1">
-          View your bookings across listings in a monthly calendar view.
+          {interactiveCalendar
+            ? 'Manage availability, seasonal pricing and occupancy for a listing.'
+            : 'View your bookings across listings in a monthly calendar view.'}
         </p>
       </div>
 
       {/* Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        {/* Month navigation */}
-        <div className="flex items-center gap-3">
-          <button onClick={goToPrevMonth} className="btn-secondary px-3 py-1.5 text-sm">
-            &larr; Prev
-          </button>
-          <span className="font-semibold text-lg min-w-[180px] text-center">{monthLabel}</span>
-          <button onClick={goToNextMonth} className="btn-secondary px-3 py-1.5 text-sm">
-            Next &rarr;
-          </button>
-        </div>
+        {/* Month navigation (read-only view only — the editing calendar has its own) */}
+        {!interactiveCalendar && (
+          <div className="flex items-center gap-3">
+            <button onClick={goToPrevMonth} className="btn-secondary px-3 py-1.5 text-sm">
+              &larr; Prev
+            </button>
+            <span className="font-semibold text-lg min-w-[180px] text-center">{monthLabel}</span>
+            <button onClick={goToNextMonth} className="btn-secondary px-3 py-1.5 text-sm">
+              Next &rarr;
+            </button>
+          </div>
+        )}
 
         {/* Listing filter */}
         <select
           value={selectedListingId}
           onChange={(e) => setSelectedListingId(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 sm:ml-auto"
         >
-          <option value="">All Listings</option>
+          {!interactiveCalendar && <option value="">All Listings</option>}
           {listings.map((l) => (
             <option key={l.id} value={l.id}>
               {l.title}
@@ -173,15 +185,27 @@ export default function HostCalendarPage() {
         </select>
       </div>
 
-      {error && <div className="alert-error mb-6">{error}</div>}
+      {error && !interactiveCalendar && <div className="alert-error mb-6">{error}</div>}
 
-      {loading && (
+      {interactiveCalendar &&
+        (selectedListingId ? (
+          <HostAvailabilityCalendar listingId={selectedListingId} />
+        ) : (
+          <div className="card p-8 text-center text-sm text-gray-500">
+            {listings.length === 0
+              ? 'You have no listings yet.'
+              : 'Select a listing above to manage its calendar.'}
+          </div>
+        ))}
+
+
+      {!interactiveCalendar && loading && (
         <div className="text-center py-16">
           <span className="spinner text-brand-700 w-8 h-8" />
         </div>
       )}
 
-      {!loading && (
+      {!interactiveCalendar && !loading && (
         <div className="card p-4 overflow-x-auto">
           {/* Day-of-week header */}
           <div className="grid grid-cols-7 gap-px mb-1">
@@ -265,7 +289,7 @@ export default function HostCalendarPage() {
       )}
 
       {/* Empty state */}
-      {!loading && bookings.length === 0 && !error && (
+      {!interactiveCalendar && !loading && bookings.length === 0 && !error && (
         <div className="text-center py-12 card mt-4">
           <div className="text-5xl mb-4">📅</div>
           <h3 className="font-semibold text-gray-700 mb-2">No bookings this month</h3>

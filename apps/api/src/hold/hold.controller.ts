@@ -41,6 +41,18 @@ export class HoldController {
     return this.holdService.getHoldStatus(user.sub, listingId, checkIn, checkOut);
   }
 
+  /**
+   * The caller's own current live hold for a listing (or null) — lets the UI
+   * resume an in-progress booking on page return. Declared before the :id route.
+   */
+  @Get('active')
+  active(
+    @CurrentUser() user: RequestUser,
+    @Query('listingId') listingId: string,
+  ) {
+    return this.holdService.getActiveHold(user.sub, listingId);
+  }
+
   /** Release a hold early when the guest abandons the booking flow. */
   @Delete(':id')
   release(@CurrentUser() user: RequestUser, @Param('id') id: string) {
