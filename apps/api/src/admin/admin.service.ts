@@ -521,6 +521,65 @@ export class AdminService {
     }));
   }
 
+  /**
+   * Multi-listing ops timeline for a month: every APPROVED listing as a row
+   * plus its bookings (with accommodation amount for ADR). PII-limited to the
+   * guest's display name — admins are already privileged. Powers the admin
+   * Gantt, the "today" arrivals/departures rail, occupancy/ADR KPIs and the
+   * anomaly dots.
+   */
+  async getCalendarTimeline(month: string) {
+    const [year, mon] = month.split('-').map(Number);
+    const startOfMonth = new Date(year, mon - 1, 1);
+    const endOfMonth = new Date(year, mon, 0, 23, 59, 59, 999);
+
+    const [listings, bookings] = await Promise.all([
+      this.prisma.listing.findMany({
+        where: { status: 'APPROVED' },
+        select: { id: true, title: true, city: true },
+        orderBy: [{ city: 'asc' }, { title: 'asc' }],
+      }),
+      this.prisma.booking.findMany({
+        where: {
+          startsAt: { lte: endOfMonth },
+          endsAt: { gte: startOfMonth },
+          status: { notIn: ['CANCELLED', 'REFUNDED'] },
+        },
+        include: {
+          listing: { select: { title: true, city: true } },
+          guest: { select: { fullName: true } },
+        },
+        orderBy: { startsAt: 'asc' },
+      }),
+    ]);
+
+    const readNumber = (snap: unknown, key: string): number => {
+      if (snap && typeof snap === 'object' && key in (snap as Record<string, unknown>)) {
+        const v = (snap as Record<string, unknown>)[key];
+        return typeof v === 'number' ? v : 0;
+      }
+      return 0;
+    };
+
+    return {
+      month,
+      listings,
+      bookings: bookings.map((b) => ({
+        id: b.id,
+        listingId: b.listingId,
+        listingTitle: b.listing.title,
+        city: b.listing.city,
+        guestName: b.guest.fullName,
+        startsAt: b.startsAt.toISOString(),
+        endsAt: b.endsAt.toISOString(),
+        status: b.status,
+        // Accommodation subtotal + nights drive ADR; snapshot is frozen JSON.
+        subtotalMinor: readNumber(b.priceSnapshot, 'subtotal'),
+        nights: readNumber(b.priceSnapshot, 'nights') || 1,
+      })),
+    };
+  }
+
   // ── Feature 7: Host Performance ──
   async getHostPerformance() {
     const hosts = await this.prisma.host.findMany({

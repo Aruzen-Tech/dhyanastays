@@ -84,6 +84,27 @@ export interface AvailabilityBlock {
   createdAt: string;
 }
 
+// ─── Interactive availability calendar (interactive_calendar flag) ────────────
+
+export type DayState = 'PAST' | 'AVAILABLE' | 'BOOKED' | 'HELD' | 'BLOCKED';
+
+export interface DayAvailability {
+  date: string; // YYYY-MM-DD
+  state: DayState;
+  priceMinor: number; // nightly rate for this day (base or seasonal), paise
+  isSeasonal: boolean;
+  isTurnover: boolean; // checkout morning — bookable as an arrival
+  minNights: number;
+  heldUntil?: string; // ISO, only when state === HELD
+}
+
+export interface ListingAvailability {
+  listingId: string;
+  from: string;
+  to: string;
+  days: DayAvailability[];
+}
+
 export interface Tag {
   id: string;
   category: string;
@@ -173,6 +194,9 @@ export interface Listing {
   media?: ListingMedia[];
   seasonalRates?: SeasonalRate[];
   tags?: ListingTag[];
+  stayThemeId?: string | null;
+  /** Stay Pass visual identity — palette.primary tints the booking calendar. */
+  stayTheme?: { id: string; tokens: { palette?: { primary?: string } } } | null;
 }
 
 // ─── Pricing ─────────────────────────────────────────────────────────────────
@@ -342,6 +366,7 @@ export type BookingStatus =
   | 'CONFIRMED_DEPOSIT'
   | 'BALANCE_DUE'
   | 'CONFIRMED_PAID'
+  | 'CHECKED_IN'
   | 'CANCELLED'
   | 'REFUNDED'
   | 'COMPLETED';
@@ -616,6 +641,25 @@ export interface CalendarBooking {
   startsAt: string;
   endsAt: string;
   status: BookingStatus;
+}
+
+export interface AdminTimelineBooking {
+  id: string;
+  listingId: string;
+  listingTitle: string;
+  city: string;
+  guestName: string;
+  startsAt: string;
+  endsAt: string;
+  status: BookingStatus;
+  subtotalMinor: number;
+  nights: number;
+}
+
+export interface AdminCalendarTimeline {
+  month: string;
+  listings: Array<{ id: string; title: string; city: string }>;
+  bookings: AdminTimelineBooking[];
 }
 
 // ─── Host Performance ───────────────────────────────────────────────────────

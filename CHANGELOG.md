@@ -16,6 +16,83 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-24 — Date holds: resume-on-return + own-hold fix
+
+15-min hold TTL and release-on-abandon were already in place; this makes a hold
+**resumable** and stops a guest being blocked by their own hold.
+
+### Fixed
+- **A guest could be blocked by their own hold.** `createHold`'s overlap check
+  didn't exclude the caller, so re-selecting the same dates threw *"held by
+  another guest."* The 409 now excludes `guestId` (own holds), and the guest's
+  earlier un-booked holds on the listing are cleared when they move to new dates.
+
+### Added
+- **Resume-on-return.** `createHold` returns the guest's own live (un-booked,
+  non-expired) hold for the same dates instead of minting a duplicate
+  (`HOLD_RESUMED` audit). New `GET /api/holds/active?listingId=` returns the
+  caller's current hold (with frozen price) or null; the listing page restores
+  it on load — dates, price and step — dropping the guest back into guest-details
+  with a "welcome back" banner. Combined with the existing 15-min TTL +
+  release-on-abandon (`pagehide`/unmount → keepalive DELETE) and the reaper cron,
+  a hold either survives to be resumed or is cleared. (+3 unit tests.)
+
+---
+
+## 2026-07-24 — Interactive availability calendars (P1–P4), flag-gated
+
+Feature-flagged (`interactive_calendar`, default **on** — admins can still toggle
+it off in the control panel to fall back to the native date inputs / read-only
+calendars). No schema changes, no migration.
+
+### Added
+- **Public availability endpoint** — `GET /api/listings/:id/availability?from=&to=`
+  returns a PII-free per-day array (`state` AVAILABLE/BOOKED/HELD/BLOCKED/PAST,
+  paise `priceMinor`, `isSeasonal`, `isTurnover`, `minNights`, `heldUntil`).
+  Reuses the engine's exact half-open overlap + occupied-status set so the
+  calendar never disagrees with what a booking accepts. Window-capped (≤120d).
+  New `AvailabilityService` (9 unit tests).
+- **Shared `<MonthGrid>`** + framework-free `calendarUtils` (day-folding, range
+  validation, estimate mirroring `PricingService`, cheapest-window; 11 tests).
+- **P1 guest calendar** (`AvailabilityCalendar`) — colour-coded days with
+  price-in-cell, click-drag range select, live running-total estimate, on-hold
+  MM:SS countdown, min-nights enforcement, turnover split-cell. Replaces the two
+  native `<input type="date">` on the listing page when the flag is on.
+- **P2 host calendar** (`HostAvailabilityCalendar`) — paint-to-block
+  (create/delete `AvailabilityBlock`), drag-to-price (`SeasonalRate`),
+  occupancy/revenue overlay, month KPIs (occupancy, ADR, payout), booking
+  popover with guest + per-night payout.
+- **P3 admin ops calendar** (`AdminTimelineCalendar`) — multi-listing Gantt,
+  today's arrivals/departures/turnovers rail, occupancy/ADR KPIs, anomaly dots
+  (balance-due <48h to check-in; checked-in <24h → payout not yet eligible). New
+  `GET /api/admin/bookings/timeline?month=`.
+- **P4 delights** — Stay-theme-tinted guest calendar (via `stayThemeId`
+  palette), price-heatmap toggle, flexible-dates ("cheapest N-night window"), and
+  an outbound **iCal busy feed** `GET /api/listings/:id/calendar.ics` (PII-free
+  merged booking+block all-day events; host "Export .ics" link).
+
+### Changed
+- Host/admin block + seasonal-rate mutations now write **audit logs**
+  (`AVAILABILITY_BLOCK_CREATE/DELETE`, `SEASONAL_RATE_CREATE/DELETE`).
+- `getPublicListingById` includes `stayTheme` (id + tokens) for the theme tint.
+- Web `BookingStatus` union gains `CHECKED_IN` (matches the Prisma enum).
+
+---
+
+## 2026-07-24 — Docs: interactive-calendar research + implementation plan
+
+### Added
+- **[`docs/CALENDAR-ENHANCEMENT-IDEAS.md`](docs/CALENDAR-ENHANCEMENT-IDEAS.md)** —
+  grounded research across the three calendar surfaces (guest date-picker, host
+  availability, admin ops), a unified availability **colour language**,
+  interaction/creative ideas per surface, and a phased implementation plan.
+  Key finding: guests have **no availability endpoint** today (native date
+  inputs) — the flagship gap. Plan proposes a public per-day availability
+  endpoint + a shared `<MonthGrid>` colour-coded calendar (price-in-cell, range
+  select, live hold countdown) as P1.
+
+---
+
 ## 2026-07-23 — Stay Passport: the guest profile becomes a stamp collection
 
 Migration `0035_passport_stamp_details`. Feature-flagged (`stay_pass`).
