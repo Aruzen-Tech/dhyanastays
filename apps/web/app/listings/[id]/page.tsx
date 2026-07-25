@@ -242,6 +242,10 @@ export default function ListingDetailPage() {
   // True when we restored a still-live hold on return (resume banner).
   const [resumed, setResumed] = useState(false);
   const resumeAttemptedRef = useRef(false);
+  // Confirm-before-leave while a hold is active. `pendingAbandonRef` holds the
+  // navigation to run once the guest confirms the hold cancellation.
+  const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
+  const pendingAbandonRef = useRef<null | (() => void)>(null);
 
   // Kept in refs so the unmount/pagehide cleanup reads the latest values
   // without re-subscribing the listener on every hold change.
@@ -402,12 +406,11 @@ export default function ListingDetailPage() {
     }
   };
 
-  /** Explicit abandon: release the hold and return to the quote step. */
-  const handleReleaseAndBack = async () => {
-    const h = hold;
+  /** Delete the active hold now, freeing the dates for other guests. */
+  const releaseCurrentHold = useCallback(async () => {
+    const h = holdRef.current ?? hold;
     setHold(null);
     setResumed(false);
-    setStep('quote');
     if (h) {
       try {
         await holdsApi.release(h.id);
@@ -416,7 +419,72 @@ export default function ListingDetailPage() {
       }
       void refreshOthersHold();
     }
+  }, [hold, refreshOthersHold]);
+
+  /** Explicit abandon: release the hold and return to the quote step. */
+  const handleReleaseAndBack = async () => {
+    setStep('quote');
+    await releaseCurrentHold();
   };
+
+  /** Is there a live hold that hasn't yet become a booking? */
+  const holdActive = !!hold && !holdConsumedRef.current;
+
+  /**
+   * Ask the guest to confirm cancelling their hold before a "back"/leave action.
+   * `proceed` runs only if they accept (releasing the hold happens inside it).
+   */
+  const requestAbandon = useCallback((proceed: () => void) => {
+    pendingAbandonRef.current = proceed;
+    setShowAbandonConfirm(true);
+  }, []);
+
+  const confirmAbandon = () => {
+    const proceed = pendingAbandonRef.current;
+    pendingAbandonRef.current = null;
+    setShowAbandonConfirm(false);
+    proceed?.();
+  };
+
+  const dismissAbandon = () => {
+    pendingAbandonRef.current = null;
+    setShowAbandonConfirm(false);
+  };
+
+  // Guard "leaving with a live hold" only while the guest is still in the
+  // pre-booking steps (a hold that's become a booking is committed).
+  const holdGuardActive =
+    holdActive && (step === 'guestdetails' || step === 'booking');
+
+  // Tab close / reload / URL change → native "Leave site?" prompt. The pagehide
+  // handler above frees the dates if they do leave.
+  useEffect(() => {
+    if (!holdGuardActive) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [holdGuardActive]);
+
+  // Browser Back button → keep the guest on the page and ask them to confirm
+  // cancelling the hold first; only on accept is the hold released.
+  useEffect(() => {
+    if (!holdGuardActive) return;
+    window.history.pushState(null, '');
+    const onPop = () => {
+      // Re-arm so the guest stays put until they answer the prompt.
+      window.history.pushState(null, '');
+      requestAbandon(() => {
+        void handleReleaseAndBack();
+      });
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // requestAbandon + handleReleaseAndBack are stable enough; re-run only on guard change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdGuardActive]);
 
   const handleInitPayment = async () => {
     if (!booking) return;
@@ -925,7 +993,10 @@ export default function ListingDetailPage() {
                   className="btn-primary w-full">
                   Continue to payment →
                 </button>
-                <button onClick={handleReleaseAndBack} className="btn-ghost w-full text-sm">
+                <button
+                  onClick={() => requestAbandon(() => { void handleReleaseAndBack(); })}
+                  className="btn-ghost w-full text-sm"
+                >
                   ← Back (release hold)
                 </button>
               </div>
@@ -1062,6 +1133,33 @@ export default function ListingDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Abandon-hold confirmation */}
+      {showAbandonConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={dismissAbandon}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-lg text-gray-900 mb-2">Cancel your hold?</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              Going back will release {checkIn && checkOut ? `${formatDate(checkIn)} → ${formatDate(checkOut)}` : 'these dates'} so
+              other guests can book them. This can&apos;t be undone — you&apos;ll need to hold the dates again.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button onClick={confirmAbandon} className="btn-primary w-full">
+                Yes, cancel my hold
+              </button>
+              <button onClick={dismissAbandon} className="btn-ghost w-full text-sm">
+                Keep my hold
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

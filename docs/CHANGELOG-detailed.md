@@ -13,6 +13,90 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
+
+**Commit:** _pending_ · **Migration:** none
+
+- **`app/dashboard/page.tsx`** (GuestDashboard) — each "My Bookings" row now has
+  **View** (`/bookings/:id`), **Invoice** (`/bookings/:id/invoice`) and, for
+  `TICKET_STATUSES` when `useFeature('stay_pass')`, a **Stay Pass** button.
+  `openStayPass(id)` opens a blank window _synchronously in the click_ (popup-safe)
+  then `ticketApi.get(id)` and redirects it to `assets.pdf` (or closes + alerts if
+  still `PENDING`).
+- **`app/bookings/[id]/invoice/page.tsx`** (new) — owner-fetched
+  (`bookingsApi.getById`) printable invoice: brand header, invoice no. (booking id)
+  with `createdAt` date, billed-to (`guestDetails` → user fallback), stay summary,
+  a line-item table from `priceSnapshot` (accommodation `subtotal`, `cleaningFee`,
+  `addOnsTotal`, `platformFee` @ `platformFeeRate`, `gstAmount` @ `gstRate`) →
+  `total`, and a payment panel (plan/status; pay-on-arrival "due at property";
+  DEPOSIT_50 deposit/balance). **Download / Print** = `window.print()`; actions
+  wrapped in `.no-print`.
+- **`app/globals.css`** — `@media print { header, footer, .no-print { display:none }
+  … }` so any page (invoice) prints without app chrome.
+- **`app/bookings/[id]/page.tsx`** — **Invoice** link added to the header.
+- Web `tsc` clean.
+
+---
+
+## 2026-07-25 — Show the Stay Pass on the booking page
+
+**Commit:** _pending_ · **Migration:** none
+
+Root cause of "no Stay Pass after booking": the `ticket-render` sweep produces
+the ticket and `GET /bookings/:id/ticket` (`@FeatureGate('stay_pass')`) serves it,
+but the web app had **no per-booking ticket UI** — only the `/passport` stamp page
+(navbar-gated). The ticket was `RENDERED` in the DB but unreachable in the UI.
+
+- **`lib/api.ts`** — `ticketApi.get(bookingId)` + `BookingTicket` type
+  (`status`, `themeId`, `assets: { hero, full, pdf }`).
+- **`app/bookings/[id]/page.tsx`** — Stay Pass card, gated by
+  `useFeature('stay_pass')` and shown for `TICKET_STATUSES`
+  (CONFIRMED_DEPOSIT/CONFIRMED_PAID/BALANCE_DUE/CHECKED_IN/COMPLETED — so
+  pay-on-arrival's CONFIRMED_DEPOSIT qualifies). Fetches the ticket; while
+  `PENDING` it polls every 8s (render is the ≤30s sweep); on `RENDERED` shows the
+  hero image + Download PDF / Open full pass (stub assets served from
+  `/api/storage/stub/*`, a `@Public` route) + a `/passport` link; `FAILED`/`VOIDED`
+  handled. Verified against a real rendered ticket (theme `forest_villa`, all 5
+  assets present).
+- Also enabled the `stay_pass` flag as a dev DB override (control-panel
+  equivalent) — the code default stays `false` (per-env rollout, needs real
+  storage in prod).
+- Web `tsc` clean.
+
+---
+
+## 2026-07-25 — Confirm before abandoning a hold
+
+**Commit:** _pending_ · **Migration:** none
+
+`apps/web/app/listings/[id]/page.tsx`. Previously any "back"/leave with a live
+hold released it silently (or via the pagehide beacon). Now the guest is asked
+to confirm cancelling the hold first, and the hold is deleted only on accept.
+
+- State: `showAbandonConfirm` + `pendingAbandonRef` (the navigation to run on
+  accept). Derived `holdActive = !!hold && !holdConsumedRef.current` and
+  `holdGuardActive = holdActive && step ∈ {guestdetails, booking}` (a hold that
+  has become a booking is committed → no guard).
+- Refactor: extracted `releaseCurrentHold()` (release + clear hold, no step
+  change) out of `handleReleaseAndBack()` (now `setStep('quote')` +
+  `releaseCurrentHold()`). `releaseCurrentHold` reads `holdRef.current` so it's
+  robust to stale closures.
+- `requestAbandon(proceed)` opens the modal; `confirmAbandon` runs the stored
+  `proceed` (which performs the release); `dismissAbandon` cancels.
+- Three leave vectors gated:
+  - **In-app back** — the "← Back (release hold)" button now calls
+    `requestAbandon(() => handleReleaseAndBack())`.
+  - **Browser Back** — a `popstate` effect (while `holdGuardActive`) pushes a
+    history sentinel and, on pop, re-pushes it (keeping the guest on the page)
+    and opens the modal.
+  - **Tab close / reload / URL change** — a `beforeunload` effect
+    (`preventDefault` + `returnValue=''`) triggers the browser's native prompt;
+    the existing `pagehide` `releaseBeacon` frees the dates on actual exit.
+- Confirmation modal renders the held date range and Keep/ Cancel actions.
+- Verified: web `tsc` clean.
+
+---
+
 ## 2026-07-25 — Pay on arrival (host opt-in)
 
 **Commit:** _pending_ · **Migration:** `0036_pay_on_arrival` (applied to dev DB)

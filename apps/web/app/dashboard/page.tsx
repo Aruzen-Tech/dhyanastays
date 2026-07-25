@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import StatusBadge from '../../components/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
+import { useFeature } from '../../context/FeatureContext';
 import {
   bookingsApi,
   formatDate,
@@ -14,10 +15,19 @@ import {
   hostAnalyticsApi,
   listingsApi,
   payoutsApi,
+  ticketApi,
 } from '../../lib/api';
 import type { Booking, GuestDashboardStats, Host, HostStatement, HostStats, Listing, LoyaltyInfo } from '../../lib/types';
 
 // ─── Guest Dashboard ──────────────────────────────────────────────────────────
+
+const TICKET_STATUSES = [
+  'CONFIRMED_DEPOSIT',
+  'CONFIRMED_PAID',
+  'BALANCE_DUE',
+  'CHECKED_IN',
+  'COMPLETED',
+];
 
 function GuestDashboard() {
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -26,6 +36,30 @@ function GuestDashboard() {
   const [loyalty, setLoyalty] = useState<LoyaltyInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [passLoadingId, setPassLoadingId] = useState<string | null>(null);
+  const stayPassEnabled = useFeature('stay_pass');
+
+  // Fetch the Stay Pass ticket on demand and open its PDF (avoids N fetches on
+  // load). The window is opened synchronously in the click so popup blockers
+  // don't reject it, then redirected once the URL resolves.
+  const openStayPass = async (bookingId: string) => {
+    const win = window.open('', '_blank');
+    setPassLoadingId(bookingId);
+    try {
+      const t = await ticketApi.get(bookingId);
+      if (t.status === 'RENDERED' && t.assets?.pdf && win) {
+        win.location.href = t.assets.pdf;
+      } else {
+        win?.close();
+        alert('Your Stay Pass is still being prepared — please try again in a moment.');
+      }
+    } catch {
+      win?.close();
+      alert('Could not load the Stay Pass.');
+    } finally {
+      setPassLoadingId(null);
+    }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -202,7 +236,28 @@ function GuestDashboard() {
                 </div>
               )}
             </div>
-            <div className="flex flex-col gap-2 shrink-0">
+            <div className="flex flex-col gap-2 shrink-0 w-28">
+              <Link
+                href={`/bookings/${b.id}`}
+                className="btn-primary text-xs py-1.5 px-3 text-center"
+              >
+                View
+              </Link>
+              <Link
+                href={`/bookings/${b.id}/invoice`}
+                className="btn-secondary text-xs py-1.5 px-3 text-center"
+              >
+                Invoice
+              </Link>
+              {stayPassEnabled && TICKET_STATUSES.includes(b.status) && (
+                <button
+                  onClick={() => openStayPass(b.id)}
+                  disabled={passLoadingId === b.id}
+                  className="btn-secondary text-xs py-1.5 px-3 disabled:opacity-50"
+                >
+                  {passLoadingId === b.id ? 'Loading…' : 'Stay Pass'}
+                </button>
+              )}
               {['PAYMENT_PENDING', 'CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE'].includes(b.status) && (
                 <button
                   onClick={() => handleCancel(b.id)}

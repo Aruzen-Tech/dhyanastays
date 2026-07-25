@@ -645,3 +645,18 @@
   .bg-fixed-white   { background-color: #ffffff !important; }
   .bg-fixed-black   { background-color: #000000 !important; }
 }
+
+/* Print: strip app chrome so invoices etc. print clean (Save as PDF). */
+@media print {
+  header,
+  footer,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff !important;
+  }
+  main {
+    animation: none !important;
+  }
+}

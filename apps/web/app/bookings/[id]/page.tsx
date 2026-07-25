@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
+import { useFeature } from '../../../context/FeatureContext';
 import {
   bookingsApi,
   formatDate,
@@ -13,8 +14,18 @@ import {
   guestApi,
   guestMessagingApi,
   paymentsApi,
+  ticketApi,
+  type BookingTicket,
 } from '../../../lib/api';
 import type { Booking } from '../../../lib/types';
+
+const TICKET_STATUSES = [
+  'CONFIRMED_DEPOSIT',
+  'CONFIRMED_PAID',
+  'BALANCE_DUE',
+  'CHECKED_IN',
+  'COMPLETED',
+];
 
 export default function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +38,8 @@ export default function BookingDetailPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
   const [toast, setToast] = useState('');
+  const [ticket, setTicket] = useState<BookingTicket | null>(null);
+  const stayPassEnabled = useFeature('stay_pass');
 
   useEffect(() => {
     if (!isLoading && !user) router.push('/auth/login');
@@ -40,6 +53,30 @@ export default function BookingDetailPage() {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id, user]);
+
+  // Stay Pass ticket: fetch once the booking is confirmed; the render is async
+  // (≤30s sweep) so poll while it's still PENDING.
+  useEffect(() => {
+    if (!user || !stayPassEnabled || !booking) return;
+    if (!TICKET_STATUSES.includes(booking.status)) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const load = () => {
+      ticketApi
+        .get(id)
+        .then((t) => {
+          if (cancelled) return;
+          setTicket(t);
+          if (t.status === 'PENDING') timer = setTimeout(load, 8000);
+        })
+        .catch(() => {});
+    };
+    load();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [id, user, stayPassEnabled, booking]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -162,9 +199,15 @@ export default function BookingDetailPage() {
         <button onClick={() => router.push('/dashboard')} className="btn-ghost text-sm mb-4">
           ← Back to dashboard
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <h1 className="page-title">Booking Details</h1>
           <StatusBadge status={booking.status} />
+          <Link
+            href={`/bookings/${booking.id}/invoice`}
+            className="btn-secondary text-xs py-1.5 px-3 ml-auto"
+          >
+            Invoice
+          </Link>
         </div>
         <p className="text-gray-400 text-xs font-mono mt-1">{booking.id}</p>
       </div>
@@ -181,6 +224,63 @@ export default function BookingDetailPage() {
       )}
 
       {actionError && <div className="alert-error mb-4">{actionError}</div>}
+
+      {/* Stay Pass */}
+      {stayPassEnabled && TICKET_STATUSES.includes(booking.status) && ticket && ticket.status !== 'VOIDED' && (
+        <div className="card p-6 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-gray-900">🎟️ Your Stay Pass</h2>
+            <Link href="/passport" className="text-xs text-brand-700 hover:underline">
+              View passport →
+            </Link>
+          </div>
+          {ticket.status === 'RENDERED' && ticket.assets ? (
+            <div className="space-y-3">
+              {ticket.assets.hero && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={ticket.assets.hero}
+                  alt="Stay Pass"
+                  className="w-full rounded-xl border border-gray-100"
+                />
+              )}
+              <div className="flex flex-wrap gap-2">
+                {ticket.assets.pdf && (
+                  <a
+                    href={ticket.assets.pdf}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-secondary text-sm px-4 py-2"
+                  >
+                    Download PDF
+                  </a>
+                )}
+                {ticket.assets.full && (
+                  <a
+                    href={ticket.assets.full}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-ghost text-sm px-4 py-2"
+                  >
+                    Open full pass
+                  </a>
+                )}
+              </div>
+              <p className="text-xs text-gray-400">
+                Show this pass (QR) at check-in to be verified.
+              </p>
+            </div>
+          ) : ticket.status === 'FAILED' ? (
+            <p className="text-sm text-gray-500">
+              We couldn&apos;t generate your Stay Pass. Our team has been notified — please check back shortly.
+            </p>
+          ) : (
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <span className="spinner w-4 h-4" /> Preparing your Stay Pass…
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Listing info */}
       <div className="card p-6 mb-4">

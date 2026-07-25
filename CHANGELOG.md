@@ -16,6 +16,54 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
+
+### Added
+- **Per-booking actions in the dashboard "My Bookings" list** — **View**
+  (→ `/bookings/:id`), **Invoice**, and **Stay Pass** (shown for confirmed
+  statuses when `stay_pass` is on) alongside the existing Cancel.
+- **Printable invoice** at `/bookings/:id/invoice` — Dhyana-branded, billed-to +
+  stay details + line items from the price snapshot (accommodation, cleaning,
+  add-ons, platform fee, GST → total) + payment plan/status; a **Download / Print**
+  button (`window.print()` → Save as PDF). Global `@media print` rule strips the
+  navbar/footer so it prints clean. An **Invoice** link was also added to the
+  booking detail header.
+- **Stay Pass download** — the dashboard button fetches the ticket on demand and
+  opens its PDF (window opened in-gesture to dodge popup blockers). New `ticketApi`
+  already exposed the pass.
+
+---
+
+## 2026-07-25 — Show the Stay Pass on the booking page
+
+### Fixed
+- **The Stay Pass ticket rendered but was never shown to the guest.** The
+  `ticket-render` sweep produces the ticket (`GET /bookings/:id/ticket` serves
+  it), but the booking detail page had no UI for it, so guests "didn't get" their
+  pass. Added a **Stay Pass card** on `/bookings/:id` (gated by `stay_pass`, shown
+  for confirmed statuses incl. pay-on-arrival's `CONFIRMED_DEPOSIT`): renders the
+  hero image, **Download PDF** / **Open full pass** links and a passport link;
+  polls while the render is `PENDING` (≤30s). New `ticketApi.get`.
+- Note: the booking-confirmation **email is a dev stub** (console only); the
+  in-app `BOOKING_CONFIRMED` guest notification is created as before.
+
+---
+
+## 2026-07-25 — Confirm before abandoning a hold
+
+### Added
+- **"Cancel your hold?" confirmation** on the listing booking flow. While a hold
+  is live (guest-details / payment-plan steps), leaving now asks first:
+  - the in-app **← Back (release hold)** button opens a confirm modal;
+  - the **browser Back button** is intercepted (history sentinel) and prompts the
+    same modal, keeping the guest on the page until they answer;
+  - **tab close / reload** triggers the native "Leave site?" prompt.
+  The hold is deleted (freeing the dates) **only after the guest accepts**;
+  "Keep my hold" leaves everything intact. On accept, release goes through
+  `DELETE /holds/:id` (the pagehide keepalive beacon still covers hard exits).
+
+---
+
 ## 2026-07-25 — Pay on arrival (host opt-in)
 
 Migration `0036_pay_on_arrival`. Guests can reserve now and pay the full amount
