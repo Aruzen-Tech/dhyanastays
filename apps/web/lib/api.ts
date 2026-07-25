@@ -320,6 +320,7 @@ export const listingsApi = {
     experienceTags: string[];
     propertyType: string | null;
     dietaryOptions: string[];
+    payOnArrivalEnabled: boolean;
   }>) =>
     request<Listing>(`/host/listings/${id}`, {
       method: 'PATCH',
@@ -521,7 +522,7 @@ export const holdsApi = {
 export const bookingsApi = {
   create: (body: {
     holdId: string;
-    plan: 'FULL' | 'DEPOSIT_50' | 'PAY_LATER';
+    plan: 'FULL' | 'DEPOSIT_50' | 'PAY_LATER' | 'PAY_ON_ARRIVAL';
     idempotencyKey: string;
     guestDetails: GuestDetails;
     payLaterMonths?: 3 | 6 | 12;
@@ -538,6 +539,13 @@ export const bookingsApi = {
   getMyBookings: () => request<Booking[]>('/bookings'),
 
   getHostBookings: () => request<Booking[]>('/bookings/host'),
+
+  /** Host records that the on-arrival payment was collected at the property. */
+  collectOnArrival: (id: string, method = 'CASH') =>
+    request<Booking>(`/bookings/${id}/collect-on-arrival`, {
+      method: 'POST',
+      body: JSON.stringify({ method }),
+    }),
 
   cancel: (id: string, reason: string) =>
     request<Booking>(`/bookings/${id}/cancel`, {

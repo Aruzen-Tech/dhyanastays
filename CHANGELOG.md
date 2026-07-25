@@ -16,6 +16,36 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-07-25 — Pay on arrival (host opt-in)
+
+Migration `0036_pay_on_arrival`. Guests can reserve now and pay the full amount
+at the property — only on listings the host has opted in.
+
+### Added
+- **Host opt-in** — `Listing.payOnArrivalEnabled` (default **false**). Toggle on
+  the listing edit page ("Accept pay-on-arrival"); flows through the existing
+  `PATCH /host/listings/:id`.
+- **New payment plan** `PAY_ON_ARRIVAL`. Booking a listing with it **reserves the
+  dates immediately with no online payment** — the same atomic overlap check +
+  SERIALIZABLE isolation the paid confirm uses, transitioning straight to
+  CONFIRMED_DEPOSIT (dates locked, full amount owed at check-in) and firing the
+  normal booking-confirmed notifications. The guest flow skips Razorpay and lands
+  on a "Reservation confirmed — pay ₹X at the property" screen.
+- **Host collection** — `POST /bookings/:id/collect-on-arrival` records the
+  offline payment and moves the booking CONFIRMED_DEPOSIT → CONFIRMED_PAID. A
+  "Mark paid" button appears on pay-on-arrival bookings in the host bookings list.
+- State-machine event `PAY_ON_ARRIVAL_RESERVED` (PAYMENT_PENDING →
+  CONFIRMED_DEPOSIT); collection reuses `BALANCE_PAID`.
+
+### Changed
+- `POST /payments/init` rejects `PAY_ON_ARRIVAL` bookings (settled offline).
+
+### Notes
+- No positive payout line is created for pay-on-arrival — the host collects the
+  cash directly and settles the platform fee out of band. (+8 unit tests.)
+
+---
+
 ## 2026-07-25 — Calendar: only confirmed bookings read as "booked"
 
 ### Fixed

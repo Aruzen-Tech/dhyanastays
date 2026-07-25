@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNumber,
@@ -126,4 +127,9 @@ export class UpdateListingDto {
   @ArrayMaxSize(20)
   @IsIn(DIETARY_OPTIONS, { each: true })
   dietaryOptions?: string[];
+
+  /** Host opt-in: accept "reserve now, pay at the property" bookings. */
+  @IsOptional()
+  @IsBoolean()
+  payOnArrivalEnabled?: boolean;
 }

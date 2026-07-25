@@ -30,6 +30,8 @@ export type BookingEvent =
   // Payment-driven (initial captures)
   | 'PAYMENT_CONFIRMED_FULL'
   | 'PAYMENT_CONFIRMED_DEPOSIT'
+  // Reserve now, pay the full amount at the property (no online capture).
+  | 'PAY_ON_ARRIVAL_RESERVED'
   | 'PAY_LATER_FIRST_CAPTURED'
   | 'PAY_LATER_INSTALMENT_CAPTURED'
   | 'PAY_LATER_FINAL_CAPTURED'
@@ -143,6 +145,15 @@ export const TRANSITIONS: readonly Transition[] = [
     from: ['PAYMENT_PENDING'],
     to: 'CONFIRMED_DEPOSIT',
     guard: (b) => b.plan === 'PAY_LATER',
+  },
+  // Pay-on-arrival: the reservation is confirmed with no online payment; it
+  // lands in CONFIRMED_DEPOSIT (dates locked, full balance owed at the property)
+  // and reaches CONFIRMED_PAID via BALANCE_PAID when the host records collection.
+  {
+    event: 'PAY_ON_ARRIVAL_RESERVED',
+    from: ['PAYMENT_PENDING'],
+    to: 'CONFIRMED_DEPOSIT',
+    guard: (b) => b.plan === 'PAY_ON_ARRIVAL',
   },
 
   // ── Pay-Later subsequent instalments ────────────────────────────────────

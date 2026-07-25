@@ -21,6 +21,7 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { PriceSnapshot } from '../pricing/dto/quote.dto';
 import { BookingStateMachine, BookingEvent, BookingLike } from './state-machine';
 import { PriceSnapshotSignerService } from '../common/services/price-snapshot-signer.service';
+import { withSerializableRetry } from '../common/services/serializable-retry';
 import {
   AmountMismatchException,
   TamperedSnapshotException,
@@ -64,6 +65,12 @@ export class BookingService {
         throw new ForbiddenException('Hold belongs to another user');
       }
       return existingByHold;
+    }
+
+    // Pay-on-arrival reserves (confirms) the dates immediately with no online
+    // payment — a distinct atomic path from the payment-gated plans.
+    if (dto.plan === PaymentPlanDto.PAY_ON_ARRIVAL) {
+      return this.createPayOnArrivalBooking(guestId, dto);
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -158,6 +165,194 @@ export class BookingService {
     );
 
     return booking;
+  }
+
+  /**
+   * Pay-on-arrival: reserve (confirm) the dates now, collect the full amount at
+   * the property later. Requires the host to have opted the listing in
+   * (`payOnArrivalEnabled`). Runs the same atomic overlap check the payment
+   * confirm uses, under SERIALIZABLE isolation, then transitions straight to
+   * CONFIRMED_DEPOSIT (dates locked, full balance owed at check-in). No online
+   * payment, no payout line — the money is collected offline and recorded via
+   * `collectOnArrival`. Booking-confirmed notifications fire post-commit.
+   */
+  private async createPayOnArrivalBooking(guestId: string, dto: CreateBookingDto) {
+    const booking = await withSerializableRetry(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.prisma as any,
+      async (tx: TxClient) => {
+        const hold = await tx.hold.findUnique({ where: { id: dto.holdId } });
+        if (!hold) throw new NotFoundException('Hold not found');
+        if (hold.guestId !== guestId) {
+          throw new ForbiddenException('Hold belongs to another user');
+        }
+        if (new Date(hold.expiresAt) < new Date()) {
+          throw new BadRequestException('Hold has expired. Please create a new hold.');
+        }
+
+        const listing = await tx.listing.findUnique({
+          where: { id: hold.listingId },
+          select: { payOnArrivalEnabled: true },
+        });
+        if (!listing?.payOnArrivalEnabled) {
+          throw new BadRequestException(
+            'Pay on arrival is not available for this listing.',
+          );
+        }
+
+        const snapshot = hold.priceSnapshot as PriceSnapshot;
+
+        // Serialize concurrent confirms on this listing, then overlap-check under
+        // the lock (same rule + status set as confirmPayment step 5).
+        await tx.$executeRaw`SELECT id FROM "Listing" WHERE id = ${hold.listingId} FOR UPDATE`;
+        const conflicts = await tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM "Booking"
+          WHERE "listingId" = ${hold.listingId}
+            AND status IN ('CONFIRMED_DEPOSIT','CONFIRMED_PAID','BALANCE_DUE','PAYMENT_PENDING','CHECKED_IN')
+            AND tsrange("startsAt","endsAt",'[)') && tsrange(
+                  (${hold.startsAt}::timestamptz AT TIME ZONE 'UTC'),
+                  (${hold.endsAt}::timestamptz AT TIME ZONE 'UTC'),
+                  '[)')
+        `;
+        if (conflicts.length > 0) {
+          throw new ConflictException('Dates no longer available');
+        }
+
+        const created = await tx.booking.create({
+          data: {
+            listingId: hold.listingId,
+            guestId,
+            holdId: hold.id,
+            status: 'PAYMENT_PENDING',
+            plan: 'PAY_ON_ARRIVAL',
+            startsAt: hold.startsAt,
+            endsAt: hold.endsAt,
+            priceSnapshot: snapshot as object,
+            guestDetails: dto.guestDetails as object,
+            // Full amount is due at the property on arrival (check-in day).
+            balanceDueAt: hold.startsAt,
+            acceptedTermsAt: new Date(dto.acceptedTermsAt),
+          },
+        });
+
+        // Materialize add-ons from the frozen snapshot (HMAC-verified).
+        const snapshotAddOns = (snapshot.addOns ?? []) as AddOnSnapshotLine[];
+        if (snapshotAddOns.length > 0) {
+          await this.addOnService.createBookingAddOns(
+            tx,
+            created.id,
+            snapshotAddOns,
+            snapshot.hmac ?? '',
+          );
+        }
+
+        // Reserve: PAYMENT_PENDING → CONFIRMED_DEPOSIT via the state machine.
+        const updated = await this.stateMachine.transition(
+          tx,
+          created as BookingLike,
+          'PAY_ON_ARRIVAL_RESERVED',
+          { actorId: guestId, metadata: { reservedVia: 'pay_on_arrival' } },
+        );
+
+        // Freeze the cancellation policy at confirm time (as the payment path does).
+        await tx.booking.update({
+          where: { id: created.id },
+          data: {
+            cancellationPolicySnapshot:
+              PricingService.buildPolicySnapshot() as never,
+          },
+        });
+
+        return updated;
+      },
+    );
+
+    await this.auditService.log(guestId, 'BOOKING_CREATE', 'booking', booking.id, {
+      holdId: dto.holdId,
+      plan: 'PAY_ON_ARRIVAL',
+      status: booking.status,
+      amountDueAtPropertyPaise: (booking.priceSnapshot as unknown as PriceSnapshot)
+        ?.total,
+    });
+
+    // Same post-commit confirmation notifications as the paid flows.
+    void this.sendBookingConfirmedNotificationPublic(booking.id);
+
+    return booking;
+  }
+
+  /**
+   * Host records that the on-arrival payment was collected at the property.
+   * Moves a pay-on-arrival booking CONFIRMED_DEPOSIT → CONFIRMED_PAID and writes
+   * a captured-payment record + ledger entry. Owner-only, idempotent. No payout
+   * line is created — the host received the cash directly (they settle the
+   * platform fee separately), so nothing flows through the platform's payout.
+   */
+  async collectOnArrival(
+    hostUserId: string,
+    bookingId: string,
+    method = 'CASH',
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { listing: { select: { hostId: true } } },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (booking.plan !== 'PAY_ON_ARRIVAL') {
+      throw new BadRequestException('Not a pay-on-arrival booking');
+    }
+    const host = await this.prisma.host.findUnique({
+      where: { userId: hostUserId },
+    });
+    if (!host || booking.listing.hostId !== host.id) {
+      throw new ForbiddenException('Not your booking');
+    }
+    if (booking.status === 'CONFIRMED_PAID') return booking; // idempotent
+    if (booking.status !== 'CONFIRMED_DEPOSIT') {
+      throw new ConflictException(
+        `Cannot collect payment in status ${booking.status}`,
+      );
+    }
+
+    const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updated = await (this.prisma as any).$transaction(async (tx: TxClient) => {
+      await tx.payment.create({
+        data: {
+          bookingId,
+          amount: snapshot.total,
+          type: 'PAY_ON_ARRIVAL',
+          status: 'CAPTURED',
+          gateway: 'offline',
+          idempotencyKey: `poa-${bookingId}`,
+        },
+      });
+      const u = await this.stateMachine.transition(
+        tx,
+        booking as BookingLike,
+        'BALANCE_PAID',
+        { actorId: hostUserId, metadata: { collectedAt: 'property', method } },
+      );
+      await this.ledgerService.record({
+        type: 'PAYMENT_CAPTURED',
+        amount: snapshot.total,
+        bookingId,
+        metadata: { offline: true, method, note: 'pay_on_arrival_collected' },
+        tx,
+      });
+      return u;
+    });
+
+    await this.auditService.log(
+      hostUserId,
+      'PAY_ON_ARRIVAL_COLLECTED',
+      'booking',
+      bookingId,
+      { amountPaise: snapshot.total, method },
+    );
+
+    return updated;
   }
 
   async getMyBookings(guestId: string) {

@@ -16,6 +16,7 @@ export enum PaymentPlanDto {
   FULL = 'FULL',
   DEPOSIT_50 = 'DEPOSIT_50',
   PAY_LATER = 'PAY_LATER',
+  PAY_ON_ARRIVAL = 'PAY_ON_ARRIVAL',
 }
 
 export class GuestDetailsDto {

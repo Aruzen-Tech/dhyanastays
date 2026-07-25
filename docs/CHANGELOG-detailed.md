@@ -13,6 +13,78 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-25 — Pay on arrival (host opt-in)
+
+**Commit:** _pending_ · **Migration:** `0036_pay_on_arrival` (applied to dev DB)
+
+Reserve-now-pay-at-property, gated per-listing by the host. Reuses the booking
+engine's atomic overlap/confirm machinery rather than introducing a new booking
+status.
+
+### Schema / migration
+
+- `Listing.payOnArrivalEnabled Boolean @default(false)` — host opt-in.
+- `PaymentPlan` enum += `PAY_ON_ARRIVAL`.
+- `0036_pay_on_arrival/migration.sql` — idempotent:
+  `ADD COLUMN IF NOT EXISTS` + `ALTER TYPE "PaymentPlan" ADD VALUE IF NOT EXISTS`
+  (PG 12+ allows the enum add inside the migration tx).
+
+### Backend
+
+- **`state-machine.ts`** — new event `PAY_ON_ARRIVAL_RESERVED` + transition
+  `PAYMENT_PENDING → CONFIRMED_DEPOSIT` guarded by `plan === 'PAY_ON_ARRIVAL'`.
+  Collection reuses the existing unguarded `BALANCE_PAID`
+  (`CONFIRMED_DEPOSIT → CONFIRMED_PAID`).
+- **`booking.service.ts`**:
+  - `createBooking` dispatches `PAY_ON_ARRIVAL` to `createPayOnArrivalBooking`
+    (after the hold-idempotency check).
+  - `createPayOnArrivalBooking` (private) — one `withSerializableRetry` tx:
+    validate hold (owner, not expired) → assert `listing.payOnArrivalEnabled` →
+    `SELECT … FOR UPDATE` the listing → `tsrange` overlap check against
+    CONFIRMED_*/PAYMENT_PENDING/CHECKED_IN → create booking (`PAYMENT_PENDING`,
+    plan `PAY_ON_ARRIVAL`, `balanceDueAt = checkIn`) → materialize add-ons →
+    `stateMachine.transition(PAY_ON_ARRIVAL_RESERVED)` → freeze
+    `cancellationPolicySnapshot`. Post-commit: audit + reuse
+    `sendBookingConfirmedNotificationPublic`. No ledger row (no money moved).
+  - `collectOnArrival(hostUserId, bookingId, method='CASH')` — owner check;
+    guards non-POA / non-owner / wrong-status; idempotent when already
+    CONFIRMED_PAID. In a tx: `payment.create` (amount `snapshot.total`, type
+    `PAY_ON_ARRIVAL`, status `CAPTURED`, gateway `offline`, idempotencyKey
+    `poa-<id>`) → `BALANCE_PAID` transition → `ledger.record(PAYMENT_CAPTURED,
+    offline)`. **No payout line** — host holds the cash; platform fee settled out
+    of band (documented simplification).
+- **`booking.controller.ts`** — `@Roles(HOST) @Post(':id/collect-on-arrival')`.
+- **`payment.service.ts`** — `initPayment` throws for `plan === 'PAY_ON_ARRIVAL'`.
+- **`create-booking.dto.ts`** — `PaymentPlanDto` += `PAY_ON_ARRIVAL`.
+- **`update-listing.dto.ts`** — `@IsOptional() @IsBoolean() payOnArrivalEnabled`;
+  flows through `updateHostListing`'s `...listingFields` spread (not a
+  reapproval-triggering field). `getPublicListingById` already returns all
+  Listing scalars, so the guest UI sees the flag.
+
+### Frontend
+
+- **`lib/types.ts`** — `PaymentPlan` += `PAY_ON_ARRIVAL`; `Listing.payOnArrivalEnabled`.
+- **`lib/api.ts`** — `bookingsApi.create` plan union widened;
+  `bookingsApi.collectOnArrival(id, method)`; `listingsApi.update` accepts
+  `payOnArrivalEnabled`.
+- **`host/listings/[id]/edit`** — "Accept pay-on-arrival" checkbox (loads from +
+  saves to the listing).
+- **`listings/[id]`** — booking-step plan card "🏡 Pay on arrival" shown only when
+  `listing.payOnArrivalEnabled`; `handleCreateBooking` routes `PAY_ON_ARRIVAL`
+  straight to `confirmed` (no Razorpay); `handleInitPayment` early-returns for it;
+  confirmation copy + "Reserve — pay at property" button label.
+- **`host/bookings`** — "On arrival" plan chip; "Mark paid" action
+  (→ `collectOnArrival`) on `PAY_ON_ARRIVAL` + `CONFIRMED_DEPOSIT` rows; CSV label.
+
+### Tests
+
+- `state-machine.spec.ts` +2 (`PAY_ON_ARRIVAL_RESERVED`; `BALANCE_PAID` for
+  pay-on-arrival). `booking.service.spec.ts` +4 (`collectOnArrival` guards:
+  non-POA, non-owner, idempotent already-paid, happy-path offline payment).
+  Full API suite **315/315**; api + web `tsc` clean; eslint clean.
+
+---
+
 ## 2026-07-25 — Calendar: only confirmed bookings read as "booked"
 
 **Commit:** _pending_ · **Migration:** none

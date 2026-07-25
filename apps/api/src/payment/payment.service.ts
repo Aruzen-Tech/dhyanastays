@@ -60,6 +60,14 @@ export class PaymentService {
     if (!booking) throw new NotFoundException('Booking not found');
     if (booking.guestId !== guestId) throw new ForbiddenException('Access denied');
 
+    // Pay-on-arrival bookings are settled offline at the property — there is no
+    // online payment to initialise.
+    if (booking.plan === 'PAY_ON_ARRIVAL') {
+      throw new BadRequestException(
+        'This booking is pay-on-arrival — payment is collected at the property.',
+      );
+    }
+
     const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
 
     // Verify price snapshot integrity — reject if tampered

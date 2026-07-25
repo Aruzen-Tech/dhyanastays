@@ -106,6 +106,22 @@ describe('BookingStateMachine — valid transitions', () => {
     expect(calls[0].data.status).toBe('CONFIRMED_DEPOSIT');
   });
 
+  it('PAYMENT_PENDING → CONFIRMED_DEPOSIT on PAY_ON_ARRIVAL_RESERVED (plan=PAY_ON_ARRIVAL)', async () => {
+    const { tx, calls } = makeTxMock();
+    const booking = makeBooking({ plan: 'PAY_ON_ARRIVAL' });
+    await sm.transition(tx as never, booking, 'PAY_ON_ARRIVAL_RESERVED', {
+      actorId: 'guest-1',
+    });
+    expect(calls[0].data.status).toBe('CONFIRMED_DEPOSIT');
+  });
+
+  it('CONFIRMED_DEPOSIT → CONFIRMED_PAID on BALANCE_PAID (pay-on-arrival collected)', async () => {
+    const { tx, calls } = makeTxMock();
+    const booking = makeBooking({ status: 'CONFIRMED_DEPOSIT', plan: 'PAY_ON_ARRIVAL' });
+    await sm.transition(tx as never, booking, 'BALANCE_PAID', { actorId: 'host-1' });
+    expect(calls[0].data.status).toBe('CONFIRMED_PAID');
+  });
+
   it('CONFIRMED_DEPOSIT → CONFIRMED_DEPOSIT on PAY_LATER_INSTALMENT_CAPTURED (self-loop)', async () => {
     const { tx, calls } = makeTxMock();
     const booking = makeBooking({

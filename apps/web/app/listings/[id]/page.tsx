@@ -223,7 +223,7 @@ export default function ListingDetailPage() {
   const [quote, setQuote] = useState<PriceQuote | null>(null);
   const [hold, setHold] = useState<Hold | null>(null);
   const [booking, setBooking] = useState<Booking | null>(null);
-  const [paymentPlan, setPaymentPlan] = useState<'FULL' | 'DEPOSIT_50'>('FULL');
+  const [paymentPlan, setPaymentPlan] = useState<'FULL' | 'DEPOSIT_50' | 'PAY_ON_ARRIVAL'>('FULL');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [addOnSelections, setAddOnSelections] = useState<AddOnSelection[]>([]);
   const [guestDetails, setGuestDetails] = useState<GuestDetails>({
@@ -392,7 +392,9 @@ export default function ListingDetailPage() {
       setBooking(b);
       // Hold is now a booking — never release it on unmount.
       holdConsumedRef.current = true;
-      setStep('payment');
+      // Pay-on-arrival is confirmed server-side at creation — no online payment,
+      // so skip the Razorpay step and go straight to the confirmation.
+      setStep(paymentPlan === 'PAY_ON_ARRIVAL' ? 'confirmed' : 'payment');
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to create booking');
     } finally {
@@ -418,6 +420,8 @@ export default function ListingDetailPage() {
 
   const handleInitPayment = async () => {
     if (!booking) return;
+    // Pay-on-arrival never reaches the online payment step.
+    if (paymentPlan === 'PAY_ON_ARRIVAL') return;
     setActionError('');
     setActionLoading(true);
     try {
@@ -948,6 +952,23 @@ export default function ListingDetailPage() {
                       </div>
                     </button>
                   ))}
+                  {/* Pay on arrival — only if the host opted this listing in */}
+                  {listing.payOnArrivalEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentPlan('PAY_ON_ARRIVAL')}
+                      className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
+                        paymentPlan === 'PAY_ON_ARRIVAL'
+                          ? 'border-brand-700 bg-brand-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="font-semibold text-sm text-gray-900">🏡 Pay on arrival</div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        Nothing now — pay {formatINR(quote?.total ?? 0)} at the property on check-in
+                      </div>
+                    </button>
+                  )}
                 </div>
                 <label className="flex items-start gap-2 text-xs text-gray-600 cursor-pointer">
                   <input
@@ -974,7 +995,13 @@ export default function ListingDetailPage() {
                   disabled={actionLoading || !termsAccepted}
                   className="btn-primary w-full"
                 >
-                  {actionLoading ? <><span className="spinner" /> Creating booking…</> : 'Confirm booking'}
+                  {actionLoading ? (
+                    <><span className="spinner" /> Creating booking…</>
+                  ) : paymentPlan === 'PAY_ON_ARRIVAL' ? (
+                    'Reserve — pay at property'
+                  ) : (
+                    'Confirm booking'
+                  )}
                 </button>
               </div>
             )}
@@ -1016,9 +1043,13 @@ export default function ListingDetailPage() {
             {step === 'confirmed' && booking && (
               <div className="text-center space-y-4">
                 <div className="text-5xl">🎉</div>
-                <h3 className="font-bold text-gray-900">Booking confirmed!</h3>
+                <h3 className="font-bold text-gray-900">
+                  {booking.plan === 'PAY_ON_ARRIVAL' ? 'Reservation confirmed!' : 'Booking confirmed!'}
+                </h3>
                 <p className="text-sm text-gray-500">
-                  Your payment is processing. View your booking for the latest status.
+                  {booking.plan === 'PAY_ON_ARRIVAL'
+                    ? `Your dates are reserved. Pay ${formatINR(booking.priceSnapshot.total)} at the property on check-in.`
+                    : 'Your payment is processing. View your booking for the latest status.'}
                 </p>
                 <button onClick={() => router.push(`/bookings/${booking.id}`)} className="btn-primary w-full">
                   View booking details
