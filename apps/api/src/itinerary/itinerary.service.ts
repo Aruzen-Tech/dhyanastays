@@ -513,7 +513,7 @@ export class ItineraryService {
 
     return [
       `Suggest exactly 3 distinct trip concepts for a ${days}-day visit to ${dto.destination} for ${dto.travelers} traveler(s).`,
-      `Interests: ${interests}. Total trip budget: ${budget}.`,
+      `Interests: ${interests}. Budget per person: ${budget}.`,
       '',
       `Each concept must have a clearly different travel style.`,
       `Possible styles include culture, food, nature, adventure, relaxation, family travel, local exploration or a balanced trip.`,
@@ -562,7 +562,7 @@ export class ItineraryService {
 
     return [
       `Plan a ${days}-day trip itinerary for ${dto.travelers} traveler(s) in ${dto.destination}.`,
-      `Interests: ${interests}. Budget: ${budget}.`,
+      `Interests: ${interests}. Budget per person: ${budget}.`,
       themeLine,
       `Dates: ${dto.startsAt} to ${dto.endsAt}.`,
       '',

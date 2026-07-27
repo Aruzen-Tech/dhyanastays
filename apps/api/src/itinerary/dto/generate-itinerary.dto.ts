@@ -44,7 +44,7 @@ export class GenerateItineraryDto {
   @IsString()
   listingId?: string;
 
-  /** Optional theme/concept the user picked from suggestions, e.g. "Detox & Yoga". */
+  /** Stable concept key selected from itinerary suggestions, e.g. "culture-and-cuisine". */
   @IsOptional()
   @IsString()
   @MaxLength(160)
