@@ -223,7 +223,7 @@ export default function ListingDetailPage() {
   const [quote, setQuote] = useState<PriceQuote | null>(null);
   const [hold, setHold] = useState<Hold | null>(null);
   const [booking, setBooking] = useState<Booking | null>(null);
-  const [paymentPlan, setPaymentPlan] = useState<'FULL' | 'DEPOSIT_50'>('FULL');
+  const [paymentPlan, setPaymentPlan] = useState<'FULL' | 'DEPOSIT_50' | 'PAY_ON_ARRIVAL'>('FULL');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [addOnSelections, setAddOnSelections] = useState<AddOnSelection[]>([]);
   const [guestDetails, setGuestDetails] = useState<GuestDetails>({
@@ -242,6 +242,10 @@ export default function ListingDetailPage() {
   // True when we restored a still-live hold on return (resume banner).
   const [resumed, setResumed] = useState(false);
   const resumeAttemptedRef = useRef(false);
+  // Confirm-before-leave while a hold is active. `pendingAbandonRef` holds the
+  // navigation to run once the guest confirms the hold cancellation.
+  const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
+  const pendingAbandonRef = useRef<null | (() => void)>(null);
 
   // Kept in refs so the unmount/pagehide cleanup reads the latest values
   // without re-subscribing the listener on every hold change.
@@ -392,7 +396,9 @@ export default function ListingDetailPage() {
       setBooking(b);
       // Hold is now a booking — never release it on unmount.
       holdConsumedRef.current = true;
-      setStep('payment');
+      // Pay-on-arrival is confirmed server-side at creation — no online payment,
+      // so skip the Razorpay step and go straight to the confirmation.
+      setStep(paymentPlan === 'PAY_ON_ARRIVAL' ? 'confirmed' : 'payment');
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to create booking');
     } finally {
@@ -400,12 +406,11 @@ export default function ListingDetailPage() {
     }
   };
 
-  /** Explicit abandon: release the hold and return to the quote step. */
-  const handleReleaseAndBack = async () => {
-    const h = hold;
+  /** Delete the active hold now, freeing the dates for other guests. */
+  const releaseCurrentHold = useCallback(async () => {
+    const h = holdRef.current ?? hold;
     setHold(null);
     setResumed(false);
-    setStep('quote');
     if (h) {
       try {
         await holdsApi.release(h.id);
@@ -414,10 +419,77 @@ export default function ListingDetailPage() {
       }
       void refreshOthersHold();
     }
+  }, [hold, refreshOthersHold]);
+
+  /** Explicit abandon: release the hold and return to the quote step. */
+  const handleReleaseAndBack = async () => {
+    setStep('quote');
+    await releaseCurrentHold();
   };
+
+  /** Is there a live hold that hasn't yet become a booking? */
+  const holdActive = !!hold && !holdConsumedRef.current;
+
+  /**
+   * Ask the guest to confirm cancelling their hold before a "back"/leave action.
+   * `proceed` runs only if they accept (releasing the hold happens inside it).
+   */
+  const requestAbandon = useCallback((proceed: () => void) => {
+    pendingAbandonRef.current = proceed;
+    setShowAbandonConfirm(true);
+  }, []);
+
+  const confirmAbandon = () => {
+    const proceed = pendingAbandonRef.current;
+    pendingAbandonRef.current = null;
+    setShowAbandonConfirm(false);
+    proceed?.();
+  };
+
+  const dismissAbandon = () => {
+    pendingAbandonRef.current = null;
+    setShowAbandonConfirm(false);
+  };
+
+  // Guard "leaving with a live hold" only while the guest is still in the
+  // pre-booking steps (a hold that's become a booking is committed).
+  const holdGuardActive =
+    holdActive && (step === 'guestdetails' || step === 'booking');
+
+  // Tab close / reload / URL change → native "Leave site?" prompt. The pagehide
+  // handler above frees the dates if they do leave.
+  useEffect(() => {
+    if (!holdGuardActive) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [holdGuardActive]);
+
+  // Browser Back button → keep the guest on the page and ask them to confirm
+  // cancelling the hold first; only on accept is the hold released.
+  useEffect(() => {
+    if (!holdGuardActive) return;
+    window.history.pushState(null, '');
+    const onPop = () => {
+      // Re-arm so the guest stays put until they answer the prompt.
+      window.history.pushState(null, '');
+      requestAbandon(() => {
+        void handleReleaseAndBack();
+      });
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+    // requestAbandon + handleReleaseAndBack are stable enough; re-run only on guard change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdGuardActive]);
 
   const handleInitPayment = async () => {
     if (!booking) return;
+    // Pay-on-arrival never reaches the online payment step.
+    if (paymentPlan === 'PAY_ON_ARRIVAL') return;
     setActionError('');
     setActionLoading(true);
     try {
@@ -921,7 +993,10 @@ export default function ListingDetailPage() {
                   className="btn-primary w-full">
                   Continue to payment →
                 </button>
-                <button onClick={handleReleaseAndBack} className="btn-ghost w-full text-sm">
+                <button
+                  onClick={() => requestAbandon(() => { void handleReleaseAndBack(); })}
+                  className="btn-ghost w-full text-sm"
+                >
                   ← Back (release hold)
                 </button>
               </div>
@@ -948,6 +1023,23 @@ export default function ListingDetailPage() {
                       </div>
                     </button>
                   ))}
+                  {/* Pay on arrival — only if the host opted this listing in */}
+                  {listing.payOnArrivalEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => setPaymentPlan('PAY_ON_ARRIVAL')}
+                      className={`w-full p-4 rounded-xl border-2 text-left transition-all ${
+                        paymentPlan === 'PAY_ON_ARRIVAL'
+                          ? 'border-brand-700 bg-brand-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="font-semibold text-sm text-gray-900">🏡 Pay on arrival</div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        Nothing now — pay {formatINR(quote?.total ?? 0)} at the property on check-in
+                      </div>
+                    </button>
+                  )}
                 </div>
                 <label className="flex items-start gap-2 text-xs text-gray-600 cursor-pointer">
                   <input
@@ -974,7 +1066,13 @@ export default function ListingDetailPage() {
                   disabled={actionLoading || !termsAccepted}
                   className="btn-primary w-full"
                 >
-                  {actionLoading ? <><span className="spinner" /> Creating booking…</> : 'Confirm booking'}
+                  {actionLoading ? (
+                    <><span className="spinner" /> Creating booking…</>
+                  ) : paymentPlan === 'PAY_ON_ARRIVAL' ? (
+                    'Reserve — pay at property'
+                  ) : (
+                    'Confirm booking'
+                  )}
                 </button>
               </div>
             )}
@@ -1016,9 +1114,13 @@ export default function ListingDetailPage() {
             {step === 'confirmed' && booking && (
               <div className="text-center space-y-4">
                 <div className="text-5xl">🎉</div>
-                <h3 className="font-bold text-gray-900">Booking confirmed!</h3>
+                <h3 className="font-bold text-gray-900">
+                  {booking.plan === 'PAY_ON_ARRIVAL' ? 'Reservation confirmed!' : 'Booking confirmed!'}
+                </h3>
                 <p className="text-sm text-gray-500">
-                  Your payment is processing. View your booking for the latest status.
+                  {booking.plan === 'PAY_ON_ARRIVAL'
+                    ? `Your dates are reserved. Pay ${formatINR(booking.priceSnapshot.total)} at the property on check-in.`
+                    : 'Your payment is processing. View your booking for the latest status.'}
                 </p>
                 <button onClick={() => router.push(`/bookings/${booking.id}`)} className="btn-primary w-full">
                   View booking details
@@ -1031,6 +1133,33 @@ export default function ListingDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Abandon-hold confirmation */}
+      {showAbandonConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+          onClick={dismissAbandon}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="font-bold text-lg text-gray-900 mb-2">Cancel your hold?</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              Going back will release {checkIn && checkOut ? `${formatDate(checkIn)} → ${formatDate(checkOut)}` : 'these dates'} so
+              other guests can book them. This can&apos;t be undone — you&apos;ll need to hold the dates again.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button onClick={confirmAbandon} className="btn-primary w-full">
+                Yes, cancel my hold
+              </button>
+              <button onClick={dismissAbandon} className="btn-ghost w-full text-sm">
+                Keep my hold
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

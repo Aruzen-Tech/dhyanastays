@@ -13,6 +13,188 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
+
+**Commit:** _pending_ · **Migration:** none
+
+- **`app/dashboard/page.tsx`** (GuestDashboard) — each "My Bookings" row now has
+  **View** (`/bookings/:id`), **Invoice** (`/bookings/:id/invoice`) and, for
+  `TICKET_STATUSES` when `useFeature('stay_pass')`, a **Stay Pass** button.
+  `openStayPass(id)` opens a blank window _synchronously in the click_ (popup-safe)
+  then `ticketApi.get(id)` and redirects it to `assets.pdf` (or closes + alerts if
+  still `PENDING`).
+- **`app/bookings/[id]/invoice/page.tsx`** (new) — owner-fetched
+  (`bookingsApi.getById`) printable invoice: brand header, invoice no. (booking id)
+  with `createdAt` date, billed-to (`guestDetails` → user fallback), stay summary,
+  a line-item table from `priceSnapshot` (accommodation `subtotal`, `cleaningFee`,
+  `addOnsTotal`, `platformFee` @ `platformFeeRate`, `gstAmount` @ `gstRate`) →
+  `total`, and a payment panel (plan/status; pay-on-arrival "due at property";
+  DEPOSIT_50 deposit/balance). **Download / Print** = `window.print()`; actions
+  wrapped in `.no-print`.
+- **`app/globals.css`** — `@media print { header, footer, .no-print { display:none }
+  … }` so any page (invoice) prints without app chrome.
+- **`app/bookings/[id]/page.tsx`** — **Invoice** link added to the header.
+- Web `tsc` clean.
+
+---
+
+## 2026-07-25 — Show the Stay Pass on the booking page
+
+**Commit:** _pending_ · **Migration:** none
+
+Root cause of "no Stay Pass after booking": the `ticket-render` sweep produces
+the ticket and `GET /bookings/:id/ticket` (`@FeatureGate('stay_pass')`) serves it,
+but the web app had **no per-booking ticket UI** — only the `/passport` stamp page
+(navbar-gated). The ticket was `RENDERED` in the DB but unreachable in the UI.
+
+- **`lib/api.ts`** — `ticketApi.get(bookingId)` + `BookingTicket` type
+  (`status`, `themeId`, `assets: { hero, full, pdf }`).
+- **`app/bookings/[id]/page.tsx`** — Stay Pass card, gated by
+  `useFeature('stay_pass')` and shown for `TICKET_STATUSES`
+  (CONFIRMED_DEPOSIT/CONFIRMED_PAID/BALANCE_DUE/CHECKED_IN/COMPLETED — so
+  pay-on-arrival's CONFIRMED_DEPOSIT qualifies). Fetches the ticket; while
+  `PENDING` it polls every 8s (render is the ≤30s sweep); on `RENDERED` shows the
+  hero image + Download PDF / Open full pass (stub assets served from
+  `/api/storage/stub/*`, a `@Public` route) + a `/passport` link; `FAILED`/`VOIDED`
+  handled. Verified against a real rendered ticket (theme `forest_villa`, all 5
+  assets present).
+- Also enabled the `stay_pass` flag as a dev DB override (control-panel
+  equivalent) — the code default stays `false` (per-env rollout, needs real
+  storage in prod).
+- Web `tsc` clean.
+
+---
+
+## 2026-07-25 — Confirm before abandoning a hold
+
+**Commit:** _pending_ · **Migration:** none
+
+`apps/web/app/listings/[id]/page.tsx`. Previously any "back"/leave with a live
+hold released it silently (or via the pagehide beacon). Now the guest is asked
+to confirm cancelling the hold first, and the hold is deleted only on accept.
+
+- State: `showAbandonConfirm` + `pendingAbandonRef` (the navigation to run on
+  accept). Derived `holdActive = !!hold && !holdConsumedRef.current` and
+  `holdGuardActive = holdActive && step ∈ {guestdetails, booking}` (a hold that
+  has become a booking is committed → no guard).
+- Refactor: extracted `releaseCurrentHold()` (release + clear hold, no step
+  change) out of `handleReleaseAndBack()` (now `setStep('quote')` +
+  `releaseCurrentHold()`). `releaseCurrentHold` reads `holdRef.current` so it's
+  robust to stale closures.
+- `requestAbandon(proceed)` opens the modal; `confirmAbandon` runs the stored
+  `proceed` (which performs the release); `dismissAbandon` cancels.
+- Three leave vectors gated:
+  - **In-app back** — the "← Back (release hold)" button now calls
+    `requestAbandon(() => handleReleaseAndBack())`.
+  - **Browser Back** — a `popstate` effect (while `holdGuardActive`) pushes a
+    history sentinel and, on pop, re-pushes it (keeping the guest on the page)
+    and opens the modal.
+  - **Tab close / reload / URL change** — a `beforeunload` effect
+    (`preventDefault` + `returnValue=''`) triggers the browser's native prompt;
+    the existing `pagehide` `releaseBeacon` frees the dates on actual exit.
+- Confirmation modal renders the held date range and Keep/ Cancel actions.
+- Verified: web `tsc` clean.
+
+---
+
+## 2026-07-25 — Pay on arrival (host opt-in)
+
+**Commit:** _pending_ · **Migration:** `0036_pay_on_arrival` (applied to dev DB)
+
+Reserve-now-pay-at-property, gated per-listing by the host. Reuses the booking
+engine's atomic overlap/confirm machinery rather than introducing a new booking
+status.
+
+### Schema / migration
+
+- `Listing.payOnArrivalEnabled Boolean @default(false)` — host opt-in.
+- `PaymentPlan` enum += `PAY_ON_ARRIVAL`.
+- `0036_pay_on_arrival/migration.sql` — idempotent:
+  `ADD COLUMN IF NOT EXISTS` + `ALTER TYPE "PaymentPlan" ADD VALUE IF NOT EXISTS`
+  (PG 12+ allows the enum add inside the migration tx).
+
+### Backend
+
+- **`state-machine.ts`** — new event `PAY_ON_ARRIVAL_RESERVED` + transition
+  `PAYMENT_PENDING → CONFIRMED_DEPOSIT` guarded by `plan === 'PAY_ON_ARRIVAL'`.
+  Collection reuses the existing unguarded `BALANCE_PAID`
+  (`CONFIRMED_DEPOSIT → CONFIRMED_PAID`).
+- **`booking.service.ts`**:
+  - `createBooking` dispatches `PAY_ON_ARRIVAL` to `createPayOnArrivalBooking`
+    (after the hold-idempotency check).
+  - `createPayOnArrivalBooking` (private) — one `withSerializableRetry` tx:
+    validate hold (owner, not expired) → assert `listing.payOnArrivalEnabled` →
+    `SELECT … FOR UPDATE` the listing → `tsrange` overlap check against
+    CONFIRMED_*/PAYMENT_PENDING/CHECKED_IN → create booking (`PAYMENT_PENDING`,
+    plan `PAY_ON_ARRIVAL`, `balanceDueAt = checkIn`) → materialize add-ons →
+    `stateMachine.transition(PAY_ON_ARRIVAL_RESERVED)` → freeze
+    `cancellationPolicySnapshot`. Post-commit: audit + reuse
+    `sendBookingConfirmedNotificationPublic`. No ledger row (no money moved).
+  - `collectOnArrival(hostUserId, bookingId, method='CASH')` — owner check;
+    guards non-POA / non-owner / wrong-status; idempotent when already
+    CONFIRMED_PAID. In a tx: `payment.create` (amount `snapshot.total`, type
+    `PAY_ON_ARRIVAL`, status `CAPTURED`, gateway `offline`, idempotencyKey
+    `poa-<id>`) → `BALANCE_PAID` transition → `ledger.record(PAYMENT_CAPTURED,
+    offline)`. **No payout line** — host holds the cash; platform fee settled out
+    of band (documented simplification).
+- **`booking.controller.ts`** — `@Roles(HOST) @Post(':id/collect-on-arrival')`.
+- **`payment.service.ts`** — `initPayment` throws for `plan === 'PAY_ON_ARRIVAL'`.
+- **`create-booking.dto.ts`** — `PaymentPlanDto` += `PAY_ON_ARRIVAL`.
+- **`update-listing.dto.ts`** — `@IsOptional() @IsBoolean() payOnArrivalEnabled`;
+  flows through `updateHostListing`'s `...listingFields` spread (not a
+  reapproval-triggering field). `getPublicListingById` already returns all
+  Listing scalars, so the guest UI sees the flag.
+
+### Frontend
+
+- **`lib/types.ts`** — `PaymentPlan` += `PAY_ON_ARRIVAL`; `Listing.payOnArrivalEnabled`.
+- **`lib/api.ts`** — `bookingsApi.create` plan union widened;
+  `bookingsApi.collectOnArrival(id, method)`; `listingsApi.update` accepts
+  `payOnArrivalEnabled`.
+- **`host/listings/[id]/edit`** — "Accept pay-on-arrival" checkbox (loads from +
+  saves to the listing).
+- **`listings/[id]`** — booking-step plan card "🏡 Pay on arrival" shown only when
+  `listing.payOnArrivalEnabled`; `handleCreateBooking` routes `PAY_ON_ARRIVAL`
+  straight to `confirmed` (no Razorpay); `handleInitPayment` early-returns for it;
+  confirmation copy + "Reserve — pay at property" button label.
+- **`host/bookings`** — "On arrival" plan chip; "Mark paid" action
+  (→ `collectOnArrival`) on `PAY_ON_ARRIVAL` + `CONFIRMED_DEPOSIT` rows; CSV label.
+
+### Tests
+
+- `state-machine.spec.ts` +2 (`PAY_ON_ARRIVAL_RESERVED`; `BALANCE_PAID` for
+  pay-on-arrival). `booking.service.spec.ts` +4 (`collectOnArrival` guards:
+  non-POA, non-owner, idempotent already-paid, happy-path offline payment).
+  Full API suite **315/315**; api + web `tsc` clean; eslint clean.
+
+---
+
+## 2026-07-25 — Calendar: only confirmed bookings read as "booked"
+
+**Commit:** _pending_ · **Migration:** none
+
+- **`apps/api/src/listing/availability.service.ts`** — the single
+  `OCCUPIED_STATUSES` set (which included `PAYMENT_PENDING`) drove the `BOOKED`
+  state, so unconfirmed/held dates showed as booked. Split into:
+  - `CONFIRMED_STATUSES = [CONFIRMED_DEPOSIT, CONFIRMED_PAID, BALANCE_DUE,
+    CHECKED_IN]` → `BOOKED`.
+  - `PENDING_STATUSES = [PAYMENT_PENDING]` → folded into `HELD` alongside active
+    `Hold`s (transient, "on hold"; no `heldUntil` badge for a pending booking).
+  - `OCCUPIED_STATUSES = CONFIRMED ∪ PENDING` still drives the booking query,
+    turnover day-keys and the ICS busy feed, so overlap/no-double-book and
+    engine-parity are unchanged — only the rendered state differs.
+  The booking query now selects `status`; the fold filters into
+  `confirmedBookings` / `pendingBookings`; state precedence is
+  `PAST > BOOKED(confirmed) > BLOCKED > HELD(pending|hold) > AVAILABLE`, and
+  `isTurnover` is now `checkoutDays.has(day) && state === 'AVAILABLE'`.
+- No frontend change — `DayState` unchanged; the guest calendar already renders
+  `HELD` amber ("on hold") and `BOOKED` grey.
+- **Tests:** `availability.service.spec.ts` +2 (`PAYMENT_PENDING` → `HELD`;
+  `CONFIRMED_DEPOSIT` → `BOOKED`); existing booking mocks now carry `status`.
+  Full API suite **309/309**.
+
+---
+
 ## 2026-07-24 — Date holds: resume-on-return + own-hold fix
 
 **Commit:** _pending_ · **Migration:** none

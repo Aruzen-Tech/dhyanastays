@@ -53,6 +53,20 @@ export class BookingController {
   }
 
   /**
+   * Host records that the on-arrival payment was collected at the property,
+   * moving a pay-on-arrival booking to CONFIRMED_PAID.
+   */
+  @Roles(UserRole.HOST)
+  @Post(':id/collect-on-arrival')
+  collectOnArrival(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { method?: string },
+  ) {
+    return this.bookingService.collectOnArrival(user.sub, id, body?.method);
+  }
+
+  /**
    * Get booking details (guest sees own, admin sees all).
    */
   @Get(':id')

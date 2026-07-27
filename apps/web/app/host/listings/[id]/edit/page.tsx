@@ -32,6 +32,8 @@ export default function EditListingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  // Host opt-in: accept "reserve now, pay at the property" bookings.
+  const [payOnArrival, setPayOnArrival] = useState(false);
 
   // Discovery facets (§5.18)
   const [facetExperience, setFacetExperience] = useState<string[]>([]);
@@ -94,6 +96,7 @@ export default function EditListingPage() {
         setFacetExperience(found.experienceTags ?? []);
         setFacetPropertyType(found.propertyType ?? '');
         setFacetDietary(found.dietaryOptions ?? []);
+        setPayOnArrival(found.payOnArrivalEnabled ?? false);
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoadingListing(false));
@@ -133,6 +136,7 @@ export default function EditListingPage() {
         ...(form.maxGuests && { maxGuests: Number(form.maxGuests) }),
         ...(form.minNights && { minNights: Number(form.minNights) }),
         ...(form.cleaningFee !== '' && { cleaningFee: Math.round(Number(form.cleaningFee) * 100) }),
+        payOnArrivalEnabled: payOnArrival,
       });
       setSuccess(true);
     } catch (e: unknown) {
@@ -401,6 +405,23 @@ export default function EditListingPage() {
               </div>
             </div>
           </div>
+
+          {/* Pay on arrival opt-in */}
+          <label className="flex items-start gap-3 mt-5 p-3 rounded-xl border border-gray-200 cursor-pointer hover:border-brand-300">
+            <input
+              type="checkbox"
+              checked={payOnArrival}
+              onChange={(e) => setPayOnArrival(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-700 focus:ring-brand-700"
+            />
+            <span className="text-sm">
+              <span className="font-medium text-gray-900">Accept pay-on-arrival</span>
+              <span className="block text-xs text-gray-500 mt-0.5">
+                Guests can reserve now and pay the full amount at your property on
+                arrival — no online payment. You collect and mark it paid at check-in.
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="flex gap-3">

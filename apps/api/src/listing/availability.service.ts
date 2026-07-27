@@ -14,14 +14,25 @@ import { PrismaService } from '../prisma/prisma.service';
  * booking detail on top from their own endpoints.
  */
 
-// Same set as the confirm-time overlap query (+ CHECKED_IN, which also occupies).
-const OCCUPIED_STATUSES = [
+// A booking only reads as BOOKED once it is CONFIRMED (a deposit or the full
+// amount has been paid) — or the guest has checked in / a balance is due on a
+// confirmed stay. Until then it is not "booked".
+const CONFIRMED_STATUSES = [
   'CONFIRMED_DEPOSIT',
   'CONFIRMED_PAID',
   'BALANCE_DUE',
-  'PAYMENT_PENDING',
   'CHECKED_IN',
 ] as const;
+
+// PAYMENT_PENDING is a soft, unconfirmed reservation (payment not completed).
+// It occupies the dates for overlap purposes (so nobody can double-book) but is
+// shown as a transient HOLD, never as BOOKED — the same way a raw Hold is.
+const PENDING_STATUSES = ['PAYMENT_PENDING'] as const;
+
+// Everything that occupies a date for overlap/turnover. Matches the engine's
+// confirm-time overlap set, so the calendar never offers a date a booking would
+// reject; the STATE it renders (BOOKED vs HELD) is decided per-status below.
+const OCCUPIED_STATUSES = [...CONFIRMED_STATUSES, ...PENDING_STATUSES] as const;
 
 export type DayState = 'PAST' | 'AVAILABLE' | 'BOOKED' | 'HELD' | 'BLOCKED';
 
@@ -89,7 +100,7 @@ export class AvailabilityService {
           startsAt: { lt: to },
           endsAt: { gt: from },
         },
-        select: { startsAt: true, endsAt: true },
+        select: { startsAt: true, endsAt: true, status: true },
       }),
       this.prisma.hold.findMany({
         where: { listingId, expiresAt: { gt: now }, startsAt: { lt: to }, endsAt: { gt: from } },
@@ -105,7 +116,16 @@ export class AvailabilityService {
       }),
     ]);
 
-    // Pre-compute checkout (turnover) day-keys from bookings.
+    // Confirmed bookings are the only ones that read as BOOKED; pending ones are
+    // treated as transient holds.
+    const confirmedBookings = bookings.filter((b) =>
+      (CONFIRMED_STATUSES as readonly string[]).includes(b.status),
+    );
+    const pendingBookings = bookings.filter((b) =>
+      (PENDING_STATUSES as readonly string[]).includes(b.status),
+    );
+
+    // Pre-compute checkout (turnover) day-keys from ALL occupying bookings.
     const checkoutDays = new Set(bookings.map((b) => floorDay(b.endsAt)));
 
     const todayKey = floorDay(now);
@@ -120,18 +140,21 @@ export class AvailabilityService {
       const season = seasonal.find((s) => covers(s.startsAt, s.endsAt));
       const priceMinor = season?.nightlyRate ?? baseRate;
 
-      const booked = bookings.some((b) => covers(b.startsAt, b.endsAt));
+      const booked = confirmedBookings.some((b) => covers(b.startsAt, b.endsAt));
       const blocked = blocks.some((b) => covers(b.startsAt, b.endsAt));
       const activeHold = holds.find((h) => covers(h.startsAt, h.endsAt));
-      // Turnover: a booking checks out this morning and nothing (else) occupies it.
-      const isTurnover = checkoutDays.has(dnum) && !booked && !blocked;
+      // A pending-payment booking soft-holds the date until it confirms.
+      const pending = pendingBookings.some((b) => covers(b.startsAt, b.endsAt));
 
       let state: DayState;
       if (dnum < todayKey) state = 'PAST';
-      else if (booked) state = 'BOOKED';
+      else if (booked) state = 'BOOKED'; // confirmed only
       else if (blocked) state = 'BLOCKED';
-      else if (activeHold) state = 'HELD';
+      else if (pending || activeHold) state = 'HELD'; // transient — not yet booked
       else state = 'AVAILABLE';
+
+      // Turnover: a stay checks out this morning and the day is otherwise open.
+      const isTurnover = checkoutDays.has(dnum) && state === 'AVAILABLE';
 
       days.push({
         date: dayKey(day),

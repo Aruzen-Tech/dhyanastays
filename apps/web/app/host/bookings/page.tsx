@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
-import { formatDate, formatINR, hostAnalyticsApi } from '../../../lib/api';
+import { bookingsApi, formatDate, formatINR, hostAnalyticsApi } from '../../../lib/api';
 import { downloadCSV } from '../../../lib/csv-export';
 import type { HostBookingRow } from '../../../lib/types';
 
@@ -30,6 +30,7 @@ export default function HostBookingsPage() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [collectingId, setCollectingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isLoading && !user) router.push('/auth/login');
@@ -54,6 +55,19 @@ export default function HostBookingsPage() {
     loadBookings(1, statusFilter);
   }, [user, statusFilter]);
 
+  const handleCollect = async (bookingId: string) => {
+    setCollectingId(bookingId);
+    try {
+      await bookingsApi.collectOnArrival(bookingId);
+      setToast('Payment marked as collected');
+      loadBookings(page, statusFilter);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setCollectingId(null);
+    }
+  };
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
@@ -75,7 +89,12 @@ export default function HostBookingsPage() {
       State: b.listing.state,
       'Check-In': b.startsAt,
       'Check-Out': b.endsAt,
-      Plan: b.plan === 'FULL' ? 'Full' : 'Deposit',
+      Plan:
+        b.plan === 'FULL'
+          ? 'Full'
+          : b.plan === 'PAY_ON_ARRIVAL'
+            ? 'On arrival'
+            : 'Deposit',
       'Total (INR)': (b.priceSnapshot.total / 100).toFixed(2),
       Nights: b.priceSnapshot.nights,
       Guests: b.priceSnapshot.guests,
@@ -220,10 +239,16 @@ export default function HostBookingsPage() {
                         className={`text-xs font-medium px-2 py-0.5 rounded-full ${
                           b.plan === 'FULL'
                             ? 'bg-green-100 text-green-700'
-                            : 'bg-blue-100 text-blue-700'
+                            : b.plan === 'PAY_ON_ARRIVAL'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-blue-100 text-blue-700'
                         }`}
                       >
-                        {b.plan === 'FULL' ? 'Full' : 'Deposit'}
+                        {b.plan === 'FULL'
+                          ? 'Full'
+                          : b.plan === 'PAY_ON_ARRIVAL'
+                            ? 'On arrival'
+                            : 'Deposit'}
                       </span>
                     </td>
                     <td className="px-5 py-4 font-semibold text-brand-700 whitespace-nowrap">
@@ -233,12 +258,23 @@ export default function HostBookingsPage() {
                       <StatusBadge status={b.status} size="sm" />
                     </td>
                     <td className="px-5 py-4">
-                      <Link
-                        href={`/bookings/${b.id}`}
-                        className="btn-ghost text-xs text-brand-700 hover:underline"
-                      >
-                        View
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/bookings/${b.id}`}
+                          className="btn-ghost text-xs text-brand-700 hover:underline"
+                        >
+                          View
+                        </Link>
+                        {b.plan === 'PAY_ON_ARRIVAL' && b.status === 'CONFIRMED_DEPOSIT' && (
+                          <button
+                            onClick={() => handleCollect(b.id)}
+                            disabled={collectingId === b.id}
+                            className="text-xs font-medium text-white bg-brand-700 hover:bg-brand-800 rounded-full px-2.5 py-1 disabled:opacity-50"
+                          >
+                            {collectingId === b.id ? 'Saving…' : 'Mark paid'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

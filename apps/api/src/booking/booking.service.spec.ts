@@ -647,4 +647,96 @@ describe('BookingService', () => {
       ).rejects.toThrow('Cannot cancel booking in status: COMPLETED');
     });
   });
+
+  describe('collectOnArrival()', () => {
+    function makeService(prismaMock: any) {
+      return new BookingService(
+        prismaMock as any,
+        makePricingMock() as any,
+        makeAuditMock() as any,
+        makeLedgerMock() as any,
+        makeNotificationMock() as any,
+        makeOutboxMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn(), cancelBookingAddOns: jest.fn() } as any,
+        { awardPoints: jest.fn(), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue('sig') } as any,
+      );
+    }
+
+    const POA_BOOKING = {
+      id: 'poa-1',
+      plan: 'PAY_ON_ARRIVAL',
+      status: 'CONFIRMED_DEPOSIT',
+      priceSnapshot: SNAPSHOT,
+      listing: { hostId: 'host-1' },
+    };
+
+    it('rejects a booking that is not pay-on-arrival', async () => {
+      const prismaMock = {
+        booking: {
+          findUnique: jest.fn().mockResolvedValue({ ...POA_BOOKING, plan: 'FULL' }),
+        },
+        host: { findUnique: jest.fn() },
+      };
+      await expect(
+        makeService(prismaMock).collectOnArrival('host-user-1', 'poa-1'),
+      ).rejects.toThrow('Not a pay-on-arrival booking');
+    });
+
+    it('rejects when the caller is not the listing host', async () => {
+      const prismaMock = {
+        booking: { findUnique: jest.fn().mockResolvedValue(POA_BOOKING) },
+        host: { findUnique: jest.fn().mockResolvedValue({ id: 'host-999' }) },
+      };
+      await expect(
+        makeService(prismaMock).collectOnArrival('host-user-1', 'poa-1'),
+      ).rejects.toThrow('Not your booking');
+    });
+
+    it('is idempotent — an already-paid booking returns without a transaction', async () => {
+      const $transaction = jest.fn();
+      const prismaMock = {
+        booking: {
+          findUnique: jest.fn().mockResolvedValue({ ...POA_BOOKING, status: 'CONFIRMED_PAID' }),
+        },
+        host: { findUnique: jest.fn().mockResolvedValue({ id: 'host-1' }) },
+        $transaction,
+      };
+      const result = await makeService(prismaMock).collectOnArrival('host-user-1', 'poa-1');
+      expect(result.status).toBe('CONFIRMED_PAID');
+      expect($transaction).not.toHaveBeenCalled();
+    });
+
+    it('records the offline payment and moves the booking to CONFIRMED_PAID', async () => {
+      const txMock: any = {
+        payment: { create: jest.fn().mockResolvedValue({ id: 'pay-1' }) },
+        booking: {
+          update: jest.fn().mockImplementation(async (args: any) => ({
+            ...POA_BOOKING,
+            status: args.data.status,
+          })),
+        },
+      };
+      const prismaMock = {
+        booking: { findUnique: jest.fn().mockResolvedValue(POA_BOOKING) },
+        host: { findUnique: jest.fn().mockResolvedValue({ id: 'host-1' }) },
+        $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+      };
+      const result = await makeService(prismaMock).collectOnArrival('host-user-1', 'poa-1', 'CASH');
+      expect(result.status).toBe('CONFIRMED_PAID');
+      expect(txMock.payment.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            amount: SNAPSHOT.total,
+            type: 'PAY_ON_ARRIVAL',
+            status: 'CAPTURED',
+            gateway: 'offline',
+          }),
+        }),
+      );
+    });
+  });
 });

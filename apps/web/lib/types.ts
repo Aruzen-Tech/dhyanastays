@@ -197,6 +197,8 @@ export interface Listing {
   stayThemeId?: string | null;
   /** Stay Pass visual identity — palette.primary tints the booking calendar. */
   stayTheme?: { id: string; tokens: { palette?: { primary?: string } } } | null;
+  /** Host opt-in: guests may reserve now and pay the full amount at the property. */
+  payOnArrivalEnabled?: boolean;
 }
 
 // ─── Pricing ─────────────────────────────────────────────────────────────────
@@ -371,7 +373,7 @@ export type BookingStatus =
   | 'REFUNDED'
   | 'COMPLETED';
 
-export type PaymentPlan = 'FULL' | 'DEPOSIT_50' | 'PAY_LATER';
+export type PaymentPlan = 'FULL' | 'DEPOSIT_50' | 'PAY_LATER' | 'PAY_ON_ARRIVAL';
 
 export interface Booking {
   id: string;
