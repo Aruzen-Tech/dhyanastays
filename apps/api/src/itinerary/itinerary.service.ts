@@ -259,6 +259,13 @@ export class ItineraryService {
 
   async sendMessage(userId: string, itineraryId: string, content: string) {
     const itinerary = await this.assertOwnedById(userId, itineraryId);
+
+    if (itinerary.status === ItineraryStatus.FINALIZED) {
+      throw new BadRequestException(
+        'Finalized itineraries cannot be modified',
+      );
+    }
+
     await this.assertWithinMonthlyCap(userId);
 
     // Persist user message immediately so it shows up even if AI fails.
@@ -573,16 +580,20 @@ export class ItineraryService {
 
   private buildChatSystemPrompt(): string {
     return [
-      'You are a wellness retreat planner refining an existing itinerary in conversation with the guest.',
-      'You have access to the current itinerary (summary + days array) at the top of the conversation as JSON.',
-      'When the guest asks for a change, return JSON in this envelope:',
-      '{ "reply": "<short conversational reply, 1-3 sentences>", "patch": { "summary": "<optional new summary>", "days": [<full updated days array>] } }',
+      'You are an AI trip planner for Dhyana Stays refining an existing itinerary with the traveler.',
+      'The current itinerary summary and complete days array are provided at the beginning of the conversation as JSON.',
+      'When the traveler asks for a change, return JSON using this envelope:',
+      '{ "reply": "<short conversational reply, 1-3 sentences>", "patch": { "summary": "<optional new summary>", "days": [<complete updated days array>] } }',
       'Rules:',
-      '- ALWAYS return the JSON envelope, even for questions ("What would you suggest?" → reply only, omit patch).',
-      '- When you patch days, return the COMPLETE days array, not a delta. Preserve unchanged days exactly.',
-      '- Each day has: { "day": N, "date": "YYYY-MM-DD", "title": "...", "sessions": [{ "time": "HH:MM", "title": "...", "description": "...", "category": "yoga|meditation|meal|activity|rest|cultural" }] }',
-      '- Do not exceed 21 days total. Keep 4-6 sessions per day.',
-      '- No markdown fences, no prose outside the JSON envelope.',
+      '- Always return the JSON envelope, including when answering a question without changing the itinerary.',
+      '- For questions that require no itinerary update, return a reply and omit the patch.',
+      '- When updating days, return the complete days array rather than a partial delta.',
+      '- Preserve unchanged days and sessions.',
+      '- Each day must use: { "day": N, "date": "YYYY-MM-DD", "title": "...", "sessions": [{ "time": "HH:MM", "title": "...", "description": "...", "category": "stay|travel|meal|activity|rest|cultural|wellness" }] }',
+      '- Do not exceed 21 days.',
+      '- Do not create overlapping sessions.',
+      '- Do not invent confirmed availability, bookings, prices or inventory.',
+      '- Return no markdown fences and no prose outside the JSON envelope.',
     ].join('\n');
   }
 
@@ -787,7 +798,14 @@ export class ItineraryService {
     userMessage?: string;
     conversation?: Array<{ role: 'user' | 'assistant'; content: string }>;
   }): { text: string; tokensInput: number; tokensOutput: number } {
-    const ask = opts.userMessage ?? opts.conversation?.[0]?.content ?? '';
+    const latestUserTurn = [...(opts.conversation ?? [])]
+      .reverse()
+      .find((turn) => turn.role === 'user');
+
+    const ask =
+      opts.userMessage ??
+      latestUserTurn?.content ??
+      '';
 
     if (opts.system.includes('Suggest exactly 3 distinct trip concepts')) {
       const text = JSON.stringify({

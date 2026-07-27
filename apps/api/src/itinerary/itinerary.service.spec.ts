@@ -1,11 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ItineraryStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SuggestItineraryDto } from './dto/suggest-itinerary.dto';
 import { ItineraryGroundingService } from './itinerary-grounding.service';
 import { ItineraryService } from './itinerary.service';
 
 describe('ItineraryService suggestions', () => {
+  const itineraryFindUnique = jest.fn();
   const usageFindUnique = jest.fn();
   const usageUpsert = jest.fn();
 
@@ -18,6 +20,9 @@ describe('ItineraryService suggestions', () => {
     usageUpsert.mockResolvedValue({});
 
     const prisma = {
+      itinerary: {
+        findUnique: itineraryFindUnique,
+      },
       itineraryUsage: {
         findUnique: usageFindUnique,
         upsert: usageUpsert,
@@ -90,5 +95,74 @@ describe('ItineraryService suggestions', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(usageUpsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects chat changes to a finalized itinerary', async () => {
+    itineraryFindUnique.mockResolvedValue({
+      id: 'itinerary-1',
+      userId: 'user-1',
+      status: ItineraryStatus.FINALIZED,
+      summary: 'Final trip',
+      days: [],
+      destination: 'Bengaluru',
+      messages: [],
+    });
+
+    await expect(
+      service.sendMessage(
+        'user-1',
+        'itinerary-1',
+        'Make the second day more relaxed',
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(usageFindUnique).not.toHaveBeenCalled();
+  });
+
+  it('uses the latest traveler message in the development chat stub', () => {
+    const stubService = service as unknown as {
+      devStubResponse: (options: {
+        system: string;
+        conversation: Array<{
+          role: 'user' | 'assistant';
+          content: string;
+        }>;
+      }) => {
+        text: string;
+        tokensInput: number;
+        tokensOutput: number;
+      };
+    };
+
+    const result = stubService.devStubResponse({
+      system:
+        'You are an AI trip planner refining an existing itinerary.',
+      conversation: [
+        {
+          role: 'user',
+          content: '[Current itinerary state]',
+        },
+        {
+          role: 'assistant',
+          content: 'How would you like to update it?',
+        },
+        {
+          role: 'user',
+          content: 'Make day two more relaxed',
+        },
+      ],
+    });
+
+    const parsed = JSON.parse(result.text) as {
+      reply: string;
+    };
+
+    expect(parsed.reply).toContain(
+      'Make day two more relaxed',
+    );
+
+    expect(parsed.reply).not.toContain(
+      '[Current itinerary state]',
+    );
   });
 });
