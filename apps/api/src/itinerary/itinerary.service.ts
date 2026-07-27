@@ -414,6 +414,21 @@ export class ItineraryService {
     if (endsAt.getTime() <= startsAt.getTime()) {
       throw new BadRequestException('endsAt must be after startsAt');
     }
+
+    const today = new Date();
+
+    today.setUTCHours(0, 0, 0, 0);
+
+    const tripStartDay = new Date(startsAt);
+
+    tripStartDay.setUTCHours(0, 0, 0, 0);
+
+    if (tripStartDay.getTime() < today.getTime()) {
+      throw new BadRequestException(
+        'Trip start date cannot be in the past',
+      );
+    }
+
     const days = this.daysBetween(startsAtIso, endsAtIso);
     if (days > MAX_DAYS) {
       throw new BadRequestException(`Itinerary limited to ${MAX_DAYS} days`);

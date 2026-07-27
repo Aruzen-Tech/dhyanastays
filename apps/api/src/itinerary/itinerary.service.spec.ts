@@ -107,6 +107,20 @@ describe('ItineraryService suggestions', () => {
     expect(usageUpsert).not.toHaveBeenCalled();
   });
 
+  it('rejects a trip starting in the past', async () => {
+    await expect(
+      service.suggestConcepts('user-1', {
+        ...validDto,
+        startsAt: '2020-01-10T00:00:00.000Z',
+        endsAt: '2020-01-13T00:00:00.000Z',
+      }),
+    ).rejects.toThrow(
+      'Trip start date cannot be in the past',
+    );
+
+    expect(usageUpsert).not.toHaveBeenCalled();
+  });
+
   it('rejects chat changes to a finalized itinerary', async () => {
     itineraryFindUnique.mockResolvedValue({
       id: 'itinerary-1',
