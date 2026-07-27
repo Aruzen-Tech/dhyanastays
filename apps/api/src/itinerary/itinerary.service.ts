@@ -154,12 +154,12 @@ export class ItineraryService {
     userId: string,
     dto: SuggestItineraryDto,
   ): Promise<{ suggestions: ItinerarySuggestion[] }> {
-    const days = this.daysBetween(dto.startsAt, dto.endsAt);
+    const days = this.validateDateRange(dto.startsAt, dto.endsAt);
     await this.assertWithinMonthlyCap(userId);
 
     const prompt = this.buildSuggestionsPrompt(dto, days);
     const system =
-      'You are a wellness retreat planner. Return ONLY valid JSON: { "suggestions": [{"key":"slug","title":"...","theme":"...","summary":"..."}, ...] }. Provide exactly 3 distinct concepts. No prose, no markdown fences.';
+      'You are an AI trip planner for Dhyana Stays. Suggest exactly 3 distinct trip concepts. Return ONLY valid JSON: { "suggestions": [{"key":"slug","title":"...","theme":"...","summary":"..."}, ...] }. No prose and no markdown fences.';
 
     const result = await this.callAnthropic({
       system,
@@ -469,21 +469,35 @@ export class ItineraryService {
     dto: SuggestItineraryDto,
     days: number,
   ): string {
-    const interests = dto.interests?.join(', ') || 'wellness, yoga, meditation';
-    const budget = dto.budgetMinor
-      ? `₹${Math.round(dto.budgetMinor / 100)} per person`
-      : 'flexible';
+    const interests =
+      dto.interests?.join(', ') ||
+      'local experiences, food, culture and sightseeing';
+
+    const budget =
+      dto.budgetMinor !== undefined
+        ? `₹${Math.round(dto.budgetMinor / 100)}`
+        : 'flexible';
+
     return [
-      `Suggest 3 distinct concept variations for a ${days}-day wellness retreat in ${dto.destination} for ${dto.travelers} traveler(s).`,
-      `Interests: ${interests}. Budget: ${budget}.`,
-      ``,
-      `Each concept should have a clear theme. Examples:`,
-      `- "Detox & Reset" focused on cleansing diet, gentle yoga, silent walks`,
-      `- "Adventure & Wellness" mixing hikes/water sports with evening yoga`,
-      `- "Cultural Immersion" with local temples, cooking classes, sound healing`,
-      ``,
-      `Return JSON: { "suggestions": [{"key":"detox-reset","title":"Detox & Reset","theme":"detox","summary":"<2 sentences>"}, ...] }`,
-      `Exactly 3 entries. Keys are short kebab-case slugs. Summaries 1-2 sentences each.`,
+      `Suggest exactly 3 distinct trip concepts for a ${days}-day visit to ${dto.destination} for ${dto.travelers} traveler(s).`,
+      `Interests: ${interests}. Total trip budget: ${budget}.`,
+      '',
+      `Each concept must have a clearly different travel style.`,
+      `Possible styles include culture, food, nature, adventure, relaxation, family travel, local exploration or a balanced trip.`,
+      '',
+      `Return JSON using this exact shape:`,
+      `{`,
+      `  "suggestions": [`,
+      `    {`,
+      `      "key": "<short-kebab-case-key>",`,
+      `      "title": "<concept title>",`,
+      `      "theme": "<short theme>",`,
+      `      "summary": "<1-2 sentence explanation>"`,
+      `    }`,
+      `  ]`,
+      `}`,
+      '',
+      `Return exactly 3 entries.`,
     ].join('\n');
   }
 
@@ -775,29 +789,29 @@ export class ItineraryService {
   }): { text: string; tokensInput: number; tokensOutput: number } {
     const ask = opts.userMessage ?? opts.conversation?.[0]?.content ?? '';
 
-    if (opts.system.includes('Suggest 3 distinct concept')) {
+    if (opts.system.includes('Suggest exactly 3 distinct trip concepts')) {
       const text = JSON.stringify({
         suggestions: [
           {
-            key: 'detox-reset',
-            title: 'Detox & Reset',
-            theme: 'detox',
+            key: 'culture-and-cuisine',
+            title: 'Culture & Cuisine',
+            theme: 'cultural-food',
             summary:
-              'A grounding week of cleansing meals, gentle hatha and silent walks. For first-timers and post-burnout resets.',
+              'Explore local landmarks, neighbourhoods and regional food through a relaxed, culture-focused itinerary.',
           },
           {
-            key: 'practice-deepening',
-            title: 'Practice Deepening',
-            theme: 'yoga-intensive',
+            key: 'nature-and-adventure',
+            title: 'Nature & Adventure',
+            theme: 'nature-adventure',
             summary:
-              'Two yoga sessions a day with pranayama and meditation circles. Best for intermediate practitioners ready to go deeper.',
+              'Combine outdoor activities, scenic locations and active experiences with enough time to rest.',
           },
           {
-            key: 'cultural-immersion',
-            title: 'Cultural Immersion',
-            theme: 'cultural',
+            key: 'balanced-local-escape',
+            title: 'Balanced Local Escape',
+            theme: 'balanced',
             summary:
-              'Yoga balanced with local temples, cooking classes and evening kirtan. For travellers who want context with their wellness.',
+              'A balanced trip mixing popular attractions, local experiences, good food and flexible free time.',
           },
         ],
       });
