@@ -20,6 +20,10 @@ import { ItineraryStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { GenerateItineraryDto } from './dto/generate-itinerary.dto';
 import { SuggestItineraryDto } from './dto/suggest-itinerary.dto';
+import {
+  ItineraryGroundingContext,
+  ItineraryGroundingService,
+} from './itinerary-grounding.service';
 
 interface ItinerarySession {
   time: string;
@@ -91,6 +95,7 @@ export class ItineraryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly groundingService: ItineraryGroundingService,
   ) {
     this.apiKey = this.config.get<string>('ANTHROPIC_API_KEY', '') ?? '';
     this.isProduction = this.config.get<string>('NODE_ENV') === 'production';
@@ -200,15 +205,12 @@ export class ItineraryService {
     const days = this.validateDateRange(dto.startsAt, dto.endsAt);
     await this.assertWithinMonthlyCap(userId);
 
-    if (dto.listingId) {
-      const listing = await this.prisma.listing.findUnique({
-        where: { id: dto.listingId },
-        select: { id: true },
-      });
-      if (!listing) throw new NotFoundException('Listing not found');
-    }
+    const groundingContext = await this.groundingService.buildContext(
+      userId,
+      dto,
+    );
 
-    const result = await this.callLLMForPlan(dto, days);
+    const result = await this.callLLMForPlan(dto, days, groundingContext);
     if (!result) {
       throw new ServiceUnavailableException(
         'Itinerary AI is unavailable — please try again in a minute.',
@@ -485,32 +487,71 @@ export class ItineraryService {
     ].join('\n');
   }
 
-  private buildPlanPrompt(dto: GenerateItineraryDto, days: number): string {
-    const interests = dto.interests?.join(', ') || 'wellness, yoga, meditation';
-    const budget = dto.budgetMinor
-      ? `₹${Math.round(dto.budgetMinor / 100)} per person`
-      : 'flexible';
+  private buildPlanPrompt(
+    dto: GenerateItineraryDto,
+    days: number,
+    grounding: ItineraryGroundingContext,
+  ): string {
+    const interests =
+      dto.interests?.join(', ') || 'local experiences, food and sightseeing';
+
+    const budget =
+      dto.budgetMinor !== undefined
+        ? `₹${Math.round(dto.budgetMinor / 100)}`
+        : 'flexible';
+
     const themeLine = dto.themeHint
-      ? `Concept theme: ${dto.themeHint}.`
+      ? `Preferred trip theme: ${dto.themeHint}.`
       : '';
+
+    const verifiedInventory = JSON.stringify(
+      {
+        stays: grounding.stays,
+        experiences: grounding.experiences,
+      },
+      null,
+      2,
+    );
+
     return [
-      `Plan a ${days}-day wellness retreat itinerary for ${dto.travelers} traveler(s) in ${dto.destination}.`,
+      `Plan a ${days}-day trip itinerary for ${dto.travelers} traveler(s) in ${dto.destination}.`,
       `Interests: ${interests}. Budget: ${budget}.`,
       themeLine,
       `Dates: ${dto.startsAt} to ${dto.endsAt}.`,
-      ``,
+      '',
+      `Verified Dhyana Stays inventory:`,
+      verifiedInventory,
+      '',
+      `Grounding rules:`,
+      `- Only stays and experiences listed in the verified inventory may be described as available or bookable.`,
+      `- Never invent listing IDs, experience IDs, availability, prices or seat counts.`,
+      `- Prefer verified Dhyana Stays inventory when it matches the traveller's preferences.`,
+      `- If no verified stay is provided, do not claim that any specific accommodation is available.`,
+      `- If no verified experience is provided, suggest only general activities without claiming live availability or confirmed pricing.`,
+      `- Keep the itinerary within the traveller's budget where reasonably possible.`,
+      `- Do not create overlapping sessions.`,
+      '',
       `Return JSON with this exact shape:`,
       `{`,
       `  "summary": "<2-3 sentence overview>",`,
       `  "days": [`,
-      `    { "day": 1, "date": "YYYY-MM-DD", "title": "<day theme>",`,
+      `    {`,
+      `      "day": 1,`,
+      `      "date": "YYYY-MM-DD",`,
+      `      "title": "<day theme>",`,
       `      "sessions": [`,
-      `        { "time": "07:00", "title": "<name>", "description": "<details>", "category": "yoga|meditation|meal|activity|rest|cultural" }`,
-      `      ] }`,
+      `        {`,
+      `          "time": "HH:MM",`,
+      `          "title": "<session name>",`,
+      `          "description": "<details>",`,
+      `          "category": "stay|travel|meal|activity|rest|cultural|wellness"`,
+      `        }`,
+      `      ]`,
+      `    }`,
       `  ]`,
       `}`,
-      ``,
-      `Include 4-6 sessions per day covering morning practice, meals, main activity, afternoon session, evening practice.`,
+      '',
+      `Include a practical sequence of sessions covering travel, meals, activities and rest.`,
     ]
       .filter(Boolean)
       .join('\n');
@@ -689,12 +730,13 @@ export class ItineraryService {
   private async callLLMForPlan(
     dto: GenerateItineraryDto,
     days: number,
+    grounding: ItineraryGroundingContext,
   ): Promise<{ plan: ItineraryPlan; tokensInput: number; tokensOutput: number } | null> {
     const system =
-      'You are a wellness retreat planner. Return ONLY valid JSON matching the requested schema. No prose, no markdown fences.';
+      'You are an AI trip planner for Dhyana Stays. Use verified backend inventory as the source of truth. Return ONLY valid JSON matching the requested schema. No prose and no markdown fences.';
     const result = await this.callAnthropic({
       system,
-      userMessage: this.buildPlanPrompt(dto, days),
+      userMessage: this.buildPlanPrompt(dto, days, grounding),
       maxTokens: 4096,
     });
     if (!result) return null;
