@@ -82,6 +82,17 @@ const ANTHROPIC_API_VERSION = '2023-06-01';
 const ANTHROPIC_TIMEOUT_MS = 30_000;
 
 const MAX_DAYS = 21;
+const ITINERARY_CATEGORIES = new Set([
+  'stay',
+  'travel',
+  'meal',
+  'activity',
+  'rest',
+  'cultural',
+  'wellness',
+]);
+
+const SESSION_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const MAX_CHAT_HISTORY = 20;
 
 @Injectable()
@@ -640,6 +651,126 @@ export class ItineraryService {
       .filter((d) => d.date.length > 0 && d.title.length > 0);
   }
 
+  private normalizeGeneratedPlan(
+    plan: ItineraryPlan,
+    dto: GenerateItineraryDto,
+    expectedDayCount: number,
+  ): ItineraryPlan | null {
+    if (
+      typeof plan.summary !== 'string' ||
+      plan.summary.trim().length === 0
+    ) {
+      this.logger.error('Generated itinerary has no valid summary');
+      return null;
+    }
+
+    if (!Array.isArray(plan.days)) {
+      this.logger.error('Generated itinerary has no days array');
+      return null;
+    }
+
+    const sanitizedDays = this.sanitizeDays(plan.days);
+
+    if (sanitizedDays.length !== expectedDayCount) {
+      this.logger.error(
+        `Generated itinerary returned ${sanitizedDays.length} days; expected ${expectedDayCount}`,
+      );
+      return null;
+    }
+
+    const tripStart = new Date(dto.startsAt);
+
+    const expectedDates = Array.from(
+      { length: expectedDayCount },
+      (_, index) => {
+        const date = new Date(tripStart);
+        date.setUTCDate(date.getUTCDate() + index);
+        return date.toISOString().slice(0, 10);
+      },
+    );
+
+    const normalizedDays: ItineraryDay[] = [];
+
+    for (let index = 0; index < sanitizedDays.length; index += 1) {
+      const day = sanitizedDays[index];
+
+      if (day.date !== expectedDates[index]) {
+        this.logger.error(
+          `Generated itinerary day ${index + 1} has date ${day.date}; expected ${expectedDates[index]}`,
+        );
+        return null;
+      }
+
+      if (day.sessions.length === 0) {
+        this.logger.error(
+          `Generated itinerary day ${index + 1} has no sessions`,
+        );
+        return null;
+      }
+
+      let previousTime = '';
+
+      const sessions: ItinerarySession[] = [];
+
+      for (const session of day.sessions) {
+        const time = session.time.slice(0, 5);
+
+        if (!SESSION_TIME_PATTERN.test(time)) {
+          this.logger.error(
+            `Generated itinerary contains invalid session time: ${session.time}`,
+          );
+          return null;
+        }
+
+        if (previousTime && time <= previousTime) {
+          this.logger.error(
+            `Generated itinerary sessions are duplicated or unordered on day ${index + 1}`,
+          );
+          return null;
+        }
+
+        if (!session.title.trim()) {
+          this.logger.error(
+            `Generated itinerary contains an empty session title on day ${index + 1}`,
+          );
+          return null;
+        }
+
+        const category = session.category
+          .trim()
+          .toLowerCase();
+
+        if (!ITINERARY_CATEGORIES.has(category)) {
+          this.logger.error(
+            `Generated itinerary contains unsupported category: ${session.category}`,
+          );
+          return null;
+        }
+
+        sessions.push({
+          time,
+          title: session.title.trim(),
+          description: session.description.trim(),
+          category,
+        });
+
+        previousTime = time;
+      }
+
+      normalizedDays.push({
+        day: index + 1,
+        date: expectedDates[index],
+        title: day.title.trim(),
+        sessions,
+      });
+    }
+
+    return {
+      summary: plan.summary.trim().slice(0, 1000),
+      days: normalizedDays,
+    };
+  }
+
   // ── LLM call (with retry, prompt caching, no stub fallback in prod) ────────
 
   /**
@@ -767,12 +898,27 @@ export class ItineraryService {
     if (!result) return null;
 
     const parsed = this.safeParse<ItineraryPlan>(result.text);
-    if (!parsed?.days || !Array.isArray(parsed.days)) {
-      this.logger.error('LLM returned non-conforming JSON for plan');
+
+    if (!parsed) {
+      this.logger.error('LLM returned invalid JSON for plan');
       return null;
     }
+
+    const normalizedPlan = this.normalizeGeneratedPlan(
+      parsed,
+      dto,
+      days,
+    );
+
+    if (!normalizedPlan) {
+      this.logger.error(
+        'LLM returned a structurally invalid itinerary plan',
+      );
+      return null;
+    }
+
     return {
-      plan: parsed,
+      plan: normalizedPlan,
       tokensInput: result.tokensInput,
       tokensOutput: result.tokensOutput,
     };
@@ -843,38 +989,101 @@ export class ItineraryService {
       return { text, tokensInput: 50, tokensOutput: 60 };
     }
 
-    // Fallback for plan generation — match shape of generate output.
-    const days: ItineraryDay[] = [
-      {
-        day: 1,
-        date: new Date().toISOString().slice(0, 10),
-        title: 'Arrival & Grounding',
-        sessions: [
-          {
-            time: '07:00',
-            title: 'Sunrise Hatha',
-            description: 'Gentle hatha and pranayama.',
-            category: 'yoga',
-          },
-          {
-            time: '09:00',
-            title: 'Sattvic Breakfast',
-            description: 'Local seasonal produce.',
-            category: 'meal',
-          },
-          {
-            time: '17:00',
-            title: 'Meditation Circle',
-            description: 'Guided vipassana.',
-            category: 'meditation',
-          },
-        ],
+    // Fallback for plan generation — produce a structurally valid local plan.
+    const dayCountMatch = ask.match(
+      /Plan a (\d+)-day trip itinerary/i,
+    );
+
+    const dateRangeMatch = ask.match(
+      /Dates:\s*(\S+)\s+to\s+(\S+)\./i,
+    );
+
+    const requestedDayCount = Number(
+      dayCountMatch?.[1] ?? 1,
+    );
+
+    const dayCount = Math.max(
+      1,
+      Math.min(MAX_DAYS, requestedDayCount),
+    );
+
+    const parsedStartDate = dateRangeMatch?.[1]
+      ? new Date(dateRangeMatch[1])
+      : new Date();
+
+    const startDate = Number.isNaN(
+      parsedStartDate.getTime(),
+    )
+      ? new Date()
+      : parsedStartDate;
+
+    const days: ItineraryDay[] = Array.from(
+      { length: dayCount },
+      (_, index) => {
+        const date = new Date(startDate);
+
+        date.setUTCDate(
+          date.getUTCDate() + index,
+        );
+
+        return {
+          day: index + 1,
+          date: date.toISOString().slice(0, 10),
+          title:
+            index === 0
+              ? 'Arrival & Local Exploration'
+              : `Explore & Experience — Day ${index + 1}`,
+          sessions: [
+            {
+              time: '08:00',
+              title: 'Breakfast & Day Planning',
+              description:
+                'Start the day with breakfast and review the planned activities.',
+              category: 'meal',
+            },
+            {
+              time: '10:00',
+              title: 'Local Exploration',
+              description:
+                'Explore a notable local area based on the selected trip interests.',
+              category: 'activity',
+            },
+            {
+              time: '13:00',
+              title: 'Regional Lunch',
+              description:
+                'Enjoy a relaxed lunch featuring local cuisine.',
+              category: 'meal',
+            },
+            {
+              time: '16:00',
+              title: 'Flexible Experience',
+              description:
+                'Use this time for a verified experience, sightseeing or rest.',
+              category: 'cultural',
+            },
+            {
+              time: '19:00',
+              title: 'Dinner & Relaxation',
+              description:
+                'Finish the day with dinner and sufficient rest.',
+              category: 'rest',
+            },
+          ],
+        };
       },
-    ];
+    );
+
     const text = JSON.stringify({
-      summary: '(dev stub) Set ANTHROPIC_API_KEY for real plans.',
+      summary:
+        '(dev stub) A balanced local itinerary generated without calling the external AI provider.',
       days,
     });
-    return { text, tokensInput: 300, tokensOutput: 400 };
+
+    return {
+      text,
+      tokensInput: 300,
+      tokensOutput: 400,
+    };
   }
 }
