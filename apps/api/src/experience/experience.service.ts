@@ -12,6 +12,7 @@ import {
 } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { withSerializableRetry } from '../common/services/serializable-retry';
 import { NotificationService } from '../notification/notification.service';
 import { CreateExperienceDto } from './dto/create-experience.dto';
 import { UpdateExperienceDto } from './dto/update-experience.dto';
@@ -96,27 +97,51 @@ export class ExperienceService {
         dto.endsAt ?? experience.endsAt.toISOString(),
       );
     }
-    const updated = await this.prisma.experience.update({
-      where: { id },
-      data: {
-        ...(dto.title !== undefined && { title: dto.title }),
-        ...(dto.description !== undefined && { description: dto.description }),
-        ...(dto.category !== undefined && { category: dto.category }),
-        ...(dto.city !== undefined && { city: dto.city }),
-        ...(dto.state !== undefined && { state: dto.state }),
-        ...(dto.country !== undefined && { country: dto.country }),
-        ...(dto.latitude !== undefined && { latitude: dto.latitude }),
-        ...(dto.longitude !== undefined && { longitude: dto.longitude }),
-        ...(dto.startsAt && { startsAt: new Date(dto.startsAt) }),
-        ...(dto.endsAt && { endsAt: new Date(dto.endsAt) }),
-        ...(dto.capacity !== undefined && { capacity: dto.capacity }),
-        ...(dto.priceMinor !== undefined && { priceMinor: dto.priceMinor }),
-        ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
-        // Edits to approved experience require re-review
-        ...(experience.status === ExperienceStatus.APPROVED && {
-          status: ExperienceStatus.PENDING_APPROVAL,
-        }),
-      },
+
+    const data: Prisma.ExperienceUpdateInput = {
+      ...(dto.title !== undefined && { title: dto.title }),
+      ...(dto.description !== undefined && { description: dto.description }),
+      ...(dto.category !== undefined && { category: dto.category }),
+      ...(dto.city !== undefined && { city: dto.city }),
+      ...(dto.state !== undefined && { state: dto.state }),
+      ...(dto.country !== undefined && { country: dto.country }),
+      ...(dto.latitude !== undefined && { latitude: dto.latitude }),
+      ...(dto.longitude !== undefined && { longitude: dto.longitude }),
+      ...(dto.startsAt && { startsAt: new Date(dto.startsAt) }),
+      ...(dto.endsAt && { endsAt: new Date(dto.endsAt) }),
+      ...(dto.capacity !== undefined && { capacity: dto.capacity }),
+      ...(dto.priceMinor !== undefined && { priceMinor: dto.priceMinor }),
+      ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
+      // Edits to approved experience require re-review
+      ...(experience.status === ExperienceStatus.APPROVED && {
+        status: ExperienceStatus.PENDING_APPROVAL,
+      }),
+    };
+
+    if (dto.capacity === undefined) {
+      // No capacity change — plain update, no locking needed (nothing about
+      // the seats-sold invariant is being touched).
+      const updated = await this.prisma.experience.update({ where: { id }, data });
+      await this.writeAudit(userId, 'EXPERIENCE_UPDATE', 'experience', id, {});
+      return updated;
+    }
+
+    // Capacity is changing — must be race-safe against a concurrent
+    // bookExperience() call, which takes the same FOR UPDATE lock on this
+    // row before checking/consuming seats. Whichever transaction acquires
+    // the lock first is evaluated against the true committed state; the
+    // other then sees that committed result before making its own decision.
+    const newCapacity = dto.capacity;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updated = await withSerializableRetry(this.prisma as any, async (tx) => {
+      await tx.$executeRaw`SELECT id FROM "Experience" WHERE id = ${id} FOR UPDATE`;
+      const seatsSold = await this.countSeatsSold(id, tx);
+      if (newCapacity < seatsSold) {
+        throw new BadRequestException(
+          `Capacity cannot be reduced below ${seatsSold} seat(s) already booked`,
+        );
+      }
+      return tx.experience.update({ where: { id }, data });
     });
     await this.writeAudit(userId, 'EXPERIENCE_UPDATE', 'experience', id, {});
     return updated;
@@ -191,32 +216,32 @@ export class ExperienceService {
     });
     if (existing) return existing;
 
-    const experience = await this.prisma.experience.findUnique({ where: { id } });
-    if (!experience || experience.status !== ExperienceStatus.APPROVED) {
-      throw new NotFoundException('Experience not found');
-    }
-    if (experience.startsAt.getTime() < Date.now()) {
-      throw new BadRequestException('Experience has already started');
-    }
+    // Capacity check + booking insert must be atomic against a concurrent
+    // booking (or a concurrent host capacity edit — see updateHostExperience)
+    // for the same experience: reading "seats available" and inserting the
+    // new booking have to happen as one indivisible step, otherwise two
+    // requests can each see room and both commit, overselling the
+    // experience. Locking the Experience row first — and re-reading all
+    // state only after the lock is held — closes that gap.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return withSerializableRetry(this.prisma as any, async (tx) => {
+      await tx.$executeRaw`SELECT id FROM "Experience" WHERE id = ${id} FOR UPDATE`;
 
-    return this.prisma.$transaction(async (tx) => {
-      const confirmed = await tx.experienceBooking.aggregate({
-        where: {
-          experienceId: id,
-          status: { in: [
-            ExperienceBookingStatus.HELD,
-            ExperienceBookingStatus.CONFIRMED,
-            ExperienceBookingStatus.COMPLETED,
-          ] },
-        },
-        _sum: { seats: true },
-      });
-      const used = confirmed._sum.seats ?? 0;
+      const experience = await tx.experience.findUnique({ where: { id } });
+      if (!experience || experience.status !== ExperienceStatus.APPROVED) {
+        throw new NotFoundException('Experience not found');
+      }
+      if (experience.startsAt.getTime() < Date.now()) {
+        throw new BadRequestException('Experience has already started');
+      }
+
+      const used = await this.countSeatsSold(id, tx);
       if (used + dto.seats > experience.capacity) {
         throw new BadRequestException('Not enough seats available');
       }
+
       const totalMinor = experience.priceMinor * dto.seats;
-      const booking = await tx.experienceBooking.create({
+      return tx.experienceBooking.create({
         data: {
           experienceId: id,
           guestId: userId,
@@ -227,7 +252,6 @@ export class ExperienceService {
           idempotencyKey,
         },
       });
-      return booking;
     });
   }
 
@@ -343,8 +367,14 @@ export class ExperienceService {
     }
   }
 
-  private async countSeatsSold(experienceId: string) {
-    const agg = await this.prisma.experienceBooking.aggregate({
+  private async countSeatsSold(
+    experienceId: string,
+    // Defaults to the plain client for read-only callers (e.g.
+    // getPublicExperience); locked callers pass their transaction client so
+    // the count is read under the same FOR UPDATE lock they're holding.
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ) {
+    const agg = await client.experienceBooking.aggregate({
       where: {
         experienceId,
         status: { in: [
