@@ -1,50 +1,16 @@
-import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
-  IsArray,
-  IsDateString,
-  IsInt,
   IsOptional,
   IsString,
-  Max,
   MaxLength,
-  Min,
 } from 'class-validator';
+import { ItineraryPreferencesDto } from './itinerary-preferences.dto';
 
-export class GenerateItineraryDto {
-  @IsString()
-  @MaxLength(120)
-  destination!: string;
-
-  @IsDateString()
-  startsAt!: string;
-
-  @IsDateString()
-  endsAt!: string;
-
-  @IsInt()
-  @Min(1)
-  @Max(20)
-  @Type(() => Number)
-  travelers!: number;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(20)
-  @IsString({ each: true })
-  interests?: string[];
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Type(() => Number)
-  budgetMinor?: number;
-
+export class GenerateItineraryDto extends ItineraryPreferencesDto {
   @IsOptional()
   @IsString()
   listingId?: string;
 
-  /** Stable concept key selected from itinerary suggestions, e.g. "culture-and-cuisine". */
+  /** Stable concept key selected from itinerary suggestions. */
   @IsOptional()
   @IsString()
   @MaxLength(160)

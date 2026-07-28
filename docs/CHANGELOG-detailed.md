@@ -13,6 +13,113 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
+
+**Commits:** `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
+`4988793` · **Preference DTO refactor:** _pending_ · **Migration:** none
+
+This pass establishes a backend-grounded AI itinerary flow, strengthens generated
+plan and date validation, removes wellness-only assumptions, and introduces the
+shared request model required for richer trip preferences.
+
+### Verified inventory grounding
+
+- **`apps/api/src/itinerary/itinerary-grounding.service.ts`** — added a dedicated
+  grounding service that composes existing listing, availability, pricing, and
+  experience services instead of allowing the model to invent bookable inventory.
+- Stay discovery is limited to approved public listings matching the requested
+  destination.
+- Candidate stays are checked across the requested trip dates and rejected when
+  the complete stay window is not available.
+- Stay prices come from the backend pricing service rather than being calculated
+  or estimated by the AI.
+- Experiences are filtered against the destination and trip window and rejected
+  when their remaining seat count cannot accommodate all travellers.
+- Explicitly selected listings are also validated before they are included in the
+  generation context.
+- **`apps/api/src/itinerary/itinerary.module.ts`** — imports the listing, pricing,
+  and experience modules and provides the grounding service.
+- **`apps/api/src/itinerary/itinerary.service.ts`** — builds a verified grounding
+  context before generation and restricts the plan prompt to backend-confirmed
+  stays and experiences.
+- **`apps/api/src/itinerary/itinerary-grounding.service.spec.ts`** — covers
+  verified inventory construction and rejection of unavailable or unsuitable
+  candidates.
+
+### Suggestion and chat hardening
+
+- **`apps/api/src/itinerary/itinerary.service.ts`** — generalized concept
+  suggestions and development responses so destinations are not forced into
+  wellness, detox, yoga, or retreat themes.
+- Suggestion requests reuse the shared trip-date validation and reject invalid,
+  reversed, excessive, and past date ranges.
+- Finalized itineraries cannot be modified through chat.
+- Development chat responses use the latest user message rather than an earlier
+  message from the conversation.
+- Development plan generation now derives the requested day count and sequential
+  dates from the prompt instead of returning a single day based on the current
+  date.
+
+### Generated-plan validation
+
+- Added `normalizeGeneratedPlan()` to reject malformed AI output before it is
+  persisted.
+- A generated plan must contain:
+  - a non-empty summary;
+  - exactly the requested number of days;
+  - dates matching the requested range in sequential order;
+  - at least one session per day;
+  - session times in valid 24-hour `HH:MM` format;
+  - chronologically increasing, non-duplicate session times;
+  - non-empty session titles;
+  - supported categories: `stay`, `travel`, `meal`, `activity`, `rest`,
+    `cultural`, or `wellness`.
+- Day numbers and accepted textual fields are normalized before persistence.
+- Added service tests for valid normalization, incorrect dates, unsupported
+  categories, unordered sessions, development stub dates, and past trip starts.
+
+### Budget and suggestion selection alignment
+
+- Backend suggestion and generation prompts now describe `budgetMinor` as the
+  maximum **budget per person**, matching the existing web form and itinerary
+  detail display.
+- **`apps/web/app/itineraries/new/page.tsx`** — selecting a concept now sends
+  `suggestion.key` as `themeHint` instead of the presentation title.
+- **`apps/api/src/itinerary/dto/generate-itinerary.dto.ts`** — documents
+  `themeHint` as the stable concept key selected from the suggestion response.
+- Web production build passes.
+
+### Shared trip preference DTO
+
+- **`apps/api/src/itinerary/dto/itinerary-preferences.dto.ts`** (new) — centralizes
+  the common fields used by suggestion and generation requests.
+- Existing fields remain compatible:
+  - destination;
+  - start and end dates;
+  - traveller count;
+  - interests;
+  - per-person budget in the smallest currency unit.
+- New optional validated fields:
+  - `travelStyle`: budget, balanced, comfort, luxury, or backpacking;
+  - `pace`: relaxed, balanced, or fast-paced;
+  - `dietaryRequirements`;
+  - `accessibilityNeeds`;
+  - `accommodationPreference`;
+  - `transportPreference`;
+  - `activityIntensity`;
+  - `specialRequests`.
+- **`suggest-itinerary.dto.ts`** now extends `ItineraryPreferencesDto`.
+- **`generate-itinerary.dto.ts`** now extends `ItineraryPreferencesDto` and adds
+  only generation-specific `listingId` and `themeHint` fields.
+- These new preference fields are currently accepted and validated at the request
+  boundary. Database persistence, prompt wiring, ranking usage, and frontend
+  controls remain follow-up work.
+
+### Verification
+
+- `pnpm --filter @dhyana/api build` — passed.
+- `pnpm --filter @dhyana/api test` — **21 suites / 328 tests passed**.
+
 ## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
 
 **Commit:** _pending_ · **Migration:** none
