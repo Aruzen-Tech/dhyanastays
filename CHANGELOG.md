@@ -19,7 +19,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 ## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
 
 Commits `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
-`4988793`, `01acbff`. No migration.
+`4988793`, `01acbff`; preference-persistence commit pending.
+Migration `0037_itinerary_preferences`.
 
 ### Added
 - **Verified internal inventory grounding** for generated itineraries. The planner
@@ -29,12 +30,18 @@ Commits `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
 - **Shared itinerary preference request model** with optional travel style, trip
   pace, dietary requirements, accessibility needs, accommodation preference,
   transport preference, activity intensity, and special requests.
+- **Persistent itinerary preferences** — migration `0037_itinerary_preferences`
+  adds travel style, pace, dietary requirements, accessibility needs,
+  accommodation preference, transport preference, activity intensity, and
+  special requests to generated itinerary records.
 
 ### Changed
 - **Trip concepts and development stubs are destination-agnostic** rather than
   being restricted to wellness and retreat themes.
 - **Budget semantics are consistently per person**, and the web suggestion flow
   now sends the stable suggestion key instead of the display title.
+- Generated itineraries now save all validated trip preferences so they can be
+  reused by itinerary display, refinement, ranking, and future regeneration.
 - `SuggestItineraryDto` and `GenerateItineraryDto` now inherit their common trip
   fields from `ItineraryPreferencesDto`.
 
@@ -49,7 +56,7 @@ Commits `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
 
 ### Verification
 - API build passes.
-- API test suite: **21 suites / 328 tests passing**.
+- API test suite: **21 suites / 329 tests passing**.
 
 ## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
 

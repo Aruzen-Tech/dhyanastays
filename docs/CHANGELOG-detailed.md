@@ -16,7 +16,8 @@ history remains fully detailed in the root `CHANGELOG.md`.
 ## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
 
 **Commits:** `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
-`4988793`, `01acbff` · **Migration:** none
+`4988793`, `01acbff` · **Preference persistence:** _pending_ ·
+**Migration:** `0037_itinerary_preferences`
 
 This pass establishes a backend-grounded AI itinerary flow, strengthens generated
 plan and date validation, removes wellness-only assumptions, and introduces the
@@ -111,14 +112,38 @@ shared request model required for richer trip preferences.
 - **`suggest-itinerary.dto.ts`** now extends `ItineraryPreferencesDto`.
 - **`generate-itinerary.dto.ts`** now extends `ItineraryPreferencesDto` and adds
   only generation-specific `listingId` and `themeHint` fields.
-- These new preference fields are currently accepted and validated at the request
-  boundary. Database persistence, prompt wiring, ranking usage, and frontend
-  controls remain follow-up work.
+- These preference fields are accepted and validated at the request boundary and
+  are now persisted with generated itineraries. Prompt wiring, ranking usage, and
+  frontend controls remain follow-up work.
+
+### Preference persistence
+
+- **`apps/api/prisma/schema.prisma`** — `Itinerary` now stores:
+  - `travelStyle`;
+  - `pace`;
+  - `dietaryRequirements`;
+  - `accessibilityNeeds`;
+  - `accommodationPreference`;
+  - `transportPreference`;
+  - `activityIntensity`;
+  - `specialRequests`.
+- **Migration `0037_itinerary_preferences`** — adds the eight optional preference
+  columns to `Itinerary`. `dietaryRequirements` is stored as a non-null PostgreSQL
+  text array with an empty-array default; the remaining fields are nullable text.
+  The migration uses `ADD COLUMN IF NOT EXISTS` per repository convention.
+- Migration `0037_itinerary_preferences` was applied successfully to the local
+  Docker PostgreSQL database, and Prisma reports the database schema as up to date.
+- **`apps/api/src/itinerary/itinerary.service.ts`** — `generate()` now maps every
+  validated preference into the Prisma itinerary-create payload, using empty
+  arrays or `null` for omitted optional values.
+- **`apps/api/src/itinerary/itinerary.service.spec.ts`** — added a focused
+  generation test verifying that the expanded preferences are passed to the
+  grounding service and persisted in the itinerary record.
 
 ### Verification
 
 - `pnpm --filter @dhyana/api build` — passed.
-- `pnpm --filter @dhyana/api test` — **21 suites / 328 tests passed**.
+- `pnpm --filter @dhyana/api test` — **21 suites / 329 tests passed**.
 
 ## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
 

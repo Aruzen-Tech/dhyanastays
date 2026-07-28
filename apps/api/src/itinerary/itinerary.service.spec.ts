@@ -9,8 +9,10 @@ import { ItineraryService } from './itinerary.service';
 
 describe('ItineraryService suggestions', () => {
   const itineraryFindUnique = jest.fn();
+  const itineraryCreate = jest.fn();
   const usageFindUnique = jest.fn();
   const usageUpsert = jest.fn();
+  const buildGroundingContext = jest.fn();
 
   let service: ItineraryService;
 
@@ -19,10 +21,19 @@ describe('ItineraryService suggestions', () => {
 
     usageFindUnique.mockResolvedValue(null);
     usageUpsert.mockResolvedValue({});
+    itineraryCreate.mockResolvedValue({
+      id: 'itinerary-1',
+    });
+
+    buildGroundingContext.mockResolvedValue({
+      stays: [],
+      experiences: [],
+    });
 
     const prisma = {
       itinerary: {
         findUnique: itineraryFindUnique,
+        create: itineraryCreate,
       },
       itineraryUsage: {
         findUnique: usageFindUnique,
@@ -34,7 +45,9 @@ describe('ItineraryService suggestions', () => {
       get: jest.fn((_key: string, defaultValue?: unknown) => defaultValue),
     } as unknown as ConfigService;
 
-    const groundingService = {} as ItineraryGroundingService;
+    const groundingService = {
+      buildContext: buildGroundingContext,
+    } as unknown as ItineraryGroundingService;
 
     service = new ItineraryService(
       prisma,
@@ -119,6 +132,86 @@ describe('ItineraryService suggestions', () => {
     );
 
     expect(usageUpsert).not.toHaveBeenCalled();
+  });
+
+  it('persists the expanded trip preferences', async () => {
+    const generatedPlan = {
+      summary: 'A personalized Bengaluru trip.',
+      days: [
+        {
+          day: 1,
+          date: '2026-08-10',
+          title: 'Arrival',
+          sessions: [
+            {
+              time: '10:00',
+              title: 'City Arrival',
+              description: 'Arrive and settle in.',
+              category: 'travel',
+            },
+          ],
+        },
+        {
+          day: 2,
+          date: '2026-08-11',
+          title: 'Local Exploration',
+          sessions: [
+            {
+              time: '09:00',
+              title: 'Local Walk',
+              description: 'Explore nearby attractions.',
+              category: 'cultural',
+            },
+          ],
+        },
+      ],
+    };
+
+    (
+      service as unknown as {
+        callLLMForPlan: jest.Mock;
+      }
+    ).callLLMForPlan = jest.fn().mockResolvedValue({
+      plan: generatedPlan,
+      tokensInput: 100,
+      tokensOutput: 200,
+    });
+
+    await service.generate('user-1', {
+      ...validGenerateDto,
+      travelStyle: 'balanced',
+      pace: 'relaxed',
+      dietaryRequirements: ['vegetarian', 'jain'],
+      accessibilityNeeds: 'Wheelchair-accessible routes',
+      accommodationPreference: 'homestay',
+      transportPreference: 'cab',
+      activityIntensity: 'light',
+      specialRequests: 'Prefer quieter locations',
+      themeHint: 'culture-and-cuisine',
+    });
+
+    expect(buildGroundingContext).toHaveBeenCalledWith(
+      'user-1',
+      expect.objectContaining({
+        travelStyle: 'balanced',
+        pace: 'relaxed',
+      }),
+    );
+
+    expect(itineraryCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'user-1',
+        travelStyle: 'balanced',
+        pace: 'relaxed',
+        dietaryRequirements: ['vegetarian', 'jain'],
+        accessibilityNeeds: 'Wheelchair-accessible routes',
+        accommodationPreference: 'homestay',
+        transportPreference: 'cab',
+        activityIntensity: 'light',
+        specialRequests: 'Prefer quieter locations',
+        themeHint: 'culture-and-cuisine',
+      }),
+    });
   });
 
   it('rejects chat changes to a finalized itinerary', async () => {
