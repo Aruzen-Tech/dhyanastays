@@ -16,7 +16,7 @@ history remains fully detailed in the root `CHANGELOG.md`.
 ## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
 
 **Commits:** `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
-`4988793`, `01acbff` · **Preference persistence:** _pending_ ·
+`4988793`, `01acbff`, `2259529` ·
 **Migration:** `0037_itinerary_preferences`
 
 This pass establishes a backend-grounded AI itinerary flow, strengthens generated
