@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -23,6 +24,15 @@ import { ModerateExperienceDto } from './dto/moderate-experience.dto';
 export class ExperienceService {
   private readonly logger = new Logger(ExperienceService.name);
 
+  // Booking statuses that count as "seats taken" — excludes CANCELLED/REFUNDED.
+  // Shared by countSeatsSold() and every listing query's booking count so the
+  // two never disagree on what "an active booking" means.
+  private readonly activeBookingStatuses: ExperienceBookingStatus[] = [
+    ExperienceBookingStatus.HELD,
+    ExperienceBookingStatus.CONFIRMED,
+    ExperienceBookingStatus.COMPLETED,
+  ];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
@@ -36,7 +46,11 @@ export class ExperienceService {
     return this.prisma.experience.findMany({
       where: { hostId: host.id },
       orderBy: { startsAt: 'desc' },
-      include: { _count: { select: { bookings: true } } },
+      include: {
+        _count: {
+          select: { bookings: { where: { status: { in: this.activeBookingStatuses } } } },
+        },
+      },
     });
   }
 
@@ -187,7 +201,9 @@ export class ExperienceService {
       take: 100,
       include: {
         host: { select: { user: { select: { fullName: true } } } },
-        _count: { select: { bookings: true } },
+        _count: {
+          select: { bookings: { where: { status: { in: this.activeBookingStatuses } } } },
+        },
       },
     });
   }
@@ -214,7 +230,15 @@ export class ExperienceService {
     const existing = await this.prisma.experienceBooking.findUnique({
       where: { idempotencyKey },
     });
-    if (existing) return existing;
+    if (existing) {
+      // The key is client-supplied — without this check, a guest who
+      // reuses (or guesses) another guest's idempotencyKey would receive
+      // that guest's booking record instead of a clean rejection.
+      if (existing.guestId !== userId) {
+        throw new ConflictException('Idempotency key belongs to another user');
+      }
+      return existing;
+    }
 
     // Capacity check + booking insert must be atomic against a concurrent
     // booking (or a concurrent host capacity edit — see updateHostExperience)
@@ -224,7 +248,7 @@ export class ExperienceService {
     // experience. Locking the Experience row first — and re-reading all
     // state only after the lock is held — closes that gap.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return withSerializableRetry(this.prisma as any, async (tx) => {
+    const booking = await withSerializableRetry(this.prisma as any, async (tx) => {
       await tx.$executeRaw`SELECT id FROM "Experience" WHERE id = ${id} FOR UPDATE`;
 
       const experience = await tx.experience.findUnique({ where: { id } });
@@ -253,6 +277,14 @@ export class ExperienceService {
         },
       });
     });
+
+    await this.writeAudit(userId, 'EXPERIENCE_BOOK', 'experience_booking', booking.id, {
+      experienceId: id,
+      seats: dto.seats,
+      totalMinor: booking.totalMinor,
+    });
+
+    return booking;
   }
 
   async listGuestBookings(userId: string) {
@@ -307,7 +339,9 @@ export class ExperienceService {
       take: 200,
       include: {
         host: { select: { user: { select: { fullName: true, email: true } } } },
-        _count: { select: { bookings: true } },
+        _count: {
+          select: { bookings: { where: { status: { in: this.activeBookingStatuses } } } },
+        },
       },
     });
   }
@@ -377,11 +411,7 @@ export class ExperienceService {
     const agg = await client.experienceBooking.aggregate({
       where: {
         experienceId,
-        status: { in: [
-          ExperienceBookingStatus.HELD,
-          ExperienceBookingStatus.CONFIRMED,
-          ExperienceBookingStatus.COMPLETED,
-        ] },
+        status: { in: this.activeBookingStatuses },
       },
       _sum: { seats: true },
     });

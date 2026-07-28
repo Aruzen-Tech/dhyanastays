@@ -1,7 +1,8 @@
 import { ExperienceService } from './experience.service';
 
 /**
- * Unit tests for ExperienceService — capacity-locking behaviour.
+ * Unit tests for ExperienceService — capacity-locking, idempotency
+ * authorization, booking audit logging, and active-booking-count behaviour.
  * All dependencies are mocked — no DB or external services required.
  *
  * Mocking note: withSerializableRetry() just calls prisma.$transaction(fn, opts)
@@ -18,9 +19,15 @@ function makeNotificationMock() {
   return {};
 }
 
+function makeAuditLogMock() {
+  return { create: jest.fn().mockResolvedValue({}) };
+}
+
 const NOW = Date.now();
 const FUTURE = new Date(NOW + 24 * 60 * 60 * 1000);
 const PAST = new Date(NOW - 24 * 60 * 60 * 1000);
+
+const ACTIVE_STATUSES = ['HELD', 'CONFIRMED', 'COMPLETED'];
 
 function makeExperience(overrides: Record<string, unknown> = {}) {
   return {
@@ -72,6 +79,7 @@ describe('ExperienceService', () => {
       const prismaMock = {
         experienceBooking: { findUnique: jest.fn().mockResolvedValue(null) },
         $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+        auditLog: makeAuditLogMock(),
       };
 
       const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
@@ -105,6 +113,7 @@ describe('ExperienceService', () => {
       const prismaMock = {
         experienceBooking: { findUnique: jest.fn().mockResolvedValue(null) },
         $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+        auditLog: makeAuditLogMock(),
       };
 
       const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
@@ -128,6 +137,7 @@ describe('ExperienceService', () => {
       const prismaMock = {
         experienceBooking: { findUnique: jest.fn().mockResolvedValue(null) },
         $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+        auditLog: makeAuditLogMock(),
       };
 
       const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
@@ -156,6 +166,7 @@ describe('ExperienceService', () => {
       const prismaMock = {
         experienceBooking: { findUnique: jest.fn().mockResolvedValue(null) },
         $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+        auditLog: makeAuditLogMock(),
       };
 
       const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
@@ -173,6 +184,7 @@ describe('ExperienceService', () => {
       const prismaMock = {
         experienceBooking: { findUnique: jest.fn().mockResolvedValue(null) },
         $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+        auditLog: makeAuditLogMock(),
       };
 
       const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
@@ -191,6 +203,7 @@ describe('ExperienceService', () => {
       const prismaMock = {
         experienceBooking: { findUnique: jest.fn().mockResolvedValue(null) },
         $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+        auditLog: makeAuditLogMock(),
       };
 
       const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
@@ -200,7 +213,7 @@ describe('ExperienceService', () => {
       ).rejects.toThrow('Experience has already started');
     });
 
-    it('returns the existing booking idempotently without opening a transaction', async () => {
+    it('returns the existing booking idempotently without opening a transaction when the key belongs to the same guest', async () => {
       const existingBooking = {
         id: 'booking-existing',
         guestId: 'guest-1',
@@ -208,9 +221,11 @@ describe('ExperienceService', () => {
         status: 'CONFIRMED',
       };
       const $transaction = jest.fn();
+      const auditLog = makeAuditLogMock();
       const prismaMock = {
         experienceBooking: { findUnique: jest.fn().mockResolvedValue(existingBooking) },
         $transaction,
+        auditLog,
       };
 
       const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
@@ -222,6 +237,110 @@ describe('ExperienceService', () => {
 
       expect(result).toBe(existingBooking);
       expect($transaction).not.toHaveBeenCalled();
+      // A replay of an already-audited action must not write a second entry.
+      expect(auditLog.create).not.toHaveBeenCalled();
+    });
+
+    describe('idempotency-key authorization', () => {
+      it('throws ConflictException when the idempotencyKey belongs to another guest', async () => {
+        const otherGuestBooking = {
+          id: 'booking-existing',
+          guestId: 'other-guest',
+          experienceId: 'exp-1',
+          status: 'CONFIRMED',
+        };
+        const $transaction = jest.fn();
+        const prismaMock = {
+          experienceBooking: { findUnique: jest.fn().mockResolvedValue(otherGuestBooking) },
+          $transaction,
+          auditLog: makeAuditLogMock(),
+        };
+
+        const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
+
+        await expect(
+          service.bookExperience('guest-1', 'exp-1', {
+            seats: 1,
+            idempotencyKey: 'shared-key',
+          } as any),
+        ).rejects.toThrow('Idempotency key belongs to another user');
+
+        // Must reject before ever opening a booking transaction.
+        expect($transaction).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('booking audit logging', () => {
+      it('writes an audit log entry after a successful booking', async () => {
+        const txMock = makeTxMock({
+          experienceBooking: {
+            aggregate: jest.fn().mockResolvedValue({ _sum: { seats: 0 } }),
+            create: jest.fn().mockResolvedValue({
+              id: 'booking-new',
+              experienceId: 'exp-1',
+              guestId: 'guest-1',
+              seats: 4,
+              totalMinor: 20000,
+              status: 'CONFIRMED',
+            }),
+          },
+        });
+        const auditLog = makeAuditLogMock();
+        const prismaMock = {
+          experienceBooking: { findUnique: jest.fn().mockResolvedValue(null) },
+          $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+          auditLog,
+        };
+
+        const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
+
+        const result = await service.bookExperience('guest-1', 'exp-1', {
+          seats: 4,
+          idempotencyKey: 'idem-audit-1',
+        } as any);
+
+        expect(auditLog.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              actorUserId: 'guest-1',
+              action: 'EXPERIENCE_BOOK',
+              resourceType: 'experience_booking',
+              resourceId: result.id,
+              metadata: expect.objectContaining({
+                experienceId: 'exp-1',
+                seats: 4,
+                totalMinor: 20000,
+              }),
+            }),
+          }),
+        );
+      });
+
+      it('does not write an audit log entry when the booking is rejected for insufficient capacity', async () => {
+        const txMock = makeTxMock({
+          experienceBooking: {
+            aggregate: jest.fn().mockResolvedValue({ _sum: { seats: 10 } }), // fully sold
+            create: jest.fn(),
+          },
+        });
+        const auditLog = makeAuditLogMock();
+        const prismaMock = {
+          experienceBooking: { findUnique: jest.fn().mockResolvedValue(null) },
+          $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+          auditLog,
+        };
+
+        const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
+
+        await expect(
+          service.bookExperience('guest-1', 'exp-1', {
+            seats: 1,
+            idempotencyKey: 'idem-audit-2',
+          } as any),
+        ).rejects.toThrow('Not enough seats available');
+
+        expect(auditLog.create).not.toHaveBeenCalled();
+      });
     });
   });
 
@@ -238,7 +357,7 @@ describe('ExperienceService', () => {
             ...args.data,
           })),
         },
-        auditLog: { create: jest.fn().mockResolvedValue({}) },
+        auditLog: makeAuditLogMock(),
       };
     }
 
@@ -324,6 +443,71 @@ describe('ExperienceService', () => {
       expect(prismaMock.$transaction).not.toHaveBeenCalled();
       expect(prismaMock.experience.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ title: 'New title' }) }),
+      );
+    });
+  });
+
+  describe('active booking counts', () => {
+    it('listHostExperiences() filters the booking count to active statuses only', async () => {
+      const findMany = jest.fn().mockResolvedValue([]);
+      const prismaMock = {
+        host: { findUnique: jest.fn().mockResolvedValue({ id: 'host-1' }) },
+        experience: { findMany },
+      };
+
+      const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
+      await service.listHostExperiences('host-user-1');
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            _count: {
+              select: {
+                bookings: { where: { status: { in: ACTIVE_STATUSES } } },
+              },
+            },
+          }),
+        }),
+      );
+    });
+
+    it('listPublicExperiences() filters the booking count to active statuses only', async () => {
+      const findMany = jest.fn().mockResolvedValue([]);
+      const prismaMock = { experience: { findMany } };
+
+      const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
+      await service.listPublicExperiences({});
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            _count: {
+              select: {
+                bookings: { where: { status: { in: ACTIVE_STATUSES } } },
+              },
+            },
+          }),
+        }),
+      );
+    });
+
+    it('adminListExperiences() filters the booking count to active statuses only', async () => {
+      const findMany = jest.fn().mockResolvedValue([]);
+      const prismaMock = { experience: { findMany } };
+
+      const service = new ExperienceService(prismaMock as any, makeNotificationMock() as any);
+      await service.adminListExperiences();
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: expect.objectContaining({
+            _count: {
+              select: {
+                bookings: { where: { status: { in: ACTIVE_STATUSES } } },
+              },
+            },
+          }),
+        }),
       );
     });
   });
