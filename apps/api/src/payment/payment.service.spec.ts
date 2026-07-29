@@ -172,11 +172,13 @@ describe('PaymentService', () => {
         },
       };
 
+      const razorpayMock = makeRazorpayMock(false);
+
       const service = new PaymentService(
         prismaMock as any,
         makeBookingMock() as any,
         makeAuditMock() as any,
-        makeRazorpayMock() as any,
+        razorpayMock as any,
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
@@ -189,9 +191,13 @@ describe('PaymentService', () => {
         idempotencyKey: 'idem-1',
       }) as any;
 
+      expect(result.paymentId).toBe('payment-1');
       expect(result.razorpayOrderId).toBe('order_test_123');
       expect(result.amount).toBe(17050);
       expect(result.currency).toBe('INR');
+      expect(result.keyId).toBe('rzp_test_key');
+      expect(result).not.toHaveProperty('keySecret');
+      expect(result).not.toHaveProperty('webhookSecret');
       expect(prismaMock.payment.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -204,11 +210,12 @@ describe('PaymentService', () => {
       );
     });
 
-    it('returns existing payment idempotently for same idempotency key', async () => {
+    it('returns the normalized public response idempotently for same idempotency key', async () => {
       const existingPayment = {
         id: 'payment-existing',
         bookingId: 'booking-1',
         amount: 17050,
+        gatewayOrderRef: 'order_existing_123',
         status: 'INITIATED',
         idempotencyKey: 'idem-1',
       };
@@ -221,11 +228,13 @@ describe('PaymentService', () => {
         booking: { findUnique: jest.fn() },
       };
 
+      const razorpayMock = makeRazorpayMock(false);
+
       const service = new PaymentService(
         prismaMock as any,
         makeBookingMock() as any,
         makeAuditMock() as any,
-        makeRazorpayMock() as any,
+        razorpayMock as any,
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
@@ -237,9 +246,18 @@ describe('PaymentService', () => {
         idempotencyKey: 'idem-1',
       });
 
-      expect(result).toBe(existingPayment);
+      expect(result).toEqual({
+        paymentId: 'payment-existing',
+        razorpayOrderId: 'order_existing_123',
+        amount: 17050,
+        currency: 'INR',
+        keyId: 'rzp_test_key',
+      });
+      expect(result).not.toHaveProperty('keySecret');
+      expect(result).not.toHaveProperty('webhookSecret');
       expect(prismaMock.payment.create).not.toHaveBeenCalled();
       expect(prismaMock.booking.findUnique).not.toHaveBeenCalled();
+      expect(razorpayMock.createOrder).not.toHaveBeenCalled();
     });
 
     it('throws BadRequestException if idempotency key used for different booking', async () => {
@@ -276,7 +294,12 @@ describe('PaymentService', () => {
       const prismaMock = {
         payment: {
           findUnique: jest.fn().mockResolvedValue(null),
-          create: jest.fn().mockResolvedValue({ id: 'p-2', bookingId: 'booking-2', amount: 8525 }),
+          create: jest.fn().mockResolvedValue({
+            id: 'p-2',
+            bookingId: 'booking-2',
+            amount: 8525,
+            gatewayOrderRef: 'order_test_123',
+          }),
         },
         booking: {
           findUnique: jest.fn().mockResolvedValue(DEPOSIT_BOOKING),

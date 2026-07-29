@@ -42,6 +42,24 @@ export class PaymentService {
     };
   }
 
+  private buildInitPaymentResponse(payment: {
+    id: string;
+    amount: number;
+    gatewayOrderRef: string | null;
+  }) {
+    if (!payment.gatewayOrderRef) {
+      throw new BadRequestException('Payment is missing a Razorpay order reference');
+    }
+
+    return {
+      paymentId: payment.id,
+      razorpayOrderId: payment.gatewayOrderRef,
+      amount: payment.amount,
+      currency: 'INR',
+      keyId: this.razorpay['keyId'] as string,
+    };
+  }
+
   /**
    * Initialise a payment order with Razorpay.
    * Returns the Razorpay order details for the client to complete payment.
@@ -57,7 +75,7 @@ export class PaymentService {
           'Idempotency key already used for a different booking',
         );
       }
-      return existing;
+      return this.buildInitPaymentResponse(existing);
     }
 
     const booking = await this.prisma.booking.findUnique({
@@ -174,13 +192,7 @@ export class PaymentService {
       orderId: order.id,
     });
 
-    return {
-      paymentId: payment.id,
-      razorpayOrderId: order.id,
-      amount: amountPaise,
-      currency: 'INR',
-      keyId: this.razorpay['keyId'] as string,
-    };
+    return this.buildInitPaymentResponse(payment);
   }
 
   /**
