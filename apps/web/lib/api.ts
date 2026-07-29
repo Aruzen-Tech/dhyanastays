@@ -43,6 +43,7 @@ interface ApiListing {
   tags: ApiListingTag[];
   rateRules: ApiRateRule[];
   host?: ApiListingHost;
+  payOnArrivalEnabled?: boolean;
 }
 
 const API_BASE_URL = (
@@ -121,6 +122,9 @@ function mapListingToProperty(listing: ApiListing): Property {
     badges: Array.from(new Set([...tagNames, ...experienceTags])),
     isFeatured: false,
     isTrending: false,
+    payOnArrivalEnabled: Boolean(
+      listing.payOnArrivalEnabled,
+    ),
     sustainability: [],
   };
 }

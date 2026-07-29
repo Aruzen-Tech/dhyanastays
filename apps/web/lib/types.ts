@@ -42,5 +42,6 @@ export interface Property {
   badges: string[];
   isFeatured: boolean;
   isTrending: boolean;
+  payOnArrivalEnabled?: boolean;
   sustainability: string[];
 }

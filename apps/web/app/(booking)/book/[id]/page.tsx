@@ -32,6 +32,7 @@ import {
   getListingAvailability,
   minorToRupees,
   type BookingHold,
+  type BookingPaymentPlan,
   type PriceSnapshot,
   type PublicListingAddOn,
 } from "@/lib/booking-api";
@@ -68,6 +69,40 @@ function formatBookingDate(date: string): string {
   }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
+function getPayLaterEligibility(
+  checkIn: string,
+  months: 3 | 6 | 12,
+  startFrom: Date = new Date(),
+): {
+  eligible: boolean;
+  finalDueAt: Date;
+  cutoffAt: Date;
+} {
+  const finalDueAt = new Date(startFrom);
+
+  // Instalment 1 is due now. The final instalment is therefore
+  // due after months - 1 monthly intervals.
+  finalDueAt.setUTCMonth(
+    finalDueAt.getUTCMonth() + months - 1,
+  );
+
+  const cutoffAt = new Date(
+    finalDueAt.getTime() + DAY_MS,
+  );
+
+  const checkInAt = new Date(
+    `${checkIn}T00:00:00.000Z`,
+  );
+
+  return {
+    eligible:
+      !Number.isNaN(checkInAt.getTime()) &&
+      checkInAt.getTime() >= cutoffAt.getTime(),
+    finalDueAt,
+    cutoffAt,
+  };
+}
+
 export default function BookingPage() {
   const params = useParams();
   const router = useRouter();
@@ -78,6 +113,11 @@ export default function BookingPage() {
   const [listingError, setListingError] = useState("");
 
   const [step, setStep] = useState(1);
+  const [paymentPlan, setPaymentPlan] =
+    useState<BookingPaymentPlan>("FULL");
+  const [payLaterMonths, setPayLaterMonths] =
+    useState<3 | 6 | 12>(3);
+
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [selectedExperiences, setSelectedExperiences] = useState<string[]>([]);
@@ -512,6 +552,30 @@ export default function BookingPage() {
 
     if (step === 4) {
       if (
+        paymentPlan === "PAY_ON_ARRIVAL" &&
+        !property?.payOnArrivalEnabled
+      ) {
+        setPaymentPlan("FULL");
+        setBookingError(
+          "Pay on arrival is not available for this listing.",
+        );
+        return;
+      }
+
+      if (
+        paymentPlan === "PAY_LATER" &&
+        !getPayLaterEligibility(
+          checkIn,
+          payLaterMonths,
+        ).eligible
+      ) {
+        setBookingError(
+          "The selected Pay Later schedule cannot finish before check-in. Choose another payment plan or later check-in dates.",
+        );
+        return;
+      }
+
+      if (
         !hold ||
         !quote ||
         !acceptedTerms ||
@@ -531,7 +595,10 @@ export default function BookingPage() {
 
         const booking = await createBooking({
           holdId: hold.id,
-          plan: "FULL",
+          plan: paymentPlan,
+          ...(paymentPlan === "PAY_LATER"
+            ? { payLaterMonths }
+            : {}),
           idempotencyKey,
           guestDetails: {
             fullName: guestFullName.trim(),
@@ -602,6 +669,92 @@ export default function BookingPage() {
       </div>
     );
   }
+
+  const payLaterOptions = (
+    quote?.payLaterFirstInstalment ?? []
+  ).flatMap((option) => {
+    if (
+      option.months !== 3 &&
+      option.months !== 6 &&
+      option.months !== 12
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        ...option,
+        ...getPayLaterEligibility(
+          checkIn,
+          option.months,
+        ),
+      },
+    ];
+  });
+
+  const selectedPayLaterInstalment =
+    payLaterOptions.find(
+      (option) => option.months === payLaterMonths,
+    );
+
+  const hasEligiblePayLaterOption =
+    payLaterOptions.some((option) => option.eligible);
+
+  const amountDueNow = quote
+    ? paymentPlan === "FULL"
+      ? quote.total
+      : paymentPlan === "DEPOSIT_50"
+        ? quote.depositAmount
+        : paymentPlan === "PAY_LATER"
+          ? selectedPayLaterInstalment?.eligible
+            ? selectedPayLaterInstalment.amountMinor
+            : 0
+          : 0
+    : 0;
+
+  const paymentPlanOptions: Array<{
+    value: BookingPaymentPlan;
+    title: string;
+    description: string;
+    amount: number;
+    disabled?: boolean;
+  }> = quote
+    ? [
+        {
+          value: "FULL",
+          title: "Pay in full",
+          description: "Pay the complete booking amount securely now.",
+          amount: quote.total,
+        },
+        {
+          value: "DEPOSIT_50",
+          title: "Pay 50% deposit",
+          description: "Pay half now and the remaining balance later.",
+          amount: quote.depositAmount,
+        },
+        {
+          value: "PAY_LATER",
+          title: "Pay Later",
+          description: hasEligiblePayLaterOption
+            ? "Split the total into scheduled monthly instalments."
+            : "The instalment schedule cannot finish before this check-in date.",
+          amount:
+            selectedPayLaterInstalment?.eligible
+              ? selectedPayLaterInstalment.amountMinor
+              : 0,
+          disabled: !hasEligiblePayLaterOption,
+        },
+        {
+          value: "PAY_ON_ARRIVAL",
+          title: "Pay on arrival",
+          description: property.payOnArrivalEnabled
+            ? "Reserve the stay now and pay at the property."
+            : "This option is not available for this property.",
+          amount: 0,
+          disabled: !property.payOnArrivalEnabled,
+        },
+      ]
+    : [];
 
   return (
     <div className="bg-background min-h-screen pb-24 pt-[72px]">
@@ -1174,6 +1327,153 @@ export default function BookingPage() {
                         </p>
                       )}
                     </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border bg-surface p-6">
+                    <h2 className="font-semibold text-foreground">
+                      Choose payment plan
+                    </h2>
+
+                    <p className="mt-1 text-sm text-muted">
+                      Select how you would like to pay for this booking.
+                    </p>
+
+                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                      {paymentPlanOptions.map((option) => {
+                        const selected =
+                          paymentPlan === option.value;
+                        const disabled = Boolean(
+                          option.disabled,
+                        );
+
+                        return (
+                          <label
+                            key={option.value}
+                            className={`rounded-xl border p-4 transition-colors ${
+                              disabled
+                                ? "cursor-not-allowed border-border bg-surface-hover opacity-60"
+                                : selected
+                                  ? "cursor-pointer border-primary bg-primary/5"
+                                  : "cursor-pointer border-border bg-background hover:border-primary/40"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <input
+                                type="radio"
+                                name="paymentPlan"
+                                value={option.value}
+                                checked={selected}
+                                disabled={disabled}
+                                onChange={() => {
+                                  if (!disabled) {
+                                    setPaymentPlan(option.value);
+                                  }
+                                }}
+                                className="mt-1 h-4 w-4 accent-primary disabled:cursor-not-allowed"
+                              />
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-3">
+                                  <span className="font-medium text-foreground">
+                                    {option.title}
+                                  </span>
+
+                                  <span className="shrink-0 text-sm font-semibold text-primary">
+                                    {disabled
+                                      ? "Unavailable"
+                                      : option.value === "PAY_ON_ARRIVAL"
+                                        ? "₹0 now"
+                                        : `₹${minorToRupees(
+                                            option.amount,
+                                          ).toLocaleString("en-IN", {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2,
+                                          })}`}
+                                  </span>
+                                </div>
+
+                                <p className="mt-1 text-xs leading-relaxed text-muted">
+                                  {option.description}
+                                </p>
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+
+                    {paymentPlan === "PAY_LATER" && (
+                      <div className="mt-5 rounded-xl border border-border bg-background p-4">
+                        <label
+                          htmlFor="pay-later-months"
+                          className="text-sm font-medium text-foreground"
+                        >
+                          Instalment duration
+                        </label>
+
+                        <select
+                          id="pay-later-months"
+                          value={payLaterMonths}
+                          onChange={(event) =>
+                            setPayLaterMonths(
+                              Number(event.target.value) as
+                                | 3
+                                | 6
+                                | 12,
+                            )
+                          }
+                          className="mt-2 w-full rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground focus:border-primary focus:outline-none"
+                        >
+                          {payLaterOptions.map(
+                            (option) => (
+                              <option
+                                key={option.months}
+                                value={option.months}
+                                disabled={!option.eligible}
+                              >
+                                {option.eligible
+                                  ? `${option.months} months — first payment ₹${minorToRupees(
+                                      option.amountMinor,
+                                    ).toLocaleString("en-IN", {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}`
+                                  : `${option.months} months — unavailable for selected check-in`}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
+                      <span className="text-sm text-muted">
+                        Amount due now
+                      </span>
+
+                      <span className="text-xl font-bold text-primary">
+                        ₹
+                        {minorToRupees(amountDueNow).toLocaleString(
+                          "en-IN",
+                          {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          },
+                        )}
+                      </span>
+                    </div>
+
+                    {paymentPlan === "DEPOSIT_50" && quote && (
+                      <p className="mt-2 text-right text-xs text-muted">
+                        Remaining balance: ₹
+                        {minorToRupees(
+                          quote.balanceAmount,
+                        ).toLocaleString("en-IN", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </p>
+                    )}
                   </div>
 
                   <div className="rounded-2xl border border-border bg-surface p-6">
