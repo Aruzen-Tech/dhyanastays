@@ -1,90 +1,306 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, Calendar, MapPin, Users, Download, ArrowRight } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  MapPin,
+  Users,
+} from "lucide-react";
+import {
+  getBookingById,
+  minorToRupees,
+  type BookingDetails,
+} from "@/lib/booking-api";
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(value));
+}
+
+function formatMoney(valueMinor: number): string {
+  return minorToRupees(valueMinor).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+function formatStatus(status: string): string {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
 
 export default function ConfirmationPage() {
-  return (
-    <div className="bg-background min-h-screen pt-[72px] pb-24">
-      <div className="max-w-[800px] mx-auto px-6 lg:px-8 py-16">
-        <div className="text-center mb-12 animate-fade-in-up">
-          <div className="w-20 h-20 mx-auto bg-sage/10 rounded-full flex items-center justify-center mb-6 border border-sage/20">
-            <CheckCircle2 size={40} className="text-sage" />
-          </div>
-          <h1 className="heading-display text-3xl md:text-5xl text-foreground mb-4">
-            Booking Confirmed!
+  const [bookingId, setBookingId] = useState("");
+  const [booking, setBooking] = useState<BookingDetails | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const currentBookingId = params.get("bookingId") ?? "";
+
+    setBookingId(currentBookingId);
+
+    if (!currentBookingId) {
+      setError("No booking ID was provided.");
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadBooking() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const result = await getBookingById(currentBookingId);
+
+        if (!cancelled) {
+          setBooking(result);
+        }
+      } catch (requestError) {
+        if (!cancelled) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load the booking.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadBooking();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+        <p className="text-sm text-muted">
+          Loading booking details…
+        </p>
+      </div>
+    );
+  }
+
+  if (error || !booking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6">
+        <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-8 text-center">
+          <AlertCircle
+            className="mx-auto text-terracotta"
+            size={36}
+          />
+
+          <h1 className="mt-4 text-xl font-semibold text-foreground">
+            Unable to load booking
           </h1>
-          <p className="text-lg text-muted">
-            Your curated escape awaits. We've sent a confirmation email to your inbox.
+
+          <p className="mt-2 text-sm text-muted">
+            {error || "The booking could not be found."}
           </p>
-          <div className="inline-block mt-4 px-4 py-2 bg-surface-hover border border-border rounded-full text-sm text-foreground">
-            Booking ID: <span className="font-mono text-primary">DHY-847291</span>
+
+          {bookingId && (
+            <p className="mt-3 break-all font-mono text-xs text-subtle">
+              {bookingId}
+            </p>
+          )}
+
+          <Link
+            href="/traveller/bookings"
+            className="mt-6 inline-flex rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+          >
+            View my bookings
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const confirmed =
+    booking.status === "CONFIRMED_PAID" ||
+    booking.status === "CONFIRMED_DEPOSIT";
+
+  const location = [
+    booking.listing?.city,
+    booking.listing?.state,
+    booking.listing?.country,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const capturedAmount = (booking.payments ?? [])
+    .filter((payment) => payment.status === "CAPTURED")
+    .reduce((sum, payment) => sum + payment.amount, 0);
+
+  const snapshot = booking.priceSnapshot;
+
+  return (
+    <div className="min-h-screen bg-background pb-24 pt-[72px]">
+      <div className="mx-auto max-w-[800px] px-6 py-16 lg:px-8">
+        <div className="mb-12 text-center">
+          <div
+            className={`mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full border ${
+              confirmed
+                ? "border-sage/20 bg-sage/10"
+                : "border-primary/20 bg-primary/10"
+            }`}
+          >
+            {confirmed ? (
+              <CheckCircle2 size={40} className="text-sage" />
+            ) : (
+              <Clock size={40} className="text-primary" />
+            )}
+          </div>
+
+          <h1 className="heading-display mb-4 text-3xl text-foreground md:text-5xl">
+            {confirmed
+              ? "Booking confirmed"
+              : "Booking awaiting payment"}
+          </h1>
+
+          <p className="text-lg text-muted">
+            {confirmed
+              ? "Your booking has been verified and confirmed."
+              : "Your booking has been created, but payment confirmation is still pending."}
+          </p>
+
+          <div className="mt-4 inline-block rounded-full border border-border bg-surface-hover px-4 py-2 text-sm text-foreground">
+            Booking ID:{" "}
+            <span className="font-mono text-primary">
+              {booking.id}
+            </span>
           </div>
         </div>
 
-        <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 animate-fade-in" style={{ animationDelay: '0.1s' }}>
-          {/* Header Image Split */}
-          <div className="flex flex-col md:flex-row">
-            <div className="md:w-1/3 h-48 md:h-auto bg-surface-hover relative overflow-hidden">
-              <img
-                src="https://images.unsplash.com/photo-1524230507669-5ff97982bb5e?q=80&w=800&auto=format&fit=crop"
-                alt="The Glasshouse in the Pines"
-                className="absolute inset-0 w-full h-full object-cover"
-              />
-            </div>
-            <div className="p-6 md:p-8 md:w-2/3">
-              <span className="text-[10px] uppercase tracking-wider text-primary mb-2 block font-semibold">
-                Heritage Stay
-              </span>
-              <h2 className="text-2xl font-semibold text-foreground mb-2">
-                The Glasshouse in the Pines
-              </h2>
-              <p className="text-sm text-muted flex items-center gap-1 mb-6">
-                <MapPin size={14} /> Mashobra, Himachal Pradesh
-              </p>
+        <div className="mb-8 overflow-hidden rounded-2xl border border-border bg-surface">
+          <div className="p-6 md:p-8">
+            <span className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-primary">
+              {formatStatus(booking.status)}
+            </span>
 
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-subtle mb-1">Check-in</div>
-                  <div className="text-sm font-medium text-foreground mb-1">Oct 15, 2026</div>
-                  <div className="text-xs text-muted">2:00 PM</div>
+            <h2 className="text-2xl font-semibold text-foreground">
+              {booking.listing?.title || "Dhyana Stays booking"}
+            </h2>
+
+            {location && (
+              <p className="mt-2 flex items-center gap-1 text-sm text-muted">
+                <MapPin size={14} />
+                {location}
+              </p>
+            )}
+
+            <div className="mt-7 grid gap-5 sm:grid-cols-3">
+              <div>
+                <div className="mb-1 flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
+                  <Calendar size={12} />
+                  Check-in
                 </div>
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-subtle mb-1">Check-out</div>
-                  <div className="text-sm font-medium text-foreground mb-1">Oct 18, 2026</div>
-                  <div className="text-xs text-muted">11:00 AM</div>
+
+                <div className="text-sm font-medium text-foreground">
+                  {formatDate(booking.startsAt)}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
+                  <Calendar size={12} />
+                  Check-out
+                </div>
+
+                <div className="text-sm font-medium text-foreground">
+                  {formatDate(booking.endsAt)}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1 flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
+                  <Users size={12} />
+                  Guests
+                </div>
+
+                <div className="text-sm font-medium text-foreground">
+                  {snapshot.guests}
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="border-t border-border p-6 md:p-8 bg-background">
-            <h3 className="text-sm font-semibold text-foreground mb-4">Payment Summary</h3>
-            <div className="flex justify-between items-center mb-2 text-sm text-muted">
-              <span>Amount Paid</span>
-              <span>₹47,700</span>
-            </div>
-            <div className="flex justify-between items-center text-sm text-muted">
-              <span>Payment Method</span>
-              <span className="flex items-center gap-2">
-                •••• 4242 <div className="w-8 h-5 bg-surface-hover rounded flex items-center justify-center text-[8px] font-bold text-foreground">VISA</div>
-              </span>
+          <div className="border-t border-border bg-background p-6 md:p-8">
+            <h3 className="mb-4 text-sm font-semibold text-foreground">
+              Payment summary
+            </h3>
+
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between text-muted">
+                <span>Booking total</span>
+                <span>₹{formatMoney(snapshot.total)}</span>
+              </div>
+
+              <div className="flex items-center justify-between text-muted">
+                <span>Payment plan</span>
+                <span>{formatStatus(booking.plan)}</span>
+              </div>
+
+              <div className="flex items-center justify-between text-muted">
+                <span>Amount captured</span>
+                <span>
+                  ₹{formatMoney(capturedAmount)}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between border-t border-border pt-3 font-semibold">
+                <span className="text-foreground">Current status</span>
+                <span className={confirmed ? "text-sage" : "text-primary"}>
+                  {formatStatus(booking.status)}
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-4 animate-fade-in" style={{ animationDelay: '0.2s' }}>
-          <button className="flex items-center justify-center gap-2 py-4 bg-surface border border-border rounded-xl text-sm font-medium text-foreground hover:bg-surface-hover transition-colors">
-            <Download size={16} /> Download Invoice
-          </button>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {!confirmed ? (
+            <Link
+              href={`/payment?bookingId=${encodeURIComponent(booking.id)}`}
+              className="flex items-center justify-center gap-2 rounded-xl border border-border bg-surface py-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-hover"
+            >
+              Continue to payment
+            </Link>
+          ) : (
+            <div className="flex items-center justify-center rounded-xl border border-sage/20 bg-sage/10 py-4 text-sm font-medium text-sage">
+              Payment verified
+            </div>
+          )}
+
           <Link
-            href="/traveller"
-            className="flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-primary to-primary-hover text-primary-foreground font-semibold text-sm rounded-xl hover:shadow-[0_0_30px_rgba(16,185,129,0.3)] transition-all"
+            href="/traveller/bookings"
+            className="flex items-center justify-center gap-2 rounded-xl bg-primary py-4 text-sm font-semibold text-primary-foreground"
           >
-            Go to My Dashboard <ArrowRight size={16} />
+            View my bookings
+            <ArrowRight size={16} />
           </Link>
         </div>
-
       </div>
     </div>
   );

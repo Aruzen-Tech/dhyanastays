@@ -385,3 +385,51 @@ export function getBookingById(
     },
   );
 }
+
+export interface PaymentGatewayConfig {
+  configured: boolean;
+}
+
+export type BookingPaymentType =
+  | "FULL"
+  | "DEPOSIT"
+  | "BALANCE";
+
+export interface InitBookingPaymentPayload {
+  bookingId: string;
+  type: BookingPaymentType;
+  idempotencyKey: string;
+}
+
+export interface InitializedBookingPayment {
+  paymentId: string;
+  razorpayOrderId: string;
+  amount: number;
+  currency: string;
+  keyId: string;
+}
+
+export function getPaymentGatewayConfig(): Promise<PaymentGatewayConfig> {
+  return authenticatedApiRequest<PaymentGatewayConfig>(
+    "/payments/config",
+    {
+      method: "GET",
+    },
+  );
+}
+
+export function initBookingPayment(
+  payload: InitBookingPaymentPayload,
+): Promise<InitializedBookingPayment> {
+  return authenticatedApiRequest<InitializedBookingPayment>(
+    "/payments/init",
+    {
+      method: "POST",
+      headers: {
+        "X-Idempotency-Key": payload.idempotencyKey,
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
