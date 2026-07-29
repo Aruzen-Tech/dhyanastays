@@ -357,6 +357,7 @@ export interface BookingDetails {
   endsAt: string;
   priceSnapshot: PriceSnapshot;
   guestDetails: BookingGuestDetails;
+  balanceDueAt?: string | null;
   acceptedTermsAt?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -432,4 +433,3 @@ export function initBookingPayment(
     },
   );
 }
-

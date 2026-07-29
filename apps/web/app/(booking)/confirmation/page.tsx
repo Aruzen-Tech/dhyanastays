@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   ArrowRight,
@@ -41,21 +42,34 @@ function formatStatus(status: string): string {
     .join(" ");
 }
 
-export default function ConfirmationPage() {
-  const [bookingId, setBookingId] = useState("");
+const CONFIRMED_STATUSES = new Set([
+  "CONFIRMED_PAID",
+  "CONFIRMED_DEPOSIT",
+]);
+
+function isConfirmedStatus(status: string): boolean {
+  return CONFIRMED_STATUSES.has(status);
+}
+
+function ConfirmationLoadingState() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-6">
+      <p className="text-sm text-muted">
+        Loading booking details…
+      </p>
+    </div>
+  );
+}
+
+function ConfirmationContent() {
+  const searchParams = useSearchParams();
+  const bookingId = searchParams.get("bookingId") ?? "";
   const [booking, setBooking] = useState<BookingDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const currentBookingId = params.get("bookingId") ?? "";
-
-    setBookingId(currentBookingId);
-
-    if (!currentBookingId) {
-      setError("No booking ID was provided.");
-      setLoading(false);
+    if (!bookingId) {
       return;
     }
 
@@ -66,7 +80,7 @@ export default function ConfirmationPage() {
       setError("");
 
       try {
-        const result = await getBookingById(currentBookingId);
+        const result = await getBookingById(bookingId);
 
         if (!cancelled) {
           setBooking(result);
@@ -91,16 +105,38 @@ export default function ConfirmationPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [bookingId]);
 
-  if (loading) {
+  if (!bookingId) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-6">
-        <p className="text-sm text-muted">
-          Loading booking details…
-        </p>
+        <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-8 text-center">
+          <AlertCircle
+            className="mx-auto text-terracotta"
+            size={36}
+          />
+
+          <h1 className="mt-4 text-xl font-semibold text-foreground">
+            Unable to load booking
+          </h1>
+
+          <p className="mt-2 text-sm text-muted">
+            No booking ID was provided.
+          </p>
+
+          <Link
+            href="/traveller/bookings"
+            className="mt-6 inline-flex rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground"
+          >
+            View my bookings
+          </Link>
+        </div>
       </div>
     );
+  }
+
+  if (loading) {
+    return <ConfirmationLoadingState />;
   }
 
   if (error || !booking) {
@@ -137,10 +173,6 @@ export default function ConfirmationPage() {
     );
   }
 
-  const confirmed =
-    booking.status === "CONFIRMED_PAID" ||
-    booking.status === "CONFIRMED_DEPOSIT";
-
   const location = [
     booking.listing?.city,
     booking.listing?.state,
@@ -154,6 +186,66 @@ export default function ConfirmationPage() {
     .reduce((sum, payment) => sum + payment.amount, 0);
 
   const snapshot = booking.priceSnapshot;
+  const totalAmount = snapshot.total;
+  const remainingAmount = Math.max(totalAmount - capturedAmount, 0);
+  const confirmed = isConfirmedStatus(booking.status);
+  const isPayOnArrivalReservation =
+    booking.plan === "PAY_ON_ARRIVAL" &&
+    confirmed &&
+    capturedAmount === 0;
+  const isFullyPaid =
+    confirmed &&
+    booking.status === "CONFIRMED_PAID" &&
+    capturedAmount >= totalAmount;
+  const isDepositPaid =
+    booking.plan === "DEPOSIT_50" &&
+    confirmed &&
+    capturedAmount > 0 &&
+    capturedAmount < totalAmount;
+  const isPayLaterCaptured =
+    booking.plan === "PAY_LATER" &&
+    confirmed &&
+    capturedAmount > 0 &&
+    capturedAmount < totalAmount;
+
+  let headline = "Booking awaiting payment";
+  let description =
+    "Your booking has been created, but payment confirmation is still pending.";
+  let statusLabel = formatStatus(booking.status);
+  let ctaLabel = "";
+
+  if (isPayOnArrivalReservation) {
+    headline = "Reservation confirmed";
+    description = "Payment is due at the property.";
+    statusLabel = "Pay on arrival";
+    ctaLabel = "Payment due at the property";
+  } else if (isFullyPaid && booking.plan === "FULL") {
+    headline = "Booking confirmed";
+    description = "Payment verified";
+    statusLabel = "Fully paid";
+    ctaLabel = "Payment verified";
+  } else if (isDepositPaid) {
+    headline = "Booking confirmed";
+    description = "Deposit payment verified";
+    statusLabel = "Deposit paid";
+    ctaLabel = "Deposit payment verified";
+  } else if (isPayLaterCaptured) {
+    headline = "Booking confirmed";
+    description = "First instalment verified";
+    statusLabel = "Pay Later";
+    ctaLabel = "First instalment verified";
+  } else if (confirmed) {
+    headline = "Booking confirmed";
+    description = "Your booking has been confirmed.";
+    statusLabel =
+      booking.plan === "PAY_ON_ARRIVAL"
+        ? "Pay on arrival"
+        : formatStatus(booking.status);
+    ctaLabel =
+      booking.plan === "PAY_ON_ARRIVAL"
+        ? "Payment due at the property"
+        : "Booking confirmed";
+  }
 
   return (
     <div className="min-h-screen bg-background pb-24 pt-[72px]">
@@ -174,15 +266,11 @@ export default function ConfirmationPage() {
           </div>
 
           <h1 className="heading-display mb-4 text-3xl text-foreground md:text-5xl">
-            {confirmed
-              ? "Booking confirmed"
-              : "Booking awaiting payment"}
+            {headline}
           </h1>
 
           <p className="text-lg text-muted">
-            {confirmed
-              ? "Your booking has been verified and confirmed."
-              : "Your booking has been created, but payment confirmation is still pending."}
+            {description}
           </p>
 
           <div className="mt-4 inline-block rounded-full border border-border bg-surface-hover px-4 py-2 text-sm text-foreground">
@@ -254,25 +342,55 @@ export default function ConfirmationPage() {
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between text-muted">
                 <span>Booking total</span>
-                <span>₹{formatMoney(snapshot.total)}</span>
+                <span>₹{formatMoney(totalAmount)}</span>
               </div>
 
               <div className="flex items-center justify-between text-muted">
                 <span>Payment plan</span>
-                <span>{formatStatus(booking.plan)}</span>
-              </div>
-
-              <div className="flex items-center justify-between text-muted">
-                <span>Amount captured</span>
                 <span>
-                  ₹{formatMoney(capturedAmount)}
+                  {booking.plan === "PAY_ON_ARRIVAL"
+                    ? "Pay on arrival"
+                    : formatStatus(booking.plan)}
                 </span>
               </div>
+
+              {!isPayOnArrivalReservation && (
+                <div className="flex items-center justify-between text-muted">
+                  <span>Amount captured</span>
+                  <span>
+                    ₹{formatMoney(capturedAmount)}
+                  </span>
+                </div>
+              )}
+
+              {(isDepositPaid || isPayLaterCaptured || isPayOnArrivalReservation) &&
+                remainingAmount > 0 && (
+                  <div className="flex items-center justify-between text-muted">
+                    <span>
+                      {isPayOnArrivalReservation
+                        ? "Amount due at property"
+                        : "Remaining amount"}
+                    </span>
+                    <span>₹{formatMoney(remainingAmount)}</span>
+                  </div>
+                )}
+
+              {(isDepositPaid || isPayOnArrivalReservation) &&
+                booking.balanceDueAt && (
+                  <div className="flex items-center justify-between text-muted">
+                    <span>
+                      {isPayOnArrivalReservation
+                        ? "Due at property"
+                        : "Balance due"}
+                    </span>
+                    <span>{formatDate(booking.balanceDueAt)}</span>
+                  </div>
+                )}
 
               <div className="flex items-center justify-between border-t border-border pt-3 font-semibold">
                 <span className="text-foreground">Current status</span>
                 <span className={confirmed ? "text-sage" : "text-primary"}>
-                  {formatStatus(booking.status)}
+                  {statusLabel}
                 </span>
               </div>
             </div>
@@ -289,7 +407,7 @@ export default function ConfirmationPage() {
             </Link>
           ) : (
             <div className="flex items-center justify-center rounded-xl border border-sage/20 bg-sage/10 py-4 text-sm font-medium text-sage">
-              Payment verified
+              {ctaLabel}
             </div>
           )}
 
@@ -303,5 +421,13 @@ export default function ConfirmationPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ConfirmationPage() {
+  return (
+    <Suspense fallback={<ConfirmationLoadingState />}>
+      <ConfirmationContent />
+    </Suspense>
   );
 }

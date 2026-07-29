@@ -297,34 +297,40 @@ export default function BookingPage() {
       ]),
     );
 
-    setSelectedAddOnQuantities((current) => {
-      const next: Record<string, number> = {};
+    const timeout = window.setTimeout(() => {
+      setSelectedAddOnQuantities((current) => {
+        const next: Record<string, number> = {};
 
-      for (const [addOnId, quantity] of Object.entries(
-        current,
-      )) {
-        const addOn = addOnsById.get(addOnId);
+        for (const [addOnId, quantity] of Object.entries(
+          current,
+        )) {
+          const addOn = addOnsById.get(addOnId);
 
-        if (
-          !addOn ||
-          !isAddOnLeadTimeEligible(addOn, checkIn)
-        ) {
-          continue;
+          if (
+            !addOn ||
+            !isAddOnLeadTimeEligible(addOn, checkIn)
+          ) {
+            continue;
+          }
+
+          next[addOnId] = Math.min(
+            Math.max(1, quantity),
+            getAddOnMaximum(addOn),
+          );
         }
 
-        next[addOnId] = Math.min(
-          Math.max(1, quantity),
-          getAddOnMaximum(addOn),
-        );
-      }
+        const currentKey = JSON.stringify(current);
+        const nextKey = JSON.stringify(next);
 
-      const currentKey = JSON.stringify(current);
-      const nextKey = JSON.stringify(next);
+        return currentKey === nextKey
+          ? current
+          : next;
+      });
+    }, 0);
 
-      return currentKey === nextKey
-        ? current
-        : next;
-    });
+    return () => {
+      window.clearTimeout(timeout);
+    };
   }, [
     availableAddOns,
     addOnsLoading,
@@ -377,7 +383,14 @@ export default function BookingPage() {
 
   useEffect(() => {
     if (!hold) {
-      setHoldSeconds(0);
+      const timeout = window.setTimeout(() => {
+        setHoldSeconds(0);
+      }, 0);
+
+      return () => {
+        window.clearTimeout(timeout);
+      };
+
       return;
     }
 
@@ -415,7 +428,14 @@ export default function BookingPage() {
 
   useEffect(() => {
     holdKeyRef.current = null;
-    setHoldError("");
+
+    const timeout = window.setTimeout(() => {
+      setHoldError("");
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
   }, [
     checkIn,
     checkOut,
@@ -454,23 +474,48 @@ export default function BookingPage() {
       heldGuests === totalGuests &&
       selectedAddOnKey === heldAddOnKey
     ) {
-      setQuote(hold.priceSnapshot);
-      setQuoteError("");
+      const timeout = window.setTimeout(() => {
+        setQuote(hold.priceSnapshot);
+        setQuoteError("");
+      }, 0);
+
+      return () => {
+        window.clearTimeout(timeout);
+      };
+
       return;
     }
 
-    setQuote(null);
-    setQuoteError("");
+    const resetTimeout = window.setTimeout(() => {
+      setQuote(null);
+      setQuoteError("");
+    }, 0);
 
     if (!checkIn || !checkOut || checkOut <= checkIn) {
-      setQuoteError("Check-out must be after check-in.");
+      const timeout = window.setTimeout(() => {
+        setQuoteError("Check-out must be after check-in.");
+      }, 0);
+
+      return () => {
+        window.clearTimeout(resetTimeout);
+        window.clearTimeout(timeout);
+      };
+
       return;
     }
 
     if (totalGuests > property.maxGuests) {
-      setQuoteError(
-        `This stay supports a maximum of ${property.maxGuests} guests.`,
-      );
+      const timeout = window.setTimeout(() => {
+        setQuoteError(
+          `This stay supports a maximum of ${property.maxGuests} guests.`,
+        );
+      }, 0);
+
+      return () => {
+        window.clearTimeout(resetTimeout);
+        window.clearTimeout(timeout);
+      };
+
       return;
     }
 
@@ -542,6 +587,7 @@ export default function BookingPage() {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(resetTimeout);
       window.clearTimeout(timeout);
     };
   }, [
@@ -773,9 +819,16 @@ export default function BookingPage() {
           acceptedTermsAt: new Date().toISOString(),
         });
 
-        router.push(
-          `/payment?bookingId=${encodeURIComponent(booking.id)}`,
-        );
+        const destination =
+          booking.plan === "PAY_ON_ARRIVAL"
+            ? `/confirmation?bookingId=${encodeURIComponent(
+                booking.id,
+              )}`
+            : `/payment?bookingId=${encodeURIComponent(
+                booking.id,
+              )}`;
+
+        router.push(destination);
       } catch (error) {
         bookingKeyRef.current = null;
 
