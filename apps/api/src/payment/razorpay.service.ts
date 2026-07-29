@@ -102,11 +102,23 @@ export class RazorpayService {
     const expected = crypto
       .createHmac('sha256', this.webhookSecret)
       .update(rawBody)
-      .digest('hex');
-    return crypto.timingSafeEqual(
-      Buffer.from(expected, 'hex'),
-      Buffer.from(signature, 'hex'),
-    );
+      .digest();
+    const expectedHexLength = expected.length * 2;
+
+    if (
+      !signature ||
+      signature.length !== expectedHexLength ||
+      !/^[\da-f]+$/i.test(signature)
+    ) {
+      return false;
+    }
+
+    const provided = Buffer.from(signature, 'hex');
+    if (provided.length !== expected.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expected, provided);
   }
 
   /**

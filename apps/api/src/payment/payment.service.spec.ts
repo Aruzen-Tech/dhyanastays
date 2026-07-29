@@ -59,6 +59,17 @@ const DEPOSIT_BOOKING = {
 
 describe('RazorpayService', () => {
   describe('verifyWebhookSignature()', () => {
+    function makeRazorpayConfigMock(secret = 'test_webhook_secret') {
+      return {
+        get: jest.fn((key: string, def: string) => {
+          if (key === 'RAZORPAY_KEY_ID') return 'rzp_test_key';
+          if (key === 'RAZORPAY_KEY_SECRET') return 'rzp_test_secret';
+          if (key === 'RAZORPAY_WEBHOOK_SECRET') return secret;
+          return def;
+        }),
+      };
+    }
+
     it('returns true for a valid HMAC-SHA256 signature', () => {
       const secret = 'test_webhook_secret';
       const body = JSON.stringify({ event: 'payment.captured' });
@@ -67,17 +78,7 @@ describe('RazorpayService', () => {
         .update(body)
         .digest('hex');
 
-      const configMock = {
-        get: jest.fn((key: string, def: string) => {
-          if (key === 'RAZORPAY_KEY_ID') return 'rzp_test_key';
-          if (key === 'RAZORPAY_KEY_SECRET') return 'rzp_test_secret';
-          if (key === 'RAZORPAY_WEBHOOK_SECRET') return secret;
-          return def;
-        }),
-      };
-
-       
-      const svc = new RazorpayService(configMock as any);
+      const svc = new RazorpayService(makeRazorpayConfigMock(secret) as any);
       expect(svc.verifyWebhookSignature(body, validSig)).toBe(true);
     });
 
@@ -90,18 +91,65 @@ describe('RazorpayService', () => {
         .update(body)
         .digest('hex');
 
-      const configMock = {
-        get: jest.fn((key: string, def: string) => {
-          if (key === 'RAZORPAY_KEY_ID') return 'rzp_test_key';
-          if (key === 'RAZORPAY_KEY_SECRET') return 'rzp_test_secret';
-          if (key === 'RAZORPAY_WEBHOOK_SECRET') return secret;
-          return def;
-        }),
-      };
-
-       
-      const svc = new RazorpayService(configMock as any);
+      const svc = new RazorpayService(makeRazorpayConfigMock(secret) as any);
       expect(svc.verifyWebhookSignature(tamperedBody, sigForOriginal)).toBe(false);
+    });
+
+    it('returns false for an incorrect but valid-length hexadecimal signature', () => {
+      const secret = 'test_webhook_secret';
+      const body = JSON.stringify({ event: 'payment.captured' });
+      const validSig = crypto
+        .createHmac('sha256', secret)
+        .update(body)
+        .digest('hex');
+      const invalidSig = `${validSig[0] === 'a' ? 'b' : 'a'}${validSig.slice(1)}`;
+
+      const svc = new RazorpayService(makeRazorpayConfigMock(secret) as any);
+      expect(svc.verifyWebhookSignature(body, invalidSig)).toBe(false);
+    });
+
+    it('returns false for a truncated hexadecimal signature', () => {
+      const secret = 'test_webhook_secret';
+      const body = JSON.stringify({ event: 'payment.captured' });
+      const validSig = crypto
+        .createHmac('sha256', secret)
+        .update(body)
+        .digest('hex');
+
+      const svc = new RazorpayService(makeRazorpayConfigMock(secret) as any);
+      expect(svc.verifyWebhookSignature(body, validSig.slice(0, -2))).toBe(false);
+    });
+
+    it('returns false for an oversized hexadecimal signature', () => {
+      const secret = 'test_webhook_secret';
+      const body = JSON.stringify({ event: 'payment.captured' });
+      const validSig = crypto
+        .createHmac('sha256', secret)
+        .update(body)
+        .digest('hex');
+
+      const svc = new RazorpayService(makeRazorpayConfigMock(secret) as any);
+      expect(svc.verifyWebhookSignature(body, `${validSig}00`)).toBe(false);
+    });
+
+    it('returns false for a non-hexadecimal signature', () => {
+      const secret = 'test_webhook_secret';
+      const body = JSON.stringify({ event: 'payment.captured' });
+      const validSig = crypto
+        .createHmac('sha256', secret)
+        .update(body)
+        .digest('hex');
+
+      const svc = new RazorpayService(makeRazorpayConfigMock(secret) as any);
+      expect(svc.verifyWebhookSignature(body, 'g'.repeat(validSig.length))).toBe(false);
+    });
+
+    it('returns false for an empty signature', () => {
+      const secret = 'test_webhook_secret';
+      const body = JSON.stringify({ event: 'payment.captured' });
+
+      const svc = new RazorpayService(makeRazorpayConfigMock(secret) as any);
+      expect(svc.verifyWebhookSignature(body, '')).toBe(false);
     });
 
     it('returns true in stub mode (no credentials)', () => {
