@@ -103,6 +103,36 @@ function getPayLaterEligibility(
   };
 }
 
+function getAddOnMaximum(
+  addOn: PublicListingAddOn,
+): number {
+  return Math.max(
+    1,
+    Math.min(20, addOn.maxPerBooking || 1),
+  );
+}
+
+function isAddOnLeadTimeEligible(
+  addOn: PublicListingAddOn,
+  checkIn: string,
+): boolean {
+  const checkInAt = new Date(
+    `${checkIn}T00:00:00.000Z`,
+  );
+
+  if (Number.isNaN(checkInAt.getTime())) {
+    return false;
+  }
+
+  const requiredLeadTime =
+    addOn.minLeadHours * 60 * 60 * 1000;
+
+  return (
+    checkInAt.getTime() - Date.now() >=
+    requiredLeadTime
+  );
+}
+
 export default function BookingPage() {
   const params = useParams();
   const router = useRouter();
@@ -120,7 +150,10 @@ export default function BookingPage() {
 
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
-  const [selectedExperiences, setSelectedExperiences] = useState<string[]>([]);
+  const [
+    selectedAddOnQuantities,
+    setSelectedAddOnQuantities,
+  ] = useState<Record<string, number>>({});
   const [availableAddOns, setAvailableAddOns] =
     useState<PublicListingAddOn[]>([]);
   const [addOnsLoading, setAddOnsLoading] = useState(false);
@@ -193,6 +226,26 @@ export default function BookingPage() {
 
   const totalGuests = adults + children;
 
+  const selectedAddOns = Object.entries(
+    selectedAddOnQuantities,
+  )
+    .filter(([, quantity]) => quantity > 0)
+    .sort(([firstId], [secondId]) =>
+      firstId.localeCompare(secondId),
+    )
+    .map(([addOnId, quantity]) => ({
+      addOnId,
+      quantity,
+    }));
+
+  const selectedAddOnCount = selectedAddOns.length;
+
+  const selectedAddOnUnits = selectedAddOns.reduce(
+    (total, selection) =>
+      total + selection.quantity,
+    0,
+  );
+
   useEffect(() => {
     if (!property) return;
 
@@ -233,6 +286,53 @@ export default function BookingPage() {
   }, [property]);
 
   useEffect(() => {
+    if (addOnsLoading || hold) {
+      return;
+    }
+
+    const addOnsById = new Map(
+      availableAddOns.map((addOn) => [
+        addOn.id,
+        addOn,
+      ]),
+    );
+
+    setSelectedAddOnQuantities((current) => {
+      const next: Record<string, number> = {};
+
+      for (const [addOnId, quantity] of Object.entries(
+        current,
+      )) {
+        const addOn = addOnsById.get(addOnId);
+
+        if (
+          !addOn ||
+          !isAddOnLeadTimeEligible(addOn, checkIn)
+        ) {
+          continue;
+        }
+
+        next[addOnId] = Math.min(
+          Math.max(1, quantity),
+          getAddOnMaximum(addOn),
+        );
+      }
+
+      const currentKey = JSON.stringify(current);
+      const nextKey = JSON.stringify(next);
+
+      return currentKey === nextKey
+        ? current
+        : next;
+    });
+  }, [
+    availableAddOns,
+    addOnsLoading,
+    checkIn,
+    hold,
+  ]);
+
+  useEffect(() => {
     if (!property) return;
 
     const propertyId = property.id;
@@ -254,8 +354,13 @@ export default function BookingPage() {
         setCheckOut(activeHold.endsAt.slice(0, 10));
         setAdults(Math.max(1, snapshot.guests || 1));
         setChildren(0);
-        setSelectedExperiences(
-          (snapshot.addOns ?? []).map((addOn) => addOn.addOnId),
+        setSelectedAddOnQuantities(
+          Object.fromEntries(
+            (snapshot.addOns ?? []).map((addOn) => [
+              addOn.addOnId,
+              addOn.quantity,
+            ]),
+          ),
         );
         setStep(3);
       } catch {
@@ -311,7 +416,12 @@ export default function BookingPage() {
   useEffect(() => {
     holdKeyRef.current = null;
     setHoldError("");
-  }, [checkIn, checkOut, totalGuests, selectedExperiences]);
+  }, [
+    checkIn,
+    checkOut,
+    totalGuests,
+    selectedAddOnQuantities,
+  ]);
 
   useEffect(() => {
     if (!property) return;
@@ -320,12 +430,20 @@ export default function BookingPage() {
     const heldCheckOut = hold?.endsAt.slice(0, 10);
     const heldGuests = hold?.priceSnapshot.guests;
 
-    const selectedAddOnKey = [...selectedExperiences]
-      .sort()
+    const selectedAddOnKey = selectedAddOns
+      .map(
+        (selection) =>
+          `${selection.addOnId}:${selection.quantity}`,
+      )
       .join(",");
 
-    const heldAddOnKey = [...(hold?.priceSnapshot.addOns ?? [])]
-      .map((addOn) => addOn.addOnId)
+    const heldAddOnKey = [
+      ...(hold?.priceSnapshot.addOns ?? []),
+    ]
+      .map(
+        (addOn) =>
+          `${addOn.addOnId}:${addOn.quantity}`,
+      )
       .sort()
       .join(",");
 
@@ -394,10 +512,12 @@ export default function BookingPage() {
           checkIn,
           checkOut,
           guests: totalGuests,
-          addOns: selectedExperiences.map((addOnId) => ({
-            addOnId,
-            quantity: 1,
-          })),
+          addOns: selectedAddOns.map(
+            (selection) => ({
+              addOnId: selection.addOnId,
+              quantity: selection.quantity,
+            }),
+          ),
         });
 
         if (!cancelled) {
@@ -429,16 +549,51 @@ export default function BookingPage() {
     checkIn,
     checkOut,
     totalGuests,
-    selectedExperiences,
+    selectedAddOnQuantities,
     hold,
   ]);
 
-  const toggleExperience = (id: string) =>
-    setSelectedExperiences((prev) =>
-      prev.includes(id)
-        ? prev.filter((item) => item !== id)
-        : [...prev, id],
+  const setAddOnQuantity = (
+    addOn: PublicListingAddOn,
+    requestedQuantity: number,
+  ) => {
+    if (
+      hold ||
+      !isAddOnLeadTimeEligible(addOn, checkIn)
+    ) {
+      return;
+    }
+
+    const maximum = getAddOnMaximum(addOn);
+
+    setSelectedAddOnQuantities((current) => {
+      if (requestedQuantity <= 0) {
+        const next = { ...current };
+        delete next[addOn.id];
+        return next;
+      }
+
+      return {
+        ...current,
+        [addOn.id]: Math.min(
+          requestedQuantity,
+          maximum,
+        ),
+      };
+    });
+  };
+
+  const toggleExperience = (
+    addOn: PublicListingAddOn,
+  ) => {
+    const currentQuantity =
+      selectedAddOnQuantities[addOn.id] ?? 0;
+
+    setAddOnQuantity(
+      addOn,
+      currentQuantity > 0 ? 0 : 1,
     );
+  };
 
   const nights = quote?.nights ?? calculateNights(checkIn, checkOut);
 
@@ -509,10 +664,12 @@ export default function BookingPage() {
           checkOut,
           guests: totalGuests,
           idempotencyKey,
-          addOns: selectedExperiences.map((addOnId) => ({
-            addOnId,
-            quantity: 1,
-          })),
+          addOns: selectedAddOns.map(
+            (selection) => ({
+              addOnId: selection.addOnId,
+              quantity: selection.quantity,
+            }),
+          ),
         });
 
         setHold(createdHold);
@@ -1041,8 +1198,16 @@ export default function BookingPage() {
                 ) : (
                   <div className="space-y-4">
                     {availableAddOns.map((addOn) => {
-                      const isSelected =
-                        selectedExperiences.includes(addOn.id);
+                      const quantity =
+                        selectedAddOnQuantities[addOn.id] ?? 0;
+                      const isSelected = quantity > 0;
+                      const maximum =
+                        getAddOnMaximum(addOn);
+                      const leadTimeEligible =
+                        isAddOnLeadTimeEligible(
+                          addOn,
+                          checkIn,
+                        );
 
                       return (
                         <div
@@ -1067,6 +1232,18 @@ export default function BookingPage() {
                               <p className="mt-1 text-xs text-muted">
                                 {addOn.description}
                               </p>
+
+                              <p className="mt-2 text-[11px] text-subtle">
+                                Maximum {maximum} per booking
+                              </p>
+
+                              {!leadTimeEligible && (
+                                <p className="mt-1 text-[11px] text-terracotta">
+                                  Requires at least{" "}
+                                  {addOn.minLeadHours} hours
+                                  before check-in.
+                                </p>
+                              )}
                             </div>
 
                             <div className="shrink-0 text-right">
@@ -1079,18 +1256,68 @@ export default function BookingPage() {
 
                               <button
                                 type="button"
-                                disabled={Boolean(hold)}
-                                onClick={() =>
-                                  toggleExperience(addOn.id)
+                                disabled={
+                                  Boolean(hold) ||
+                                  !leadTimeEligible
                                 }
-                                className={`mt-3 rounded-full px-4 py-2 text-xs font-semibold disabled:opacity-50 ${
+                                onClick={() =>
+                                  toggleExperience(addOn)
+                                }
+                                className={`mt-3 rounded-full px-4 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
                                   isSelected
                                     ? "border border-sage/40 bg-sage/10 text-sage"
                                     : "bg-primary text-primary-foreground"
                                 }`}
                               >
-                                {isSelected ? "Added" : "Add"}
+                                {!leadTimeEligible
+                                  ? "Unavailable"
+                                  : isSelected
+                                    ? "Remove"
+                                    : "Add"}
                               </button>
+
+                              {isSelected && (
+                                <div className="mt-3 flex items-center justify-end">
+                                  <div className="flex items-center overflow-hidden rounded-full border border-border">
+                                    <button
+                                      type="button"
+                                      aria-label={`Decrease ${addOn.title} quantity`}
+                                      disabled={Boolean(hold)}
+                                      onClick={() =>
+                                        setAddOnQuantity(
+                                          addOn,
+                                          quantity - 1,
+                                        )
+                                      }
+                                      className="flex h-8 w-8 items-center justify-center text-foreground transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      <Minus size={13} />
+                                    </button>
+
+                                    <span className="min-w-9 border-x border-border px-2 py-1.5 text-center text-xs font-semibold tabular-nums text-foreground">
+                                      {quantity}
+                                    </span>
+
+                                    <button
+                                      type="button"
+                                      aria-label={`Increase ${addOn.title} quantity`}
+                                      disabled={
+                                        Boolean(hold) ||
+                                        quantity >= maximum
+                                      }
+                                      onClick={() =>
+                                        setAddOnQuantity(
+                                          addOn,
+                                          quantity + 1,
+                                        )
+                                      }
+                                      className="flex h-8 w-8 items-center justify-center text-foreground transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      <Plus size={13} />
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -1111,8 +1338,13 @@ export default function BookingPage() {
                   ) : quote ? (
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-muted">
-                        {selectedExperiences.length} add-on
-                        {selectedExperiences.length === 1 ? "" : "s"}
+                        {selectedAddOnCount} add-on
+                        {selectedAddOnCount === 1 ? "" : "s"}
+                        {selectedAddOnUnits > 0
+                          ? ` · ${selectedAddOnUnits} item${
+                              selectedAddOnUnits === 1 ? "" : "s"
+                            }`
+                          : ""}
                       </span>
 
                       <span className="text-lg font-bold text-primary">
@@ -1625,9 +1857,9 @@ export default function BookingPage() {
                       <span>Accommodation · {nights} nights</span>
                       <span>₹{basePrice.toLocaleString()}</span>
                     </div>
-                    {selectedExperiences.length > 0 && (
+                    {selectedAddOnCount > 0 && (
                       <div className="flex justify-between text-muted animate-fade-in">
-                        <span>Curated experiences ({selectedExperiences.length})</span>
+                        <span>Curated experiences ({selectedAddOnCount})</span>
                         <span>₹{experiencesTotal.toLocaleString()}</span>
                       </div>
                     )}
