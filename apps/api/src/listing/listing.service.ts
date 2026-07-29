@@ -255,9 +255,14 @@ export class ListingService {
   async getDiscoveryListings(params: {
     q?: string;
     city?: string;
+    cities?: string[];
     experienceTags?: string[];
     propertyType?: string;
+    propertyTypes?: string[];
     dietaryOptions?: string[];
+    minPrice?: number;
+    maxPrice?: number;
+    minGuests?: number;
     sort?: 'newest' | 'price-asc' | 'price-desc';
   }) {
     const where: Prisma.ListingWhereInput = {
@@ -272,17 +277,127 @@ export class ListingService {
         { state: { contains: params.q, mode: 'insensitive' } },
       ];
     }
-    if (params.city?.trim()) {
-      where.city = { contains: params.city, mode: 'insensitive' };
+    const selectedCities = Array.from(
+      new Set([
+        ...(params.city?.trim() ? [params.city.trim()] : []),
+        ...(params.cities ?? []).map((city) => city.trim()).filter(Boolean),
+      ]),
+    );
+
+    const selectedPropertyTypes = Array.from(
+      new Set([
+        ...(params.propertyType?.trim()
+          ? [params.propertyType.trim()]
+          : []),
+        ...(params.propertyTypes ?? [])
+          .map((propertyType) => propertyType.trim())
+          .filter(Boolean),
+      ]),
+    );
+
+    const andFilters: Prisma.ListingWhereInput[] = [];
+
+    if (selectedCities.length === 1) {
+      where.city = {
+        equals: selectedCities[0],
+        mode: 'insensitive',
+      };
+    } else if (selectedCities.length > 1) {
+      andFilters.push({
+        OR: selectedCities.map((city) => ({
+          city: {
+            equals: city,
+            mode: 'insensitive',
+          },
+        })),
+      });
     }
-    if (params.propertyType) {
-      where.propertyType = params.propertyType;
+
+    if (selectedPropertyTypes.length === 1) {
+      where.propertyType = {
+        equals: selectedPropertyTypes[0],
+        mode: 'insensitive',
+      };
+    } else if (selectedPropertyTypes.length > 1) {
+      andFilters.push({
+        OR: selectedPropertyTypes.map((propertyType) => ({
+          propertyType: {
+            equals: propertyType,
+            mode: 'insensitive',
+          },
+        })),
+      });
+    }
+
+    if (andFilters.length > 0) {
+      where.AND = andFilters;
     }
     if (params.experienceTags && params.experienceTags.length > 0) {
       where.experienceTags = { hasSome: params.experienceTags };
     }
     if (params.dietaryOptions && params.dietaryOptions.length > 0) {
       where.dietaryOptions = { hasSome: params.dietaryOptions };
+    }
+
+    const validatePrice = (value: number | undefined, field: string) => {
+      if (
+        value !== undefined &&
+        (!Number.isFinite(value) || value < 0)
+      ) {
+        throw new BadRequestException(
+          `${field} must be a valid non-negative number`,
+        );
+      }
+    };
+
+    validatePrice(params.minPrice, 'minPrice');
+    validatePrice(params.maxPrice, 'maxPrice');
+
+    if (
+      params.minPrice !== undefined &&
+      params.maxPrice !== undefined &&
+      params.minPrice > params.maxPrice
+    ) {
+      throw new BadRequestException(
+        'minPrice cannot be greater than maxPrice',
+      );
+    }
+
+    if (
+      params.minGuests !== undefined &&
+      (!Number.isInteger(params.minGuests) || params.minGuests < 1)
+    ) {
+      throw new BadRequestException(
+        'minGuests must be a positive integer',
+      );
+    }
+
+    const rateRuleFilter: Prisma.RateRuleWhereInput = {};
+
+    if (
+      params.minPrice !== undefined ||
+      params.maxPrice !== undefined
+    ) {
+      rateRuleFilter.baseNightlyRate = {
+        ...(params.minPrice !== undefined
+          ? { gte: Math.round(params.minPrice * 100) }
+          : {}),
+        ...(params.maxPrice !== undefined
+          ? { lte: Math.round(params.maxPrice * 100) }
+          : {}),
+      };
+    }
+
+    if (params.minGuests !== undefined) {
+      rateRuleFilter.maxGuests = {
+        gte: params.minGuests,
+      };
+    }
+
+    if (Object.keys(rateRuleFilter).length > 0) {
+      where.rateRules = {
+        some: rateRuleFilter,
+      };
     }
 
     const listings = await this.prisma.listing.findMany({

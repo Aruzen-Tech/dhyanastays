@@ -26,24 +26,47 @@ export class PublicListingController {
   getFeed(
     @Query('q') q?: string,
     @Query('city') city?: string,
+    @Query('cities') cities?: string,
     @Query('experienceTags') experienceTags?: string,
     @Query('propertyType') propertyType?: string,
+    @Query('propertyTypes') propertyTypes?: string,
     @Query('dietaryOptions') dietaryOptions?: string,
+    @Query('minPrice') minPrice?: string,
+    @Query('maxPrice') maxPrice?: string,
+    @Query('minGuests') minGuests?: string,
     @Query('sort') sort?: 'newest' | 'price-asc' | 'price-desc',
   ) {
     const hasFacets =
-      q || city || experienceTags || propertyType || dietaryOptions || sort;
+      q ||
+      city ||
+      cities ||
+      experienceTags ||
+      propertyType ||
+      propertyTypes ||
+      dietaryOptions ||
+      minPrice ||
+      maxPrice ||
+      minGuests ||
+      sort;
     if (!hasFacets) {
       return this.listingService.getPublicListings();
     }
     const parseCsv = (v?: string) =>
       v ? v.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+
+    const parseOptionalNumber = (value?: string) =>
+      value === undefined ? undefined : Number(value);
     return this.listingService.getDiscoveryListings({
       q,
       city,
+      cities: parseCsv(cities),
       experienceTags: parseCsv(experienceTags),
       propertyType,
+      propertyTypes: parseCsv(propertyTypes),
       dietaryOptions: parseCsv(dietaryOptions),
+      minPrice: parseOptionalNumber(minPrice),
+      maxPrice: parseOptionalNumber(maxPrice),
+      minGuests: parseOptionalNumber(minGuests),
       sort,
     });
   }

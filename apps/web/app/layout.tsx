@@ -1,83 +1,51 @@
-import type { Metadata } from 'next';
-import 'leaflet/dist/leaflet.css';
-import './globals.css';
-import { AuthProvider } from '../context/AuthContext';
-import { ThemeProvider } from '../context/ThemeContext';
-import { FeatureProvider } from '../context/FeatureContext';
-import Navbar from '../components/Navbar';
+import type { Metadata } from "next";
+import { Inter, Playfair_Display } from "next/font/google";
+import { ThemeProvider } from "@/app/components/ThemeProvider";
+import FloatingActions from "@/app/components/FloatingActions";
+import "./globals.css";
+
+const inter = Inter({
+  variable: "--font-inter",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const playfair = Playfair_Display({
+  variable: "--font-playfair",
+  subsets: ["latin"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: {
-    default: 'Dhyana Stays — Curated Wellness Retreats',
-    template: '%s | Dhyana Stays',
-  },
+  title: "Dhyana Stays — Curated Hospitality Experiences",
   description:
-    'Discover and book handpicked wellness retreats, spiritual sanctuaries, and nature escapes across India.',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://dhyanastays.in'),
-  openGraph: {
-    type: 'website',
-    siteName: 'Dhyana Stays',
-    title: 'Dhyana Stays — Curated Wellness Retreats',
-    description:
-      'Discover and book handpicked wellness retreats, spiritual sanctuaries, and nature escapes across India.',
-    locale: 'en_IN',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Dhyana Stays — Curated Wellness Retreats',
-    description: 'Discover and book handpicked wellness retreats across India.',
-  },
-  icons: { icon: '/favicon.ico' },
-  robots: { index: true, follow: true },
+    "Discover handpicked, architect-designed stays across India. Farm stays, tiny houses, wellness retreats, and luxury villas — all curated for unforgettable experiences.",
+  keywords: [
+    "curated stays",
+    "farm stays",
+    "tiny houses",
+    "luxury villas",
+    "wellness retreats",
+    "hospitality",
+    "India travel",
+  ],
 };
 
-/** Injected before React hydrates — prevents flash of wrong theme */
-const FOUC_SCRIPT = `(function(){try{var t=localStorage.getItem('ds-theme');var d=window.matchMedia('(prefers-color-scheme:dark)').matches;if(t==='dark'||(t===null&&d))document.documentElement.classList.add('dark');}catch(e){}})();`;
-
-const COPYRIGHT_YEAR = 2026;
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <head>
-        {/* FOUC prevention — must be first script */}
-        <script dangerouslySetInnerHTML={{ __html: FOUC_SCRIPT }} />
-
-        {/* Fonts */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@500;600;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="min-h-screen bg-surface flex flex-col">
-        <ThemeProvider>
-          <AuthProvider>
-            <FeatureProvider>
-            <Navbar />
-            <main className="flex-1 animate-fade-in">{children}</main>
-
-            <footer className="border-t border-gray-200 bg-white mt-16">
-              <div className="container-page py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-xl">🏡</span>
-                  <span className="font-semibold text-brand-700 tracking-tight"
-                    style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
-                    Dhyana Stays
-                  </span>
-                </div>
-                <p className="text-gray-500 text-sm">
-                  © {COPYRIGHT_YEAR} Dhyana Stays. Curated wellness retreats across India.
-                </p>
-                <div className="flex gap-4 text-sm text-gray-400">
-                  <span>INR · India</span>
-                  <span>English</span>
-                </div>
-              </div>
-            </footer>
-            </FeatureProvider>
-          </AuthProvider>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${inter.variable} ${playfair.variable} antialiased`}
+    >
+      <body className="min-h-screen flex flex-col" suppressHydrationWarning>
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+          {children}
+          <FloatingActions />
         </ThemeProvider>
       </body>
     </html>

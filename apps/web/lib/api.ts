@@ -1,1887 +1,307 @@
-import type {
-  AdminListingDetail,
-  AdminNotification,
-  AdminSearchResults,
-  AdminStats,
-  AdminUser,
-  AuditEntry,
-  AuthTokens,
-  AvailabilityBlock,
-  Booking,
-  BookingDirections,
-  BookingManual,
-  BookingPreparation,
-  AdminCalendarTimeline,
-  CalendarBooking,
-  CheckInOutStatus,
-  ConciergeAdminThread,
-  Conversation,
-  ConversationListItem,
-  ConversationMessage,
-  HostQuickReply,
-  GuestDashboardStats,
-  GuestDetails,
-  GuestIssue,
-  GuestNotification,
-  GuestPreference,
-  GuestProfile,
-  Hold,
-  Host,
-  HostBookingRow,
-  HostCalendarBooking,
-  HostForecastBucket,
-  HostListingPerformance,
-  HostNotification,
-  HostPerformance,
-  HostRevenueDataPoint,
-  HostStatement,
-  HostStats,
-  IssueCategory,
-  IssueStatus,
-  IssueUrgency,
-  Listing,
-  ListingAvailability,
-  ListingMedia,
-  ListingReviews,
-  PayoutBatch,
-  PayoutLine,
-  PreparationGuide,
-  PriceQuote,
-  PropertyDirections,
-  PropertyManual,
-  RateLimitStats,
-  Refund,
-  Review,
-  RevenueDataPoint,
-  RevenueForecast,
-  SeasonalRate,
-  SystemConfigEntry,
-  Tag,
-  ListingTag,
-  WishlistItem,
-  ReferralInfo,
-  CreditLedger,
-  DiscoveryFacets,
-  FacetVocabulary,
-  LoyaltyInfo,
-  PayoutDryRun,
-  RefundValidation,
-  StaffApplication,
-  StaffMember,
-  UserRoleHistory,
-  Membership,
-  MemberPerks,
-  TripSip,
-  TripSipDetail,
-  SipContribution,
-  SipBalance,
-  SipStatusValue,
-  PayLaterPlan,
-} from './types';
+import type { Property } from "./types";
 
-// ─── Token helpers (custom JWT mode) ─────────────────────────────────────────
-
-const ACCESS_KEY = 'ds_access';
-const REFRESH_KEY = 'ds_refresh';
-
-export const tokenStore = {
-  getAccess: (): string | null =>
-    typeof window !== 'undefined' ? localStorage.getItem(ACCESS_KEY) : null,
-  getRefresh: (): string | null =>
-    typeof window !== 'undefined' ? localStorage.getItem(REFRESH_KEY) : null,
-  set: (tokens: AuthTokens) => {
-    localStorage.setItem(ACCESS_KEY, tokens.accessToken);
-    localStorage.setItem(REFRESH_KEY, tokens.refreshToken);
-  },
-  clear: () => {
-    localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
-  },
-};
-
-let _tokenGetter: (() => Promise<string | null>) | null = null;
-
-export function setTokenGetter(fn: () => Promise<string | null>) {
-  _tokenGetter = fn;
+interface ApiRateRule {
+  baseNightlyRate: number;
+  cleaningFee?: number;
+  minNights?: number;
+  maxGuests: number;
 }
 
-async function getToken(): Promise<string | null> {
-  if (_tokenGetter) {
-    return _tokenGetter();
-  }
-  return tokenStore.getAccess();
+interface ApiListingMedia {
+  url: string;
+  mediaType: string;
+  sortOrder?: number;
 }
 
-// ─── Core fetch wrapper ───────────────────────────────────────────────────────
-
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-  isRetry = false,
-): Promise<T> {
-  const token = await getToken();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  const res = await fetch(`/api${path}`, { ...options, headers });
-
-  const isAuthEndpoint =
-    path.startsWith('/auth/me') ||
-    path.startsWith('/auth/logout') ||
-    path.startsWith('/auth/refresh') ||
-    path.startsWith('/auth/login') ||
-    path.startsWith('/auth/register');
-
-  if (res.status === 401 && !isRetry && !_tokenGetter) {
-    const refreshToken = tokenStore.getRefresh();
-
-    if (path.startsWith('/auth/login') || path.startsWith('/auth/register')) {
-      throw new Error('Invalid credentials');
-    }
-
-    if (isAuthEndpoint) {
-      tokenStore.clear();
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth')) {
-        window.location.href = '/auth/login';
-      }
-      throw new Error('Session expired');
-    }
-
-    if (refreshToken) {
-      try {
-        const refreshRes = await fetch('/api/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
-        });
-
-        if (refreshRes.ok) {
-          const newTokens: AuthTokens = await refreshRes.json();
-          tokenStore.set(newTokens);
-          return request<T>(path, options, true);
-        }
-      } catch {
-        // ignore and fall through
-      }
-    }
-
-    throw new Error('Access denied');
-  }
-
-  if (!res.ok) {
-    let message = `HTTP ${res.status}`;
-    try {
-      const body = await res.json();
-      message = Array.isArray(body.message)
-        ? body.message.join(', ')
-        : (body.message ?? message);
-    } catch {
-      // ignore parse error
-    }
-
-    if (
-      res.status === 401 &&
-      !path.startsWith('/auth/me') &&
-      !path.startsWith('/auth/logout') &&
-      !path.startsWith('/auth/refresh') &&
-      !path.startsWith('/auth/login') &&
-      !path.startsWith('/auth/register')
-    ) {
-      throw new Error('Access denied');
-    }
-
-    if (path.startsWith('/auth/login') && res.status === 401) {
-      throw new Error('Invalid credentials');
-    }
-
-    throw new Error(message);
-  }
-
-  if (res.status === 204) return undefined as T;
-
-  return res.json() as Promise<T>;
-}
-
-// ─── Auth ─────────────────────────────────────────────────────────────────────
-
-export const authApi = {
-  register: (body: {
-    email: string;
-    password: string;
-    fullName: string;
-    role: 'GUEST' | 'HOST';
-    referralCode?: string;
-  }) =>
-    request<AuthTokens>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  login: (body: { email: string; password: string }) =>
-    request<AuthTokens>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  logout: () =>
-    request<{ success: boolean }>('/auth/logout', { method: 'POST' }),
-};
-
-// ─── Host profile ─────────────────────────────────────────────────────────────
-
-export const hostApi = {
-  getProfile: () => request<Host>('/host/profile'),
-};
-
-// ─── Admin: host approvals ────────────────────────────────────────────────────
-
-export const adminHostsApi = {
-  getPending: () => request<Host[]>('/admin/hosts/pending'),
-  approve: (id: string) =>
-    request<Host>(`/admin/hosts/${id}/approve`, { method: 'POST' }),
-  reject: (id: string) =>
-    request<Host>(`/admin/hosts/${id}/reject`, { method: 'POST' }),
-};
-
-// ─── Listings ─────────────────────────────────────────────────────────────────
-
-export const listingsApi = {
-  getPublic: (facets?: DiscoveryFacets) => {
-    if (!facets) return request<Listing[]>('/listings');
-    const params = new URLSearchParams();
-    if (facets.q) params.set('q', facets.q);
-    if (facets.city) params.set('city', facets.city);
-    if (facets.experienceTags?.length)
-      params.set('experienceTags', facets.experienceTags.join(','));
-    if (facets.propertyType) params.set('propertyType', facets.propertyType);
-    if (facets.dietaryOptions?.length)
-      params.set('dietaryOptions', facets.dietaryOptions.join(','));
-    if (facets.sort) params.set('sort', facets.sort);
-    const qs = params.toString();
-    return request<Listing[]>(`/listings${qs ? `?${qs}` : ''}`);
-  },
-
-  getTags: () => request<Tag[]>('/listings/meta/tags'),
-
-  getFacetVocabulary: () =>
-    request<FacetVocabulary>('/listings/meta/facets'),
-
-  search: (q: string) =>
-    request<Listing[]>(`/listings/search?q=${encodeURIComponent(q)}`),
-
-  getByBounds: (
-    swLat: number,
-    swLng: number,
-    neLat: number,
-    neLng: number,
-    signal?: AbortSignal,
-  ) =>
-    request<Listing[]>(
-      `/listings/map?swLat=${swLat}&swLng=${swLng}&neLat=${neLat}&neLng=${neLng}`,
-      { signal },
-    ),
-
-  getById: (id: string) => request<Listing>(`/listings/${id}`),
-
-  /** Public per-day availability for a listing's booking calendar (PII-free). */
-  getAvailability: (id: string, from: string, to: string) =>
-    request<ListingAvailability>(
-      `/listings/${id}/availability?from=${from}&to=${to}`,
-    ),
-
-  getHostListings: () => request<Listing[]>('/host/listings'),
-
-  create: (body: {
-    title: string;
-    description: string;
-    city: string;
-    state: string;
-    baseNightlyRate: number;
-    maxGuests: number;
-  }) =>
-    request<Listing>('/host/listings', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  update: (id: string, body: Partial<{
-    title: string;
-    description: string;
-    city: string;
-    state: string;
-    country: string;
-    baseNightlyRate: number;
-    maxGuests: number;
-    minNights: number;
-    cleaningFee: number;
-    experienceTags: string[];
-    propertyType: string | null;
-    dietaryOptions: string[];
-    payOnArrivalEnabled: boolean;
-  }>) =>
-    request<Listing>(`/host/listings/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-
-  // Media
-  addMedia: (id: string, body: { url: string; mediaType: string; sortOrder?: number }) =>
-    request<ListingMedia>(`/host/listings/${id}/media`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  deleteMedia: (id: string, mediaId: string) =>
-    request<{ deleted: boolean }>(`/host/listings/${id}/media/${mediaId}`, {
-      method: 'DELETE',
-    }),
-
-  // Seasonal rates
-  addSeasonalRate: (id: string, body: { startsAt: string; endsAt: string; nightlyRate: number }) =>
-    request<SeasonalRate>(`/host/listings/${id}/seasonal-rates`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  getSeasonalRates: (id: string) =>
-    request<SeasonalRate[]>(`/host/listings/${id}/seasonal-rates`),
-
-  deleteSeasonalRate: (id: string, rateId: string) =>
-    request<{ deleted: boolean }>(`/host/listings/${id}/seasonal-rates/${rateId}`, {
-      method: 'DELETE',
-    }),
-
-  // Availability blocks
-  addAvailabilityBlock: (id: string, body: { startsAt: string; endsAt: string; reason: string }) =>
-    request<AvailabilityBlock>(`/host/listings/${id}/availability-blocks`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  getAvailabilityBlocks: (id: string) =>
-    request<AvailabilityBlock[]>(`/host/listings/${id}/availability-blocks`),
-
-  deleteAvailabilityBlock: (id: string, blockId: string) =>
-    request<{ deleted: boolean }>(`/host/listings/${id}/availability-blocks/${blockId}`, {
-      method: 'DELETE',
-    }),
-
-  // Tags / Amenities
-  getAllTags: () =>
-    request<Tag[]>('/host/tags'),
-
-  getListingTags: (id: string) =>
-    request<ListingTag[]>(`/host/listings/${id}/tags`),
-
-  setListingTags: (id: string, tagIds: string[]) =>
-    request<Listing>(`/host/listings/${id}/tags`, {
-      method: 'POST',
-      body: JSON.stringify({ tagIds }),
-    }),
-
-  // Preparation guide
-  getPreparation: (id: string) =>
-    request<{ preparationGuide: PreparationGuide | null }>(`/host/listings/${id}/preparation`),
-
-  updatePreparation: (id: string, body: Partial<PreparationGuide>) =>
-    request<{ id: string; preparationGuide: PreparationGuide }>(`/host/listings/${id}/preparation`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-
-  // Directions
-  getDirections: (id: string) =>
-    request<{ propertyDirections: PropertyDirections | null }>(`/host/listings/${id}/directions`),
-
-  updateDirections: (id: string, body: Partial<PropertyDirections>) =>
-    request<{ id: string; propertyDirections: PropertyDirections }>(`/host/listings/${id}/directions`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-
-  // Manual
-  getManual: (id: string) =>
-    request<{ propertyManual: PropertyManual | null }>(`/host/listings/${id}/manual`),
-
-  updateManual: (id: string, body: { sections: Array<{ title: string; content: string }> }) =>
-    request<{ id: string; propertyManual: PropertyManual }>(`/host/listings/${id}/manual`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-
-  // Admin
-  getPending: () => request<Listing[]>('/admin/listings/pending'),
-
-  approve: (id: string) =>
-    request<Listing>(`/admin/listings/${id}/approve`, { method: 'POST' }),
-
-  reject: (id: string, note?: string) =>
-    request<Listing>(`/admin/listings/${id}/reject`, {
-      method: 'POST',
-      body: JSON.stringify({ note }),
-    }),
-
-  requestChanges: (id: string, note: string) =>
-    request<Listing>(`/admin/listings/${id}/request-changes`, {
-      method: 'POST',
-      body: JSON.stringify({ note }),
-    }),
-};
-
-// ─── Storage (presigned uploads) ──────────────────────────────────────────────
-
-export const storageApi = {
-  getPresignedUrl: (folder: string, filename: string, mimeType: string) =>
-    request<{ uploadUrl: string; publicUrl: string; key: string; expiresIn: number }>(
-      '/storage/presigned',
-      {
-        method: 'POST',
-        body: JSON.stringify({ folder, filename, mimeType }),
-      },
-    ),
-};
-
-// ─── Pricing ──────────────────────────────────────────────────────────────────
-
-export const pricingApi = {
-  quote: (body: {
-    listingId: string;
-    checkIn: string;
-    checkOut: string;
-    guests?: number;
-    addOns?: Array<{ addOnId: string; quantity: number }>;
-  }) =>
-    request<PriceQuote>('/pricing/quote', {
-      method: 'POST',
-      body: JSON.stringify({ guests: 1, ...body }),
-    }),
-};
-
-// ─── Holds ────────────────────────────────────────────────────────────────────
-
-export interface HoldStatus {
-  held: boolean;
-  mine?: boolean;
-  heldUntil?: string;
-  remainingSeconds?: number;
-}
-
-export const holdsApi = {
-  create: (body: {
-    listingId: string;
-    checkIn: string;
-    checkOut: string;
-    guests?: number;
-    idempotencyKey: string;
-    addOns?: Array<{ addOnId: string; quantity: number }>;
-  }) =>
-    request<Hold>('/holds', {
-      method: 'POST',
-      body: JSON.stringify({ guests: 1, ...body }),
-    }),
-
-  /** Is a date range currently on hold (and by whom)? Drives the "held — MM:SS" banner. */
-  status: (listingId: string, checkIn: string, checkOut: string) =>
-    request<HoldStatus>(
-      `/holds/status?listingId=${encodeURIComponent(listingId)}&checkIn=${encodeURIComponent(checkIn)}&checkOut=${encodeURIComponent(checkOut)}`,
-    ),
-
-  /** The caller's own live hold for this listing (or null) — used to resume booking. */
-  getActive: (listingId: string) =>
-    request<Hold | null>(`/holds/active?listingId=${encodeURIComponent(listingId)}`),
-
-  /** Release a hold when the guest abandons the flow (SPA navigation / cancel). */
-  release: (id: string) =>
-    request<{ released: boolean }>(`/holds/${id}`, { method: 'DELETE' }),
-
-  /**
-   * Fire-and-forget release that survives tab close / navigation via
-   * `fetch(keepalive)`. Carries the bearer token from the token store.
-   * Best-effort — no await, no error surfaced.
-   */
-  releaseBeacon: (id: string) => {
-    if (typeof window === 'undefined') return;
-    const token = tokenStore.getAccess();
-    try {
-      void fetch(`/api/holds/${id}`, {
-        method: 'DELETE',
-        keepalive: true,
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-    } catch {
-      // best-effort — the reaper cron will clean it up within a minute anyway
-    }
-  },
-};
-
-// ─── Bookings ─────────────────────────────────────────────────────────────────
-
-export const bookingsApi = {
-  create: (body: {
-    holdId: string;
-    plan: 'FULL' | 'DEPOSIT_50' | 'PAY_LATER' | 'PAY_ON_ARRIVAL';
-    idempotencyKey: string;
-    guestDetails: GuestDetails;
-    payLaterMonths?: 3 | 6 | 12;
-    /** ISO timestamp recording when guest accepted terms + cancellation policy. Required server-side. */
-    acceptedTermsAt: string;
-  }) =>
-    request<Booking>('/bookings', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  getById: (id: string) => request<Booking>(`/bookings/${id}`),
-
-  getMyBookings: () => request<Booking[]>('/bookings'),
-
-  getHostBookings: () => request<Booking[]>('/bookings/host'),
-
-  /** Host records that the on-arrival payment was collected at the property. */
-  collectOnArrival: (id: string, method = 'CASH') =>
-    request<Booking>(`/bookings/${id}/collect-on-arrival`, {
-      method: 'POST',
-      body: JSON.stringify({ method }),
-    }),
-
-  cancel: (id: string, reason: string) =>
-    request<Booking>(`/bookings/${id}/cancel`, {
-      method: 'POST',
-      body: JSON.stringify({ reason }),
-    }),
-
-  complete: (id: string) =>
-    request<Booking>(`/bookings/${id}/complete`, { method: 'POST' }),
-
-  adminGetAll: (page = 1, limit = 50, status?: string, search?: string) => {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (status) params.set('status', status);
-    if (search) params.set('search', search);
-    return request<{ bookings: Booking[]; total: number; page: number; limit: number }>(
-      `/bookings/admin/all?${params}`,
-    );
-  },
-
-  getPreparation: (id: string) =>
-    request<BookingPreparation>(`/bookings/${id}/preparation`),
-
-  // Guest Assistance
-  getDirections: (id: string) =>
-    request<BookingDirections>(`/bookings/${id}/directions`),
-
-  getManual: (id: string) =>
-    request<BookingManual>(`/bookings/${id}/manual`),
-
-  createIssue: (id: string, body: { category: IssueCategory; description: string; urgency?: IssueUrgency; photoUrl?: string }) =>
-    request<GuestIssue>(`/bookings/${id}/issues`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  getIssues: (id: string) =>
-    request<GuestIssue[]>(`/bookings/${id}/issues`),
-
-  checkIn: (id: string, body: { confirmedName: string; arrivalTime: string; specialNotes?: string }) =>
-    request<Booking>(`/bookings/${id}/check-in`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  checkOut: (id: string, body: { feedback?: string; conditionNotes?: string }) =>
-    request<Booking>(`/bookings/${id}/check-out`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  getCheckInOutStatus: (id: string) =>
-    request<CheckInOutStatus>(`/bookings/${id}/check-in-status`),
-};
-
-// ─── Payments ─────────────────────────────────────────────────────────────────
-
-export const paymentsApi = {
-  init: (body: {
-    bookingId: string;
-    type: 'FULL' | 'DEPOSIT_50' | 'BALANCE';
-    idempotencyKey: string;
-  }) =>
-    request<{ paymentId: string; razorpayOrderId: string; amount: number; currency: string; keyId: string }>(
-      '/payments/init',
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-
-  payBalance: (bookingId: string, idempotencyKey: string) =>
-    request<{ paymentId: string; razorpayOrderId: string; amount: number; currency: string; keyId: string }>(
-      `/payments/bookings/${bookingId}/pay-balance`,
-      { method: 'POST', body: JSON.stringify({ idempotencyKey }) },
-    ),
-};
-
-// ─── Pay Later ────────────────────────────────────────────────────────────────
-
-export const payLaterApi = {
-  getPlan: (bookingId: string) =>
-    request<PayLaterPlan>(`/bookings/${bookingId}/pay-later`),
-
-  payInstalment: (bookingId: string, seq: number, idempotencyKey: string) =>
-    request<{
-      paymentId: string;
-      razorpayOrderId: string;
-      amount: number;
-      currency: string;
-      keyId: string;
-      seq: number;
-    }>(`/bookings/${bookingId}/pay-later/${seq}/pay`, {
-      method: 'POST',
-      body: JSON.stringify({ idempotencyKey }),
-    }),
-};
-
-// ─── Payouts ──────────────────────────────────────────────────────────────────
-
-export const payoutsApi = {
-  getEligible: () => request<PayoutLine[]>('/admin/payouts/eligible'),
-
-  runWeekly: () =>
-    request<PayoutBatch>('/admin/payouts/run-weekly', { method: 'POST' }),
-
-  getBatches: () => request<PayoutBatch[]>('/admin/payouts/batches'),
-
-  markBatchPaid: (batchId: string) =>
-    request<PayoutBatch>(`/admin/payouts/batches/${batchId}/mark-paid`, {
-      method: 'POST',
-    }),
-
-  getHostStatements: () => request<HostStatement>('/host/payouts/statements'),
-
-  dryRun: () =>
-    request<PayoutDryRun>('/admin/payouts/dry-run'),
-};
-
-// ─── Platform Control Panel — feature flags + host settings ──────────────────
-
-import type {
-  ResolvedFeature,
-  FeatureEnabledMap,
-  HostControlPanel,
-  HostSettings,
-} from './types';
-
-export const adminFeaturesApi = {
-  list: () => request<ResolvedFeature[]>('/admin/features'),
-  toggle: (key: string, enabled: boolean) =>
-    request<ResolvedFeature>(`/admin/features/${key}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ enabled }),
-    }),
-  bulk: (updates: Array<{ key: string; enabled: boolean }>) =>
-    request<ResolvedFeature[]>('/admin/features/bulk', {
-      method: 'PATCH',
-      body: JSON.stringify({ updates }),
-    }),
-};
-
-/** Public feature-availability map for UI gating. */
-export const platformFeaturesApi = {
-  enabledMap: () => request<FeatureEnabledMap>('/platform/features'),
-};
-
-export const hostSettingsApi = {
-  get: () => request<HostControlPanel>('/host/settings'),
-  update: (body: Partial<Omit<HostSettings, 'hostId' | 'updatedAt'>>) =>
-    request<HostSettings>('/host/settings', {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-};
-
-// ─── Admin Console ───────────────────────────────────────────────────────────
-
-export const adminApi = {
-  getStats: () => request<AdminStats>('/admin/stats'),
-
-  getUsers: (page = 1, limit = 20, role?: string, search?: string) => {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (role) params.set('role', role);
-    if (search) params.set('search', search);
-    return request<{ users: AdminUser[]; total: number; page: number; limit: number }>(
-      `/admin/users?${params}`,
-    );
-  },
-
-  deactivateUser: (id: string) =>
-    request<AdminUser>(`/admin/users/${id}/deactivate`, { method: 'POST' }),
-
-  activateUser: (id: string) =>
-    request<AdminUser>(`/admin/users/${id}/activate`, { method: 'POST' }),
-
-  getAuditLog: (page = 1, limit = 30, action?: string, resourceType?: string) => {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (action) params.set('action', action);
-    if (resourceType) params.set('resourceType', resourceType);
-    return request<{ entries: AuditEntry[]; total: number; page: number; limit: number }>(
-      `/admin/audit-log?${params}`,
-    );
-  },
-
-  // Revenue analytics
-  getRevenue: (from: string, to: string, groupBy: 'day' | 'week' | 'month') =>
-    request<RevenueDataPoint[]>(
-      `/admin/analytics/revenue?from=${from}&to=${to}&groupBy=${groupBy}`,
-    ),
-
-  // Listing detail
-  getListingDetail: (id: string) =>
-    request<AdminListingDetail>(`/admin/listings/${id}`),
-
-  // Refunds
-  getRefunds: (page = 1, limit = 20) =>
-    request<{ refunds: Refund[]; total: number; page: number; limit: number }>(
-      `/admin/refunds?page=${page}&limit=${limit}`,
-    ),
-  createRefund: (body: { bookingId: string; amount: number; reason: string }) =>
-    request<Refund>('/admin/refunds', { method: 'POST', body: JSON.stringify(body) }),
-  validateRefundBooking: (bookingId: string) =>
-    request<RefundValidation>(`/admin/refunds/validate/${encodeURIComponent(bookingId)}`),
-
-  // System settings
-  getSettings: () => request<SystemConfigEntry[]>('/admin/settings'),
-  updateSettings: (updates: Array<{ key: string; value: unknown }>) =>
-    request<SystemConfigEntry[]>('/admin/settings', {
-      method: 'PATCH',
-      body: JSON.stringify({ updates }),
-    }),
-
-  // Calendar
-  getCalendarBookings: (month: string, listingId?: string) => {
-    const params = new URLSearchParams({ month });
-    if (listingId) params.set('listingId', listingId);
-    return request<CalendarBooking[]>(`/admin/bookings/calendar?${params}`);
-  },
-
-  /** Multi-listing ops timeline for a month (Gantt + today rail + KPIs). */
-  getCalendarTimeline: (month: string) =>
-    request<AdminCalendarTimeline>(`/admin/bookings/timeline?month=${month}`),
-
-  // Host performance
-  getHostPerformance: () => request<HostPerformance[]>('/admin/hosts/performance'),
-
-  // Notifications
-  getNotifications: (unreadOnly = false) =>
-    request<AdminNotification[]>(`/admin/notifications?unreadOnly=${unreadOnly}`),
-  markNotificationRead: (id: string) =>
-    request<AdminNotification>(`/admin/notifications/${id}/read`, { method: 'POST' }),
-  markAllNotificationsRead: () =>
-    request<{ count: number }>('/admin/notifications/read-all', { method: 'POST' }),
-
-  // Bulk actions
-  bulkApproveListings: (ids: string[]) =>
-    request<{ count: number }>('/admin/listings/bulk-approve', {
-      method: 'POST', body: JSON.stringify({ ids }),
-    }),
-  bulkDeactivateUsers: (ids: string[]) =>
-    request<{ count: number }>('/admin/users/bulk-deactivate', {
-      method: 'POST', body: JSON.stringify({ ids }),
-    }),
-  bulkCompleteBookings: (ids: string[]) =>
-    request<{ count: number }>('/admin/bookings/bulk-complete', {
-      method: 'POST', body: JSON.stringify({ ids }),
-    }),
-
-  // Global search
-  search: (q: string) =>
-    request<AdminSearchResults>(`/admin/search?q=${encodeURIComponent(q)}`),
-
-  // Admin activity
-  getAdminActivity: (page = 1, limit = 30, adminId?: string) => {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (adminId) params.set('adminId', adminId);
-    return request<{ entries: AuditEntry[]; total: number; page: number; limit: number }>(
-      `/admin/activity?${params}`,
-    );
-  },
-
-  // Rate limiter
-  getRateLimitStats: () => request<RateLimitStats>('/admin/rate-limits/stats'),
-
-  // Revenue forecast
-  getForecast: () => request<RevenueForecast[]>('/admin/analytics/forecast'),
-
-  // ── Staff / admin registration (L1) ───────────────────────────────────────
-
-  /** Submit a staff role application (public — no token required) */
-  applyForStaff: (body: {
-    email: string;
-    fullName: string;
-    requestedLevel: string;
-    requestedService?: string;
-    clusterId?: string;
-    propertyId?: string;
-    justification: string;
-  }) =>
-    request<StaffApplication>('/admin/staff/apply', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  /** L1: list applications */
-  getApplications: (status?: string, page = 1, limit = 20) => {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (status) params.set('status', status);
-    return request<{ applications: StaffApplication[]; total: number; page: number; limit: number }>(
-      `/admin/staff/applications?${params}`,
-    );
-  },
-
-  /** L1: approve or reject an application */
-  reviewApplication: (id: string, body: { decision: 'APPROVED' | 'REJECTED'; reviewNotes?: string }) =>
-    request<StaffApplication>(`/admin/staff/applications/${id}/review`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-
-  /** L1: list current staff */
-  getStaff: (search?: string, page = 1, limit = 20) => {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (search) params.set('search', search);
-    return request<{ staff: StaffMember[]; total: number; page: number; limit: number }>(
-      `/admin/staff?${params}`,
-    );
-  },
-
-  /** L1: assign a staff role to an existing user */
-  assignStaffRole: (userId: string, body: { level: string; serviceType?: string; clusterId?: string; propertyId?: string }) =>
-    request<StaffMember>(`/admin/staff/${userId}/assign`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  /** L1: revoke a user's staff role */
-  revokeStaffRole: (userId: string) =>
-    request<{ revoked: boolean }>(`/admin/staff/${userId}`, { method: 'DELETE' }),
-
-  // ── Phase 1 T5: unified role management ─────────────────────────────────
-  /** L1: change a user's kind (GUEST/OWNER/INVESTOR/STAFF) with audit reason */
-  changeUserKind: (
-    userId: string,
-    body: {
-      kind: 'GUEST' | 'OWNER' | 'INVESTOR' | 'STAFF';
-      reason: string;
-      level?: 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
-      serviceType?: string;
-      clusterId?: string;
-      propertyId?: string;
-    },
-  ) =>
-    request<{ userId: string; kind: string; role: string; staffLevel: string | null }>(
-      `/admin/users/${userId}/role`,
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-
-  /** L1/L2: view role change history for a user */
-  getUserRoleHistory: (userId: string) =>
-    request<UserRoleHistory>(`/admin/users/${userId}/role-history`),
-};
-
-// ─── Host Analytics ──────────────────────────────────────────────────────────
-
-export const hostAnalyticsApi = {
-  getStats: () => request<HostStats>('/host/analytics/stats'),
-
-  getRevenue: (from: string, to: string, groupBy: 'day' | 'week' | 'month') =>
-    request<HostRevenueDataPoint[]>(
-      `/host/analytics/revenue?from=${from}&to=${to}&groupBy=${groupBy}`,
-    ),
-
-  getListingPerformance: () =>
-    request<HostListingPerformance[]>('/host/analytics/listing-performance'),
-
-  getForecast: () => request<HostForecastBucket[]>('/host/analytics/forecast'),
-
-  getCalendarBookings: (month: string, listingId?: string) => {
-    const params = new URLSearchParams({ month });
-    if (listingId) params.set('listingId', listingId);
-    return request<HostCalendarBooking[]>(`/host/bookings/calendar?${params}`);
-  },
-
-  getBookings: (page = 1, limit = 20, status?: string) => {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    if (status) params.set('status', status);
-    return request<{ bookings: HostBookingRow[]; total: number; page: number; limit: number }>(
-      `/host/bookings/list?${params}`,
-    );
-  },
-
-  getNotifications: (unreadOnly = false) =>
-    request<HostNotification[]>(`/host/notifications?unreadOnly=${unreadOnly}`),
-
-  markNotificationRead: (id: string) =>
-    request<HostNotification>(`/host/notifications/${id}/read`, { method: 'POST' }),
-
-  markAllNotificationsRead: () =>
-    request<{ count: number }>('/host/notifications/read-all', { method: 'POST' }),
-};
-
-// ─── Guest ───────────────────────────────────────────────────────────────────
-
-export const guestApi = {
-  // Profile
-  getProfile: () => request<GuestProfile>('/guest/profile'),
-  updateProfile: (body: { fullName?: string; phone?: string }) =>
-    request<GuestProfile>('/guest/profile', {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-
-  // Dashboard stats
-  getStats: () => request<GuestDashboardStats>('/guest/stats'),
-
-  // Preferences
-  getPreferences: () => request<GuestPreference | null>('/guest/preferences'),
-  updatePreferences: (body: Partial<Omit<GuestPreference, 'id' | 'userId' | 'createdAt' | 'updatedAt'>>) =>
-    request<GuestPreference>('/guest/preferences', {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-
-  // Wishlist
-  getWishlist: () => request<WishlistItem[]>('/guest/wishlist'),
-  addToWishlist: (listingId: string) =>
-    request<WishlistItem>(`/guest/wishlist/${listingId}`, { method: 'POST' }),
-  removeFromWishlist: (listingId: string) =>
-    request<{ success: boolean }>(`/guest/wishlist/${listingId}`, { method: 'DELETE' }),
-  isWishlisted: (listingId: string) =>
-    request<{ wishlisted: boolean }>(`/guest/wishlist/check/${listingId}`),
-
-  // Reviews
-  createReview: (body: { bookingId: string; rating: number; comment?: string }) =>
-    request<Review>('/guest/reviews', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  getMyReviews: () => request<Review[]>('/guest/reviews'),
-
-  // Notifications
-  getNotifications: (unreadOnly = false) =>
-    request<GuestNotification[]>(`/guest/notifications?unreadOnly=${unreadOnly}`),
-  getUnreadCount: () =>
-    request<{ count: number }>('/guest/notifications/unread-count'),
-  markNotificationRead: (id: string) =>
-    request<GuestNotification>(`/guest/notifications/${id}/read`, { method: 'POST' }),
-  markAllNotificationsRead: () =>
-    request<{ success: boolean }>('/guest/notifications/read-all', { method: 'POST' }),
-
-  // Loyalty
-  getLoyalty: () => request<LoyaltyInfo>('/guest/loyalty'),
-
-  // Referral
-  getReferral: () => request<ReferralInfo>('/guest/referral'),
-  applyReferralCode: (referralCode: string) =>
-    request<void>('/guest/referral/apply', {
-      method: 'POST',
-      body: JSON.stringify({ referralCode }),
-    }),
-  getCredits: () => request<CreditLedger>('/guest/credits'),
-};
-
-// ─── Listing Reviews (public) ────────────────────────────────────────────────
-
-export const reviewsApi = {
-  getListingReviews: (listingId: string) =>
-    request<ListingReviews>(`/listings/${listingId}/reviews`),
-};
-
-// ─── Messaging ───────────────────────────────────────────────────────────────
-
-function createMessagingApi(prefix: string) {
-  return {
-    getConversations: () =>
-      request<ConversationListItem[]>(`/${prefix}/conversations`),
-
-    getConversation: (id: string) =>
-      request<Conversation>(`/${prefix}/conversations/${id}`),
-
-    startConversation: (body: {
-      recipientId: string;
-      listingId?: string;
-      bookingId?: string;
-      subject?: string;
-      message: string;
-    }) =>
-      request<Conversation>(`/${prefix}/conversations`, {
-        method: 'POST',
-        body: JSON.stringify(body),
-      }),
-
-    sendMessage: (conversationId: string, body: string) =>
-      request<ConversationMessage>(`/${prefix}/conversations/${conversationId}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({ body }),
-      }),
-
-    markRead: (conversationId: string) =>
-      request<{ success: boolean }>(`/${prefix}/conversations/${conversationId}/read`, {
-        method: 'POST',
-      }),
-
-    getUnreadCount: () =>
-      request<{ count: number }>(`/${prefix}/conversations/unread-count`),
-  };
-}
-
-// ─── Host Issues ────────────────────────────────────────────────────────────
-
-export const hostIssuesApi = {
-  getAll: (status?: IssueStatus) => {
-    const params = status ? `?status=${status}` : '';
-    return request<GuestIssue[]>(`/host/issues${params}`);
-  },
-
-  updateStatus: (id: string, body: { status: IssueStatus; hostNotes?: string }) =>
-    request<GuestIssue>(`/host/issues/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-};
-
-// ─── Admin Issues ───────────────────────────────────────────────────────────
-
-export const adminIssuesApi = {
-  getAll: (status?: IssueStatus) => {
-    const params = status ? `?status=${status}` : '';
-    return request<GuestIssue[]>(`/admin/issues${params}`);
-  },
-
-  updateStatus: (id: string, body: { status: IssueStatus; hostNotes?: string }) =>
-    request<GuestIssue>(`/admin/issues/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-};
-
-export const guestMessagingApi = createMessagingApi('guest');
-export const hostMessagingApi = createMessagingApi('host');
-export const adminMessagingApi = createMessagingApi('admin');
-
-// ─── Concierge Chat (§5.10) ──────────────────────────────────────────────────
-
-export const conciergeGuestApi = {
-  getThread: (bookingId: string) =>
-    request<Conversation>(`/bookings/${bookingId}/chat`),
-  sendMessage: (bookingId: string, body: string) =>
-    request<ConversationMessage>(`/bookings/${bookingId}/chat/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ body }),
-    }),
-  markRead: (bookingId: string) =>
-    request<{ success: boolean }>(`/bookings/${bookingId}/chat/read`, {
-      method: 'POST',
-    }),
-};
-
-export const conciergeHostApi = {
-  getThread: (bookingId: string) =>
-    request<Conversation>(`/host/bookings/${bookingId}/chat`),
-  sendMessage: (bookingId: string, body: string) =>
-    request<ConversationMessage>(`/host/bookings/${bookingId}/chat/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ body }),
-    }),
-  markRead: (bookingId: string) =>
-    request<{ success: boolean }>(`/host/bookings/${bookingId}/chat/read`, {
-      method: 'POST',
-    }),
-};
-
-export const conciergeAdminApi = {
-  list: (opts?: { status?: 'OPEN' | 'CLOSED'; breachedOnly?: boolean }) => {
-    const params = new URLSearchParams();
-    if (opts?.status) params.set('status', opts.status);
-    if (opts?.breachedOnly) params.set('breached', 'true');
-    const qs = params.toString();
-    return request<ConciergeAdminThread[]>(`/admin/concierge${qs ? `?${qs}` : ''}`);
-  },
-  get: (id: string) =>
-    request<Conversation>(`/admin/concierge/${id}`),
-  join: (id: string) =>
-    request<{ joined: boolean; alreadyJoined: boolean }>(`/admin/concierge/${id}/join`, {
-      method: 'POST',
-    }),
-  sendMessage: (id: string, body: string) =>
-    request<ConversationMessage>(`/admin/concierge/${id}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ body }),
-    }),
-};
-
-// ─── Investor dashboard (§5.14) ─────────────────────────────────────────────
-
-import type {
-  AdminCapitalCall,
-  AdminDistribution,
-  AdminInvestment,
-  AdminInvestorDocument,
-  CapitalCallForInvestor,
-  CapitalCallStatus,
-  Distribution,
-  DistributionStatus,
-  InvestorDocument,
-  InvestorDocumentKind,
-  InvestorPortfolio,
-} from './types';
-
-export const investorApi = {
-  getPortfolio: () => request<InvestorPortfolio>('/investor/portfolio'),
-  listDistributions: (opts?: { from?: string; to?: string }) => {
-    const params = new URLSearchParams();
-    if (opts?.from) params.set('from', opts.from);
-    if (opts?.to) params.set('to', opts.to);
-    const qs = params.toString();
-    return request<Distribution[]>(`/investor/distributions${qs ? `?${qs}` : ''}`);
-  },
-  listCapitalCalls: () =>
-    request<CapitalCallForInvestor[]>('/investor/capital-calls'),
-  listDocuments: () => request<InvestorDocument[]>('/investor/documents'),
-};
-
-export const adminInvestorApi = {
-  // investments
-  listInvestments: (opts?: { investorUserId?: string; listingId?: string }) => {
-    const params = new URLSearchParams();
-    if (opts?.investorUserId) params.set('investorUserId', opts.investorUserId);
-    if (opts?.listingId) params.set('listingId', opts.listingId);
-    const qs = params.toString();
-    return request<AdminInvestment[]>(
-      `/admin/investor/investments${qs ? `?${qs}` : ''}`,
-    );
-  },
-  createInvestment: (body: {
-    investorUserId: string;
-    listingId: string;
-    sharePct: number;
-    effectiveAt: string;
-    endedAt?: string;
-    notes?: string;
-  }) =>
-    request<AdminInvestment>('/admin/investor/investments', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  updateInvestment: (
-    id: string,
-    body: Partial<{
-      sharePct: number;
-      effectiveAt: string;
-      endedAt: string | null;
-      notes: string;
-    }>,
-  ) =>
-    request<AdminInvestment>(`/admin/investor/investments/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-  removeInvestment: (id: string) =>
-    request<void>(`/admin/investor/investments/${id}`, { method: 'DELETE' }),
-
-  // capital calls
-  listCapitalCalls: (opts?: { listingId?: string; status?: CapitalCallStatus }) => {
-    const params = new URLSearchParams();
-    if (opts?.listingId) params.set('listingId', opts.listingId);
-    if (opts?.status) params.set('status', opts.status);
-    const qs = params.toString();
-    return request<AdminCapitalCall[]>(
-      `/admin/investor/capital-calls${qs ? `?${qs}` : ''}`,
-    );
-  },
-  createCapitalCall: (body: {
-    listingId: string;
-    amountMinor: number;
-    reason: string;
-    dueAt: string;
-    notes?: string;
-  }) =>
-    request<AdminCapitalCall>('/admin/investor/capital-calls', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  updateCapitalCall: (
-    id: string,
-    body: Partial<{
-      amountMinor: number;
-      reason: string;
-      dueAt: string;
-      status: CapitalCallStatus;
-      notes: string;
-    }>,
-  ) =>
-    request<AdminCapitalCall>(`/admin/investor/capital-calls/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-
-  // documents
-  listDocuments: (investorUserId?: string) => {
-    const params = new URLSearchParams();
-    if (investorUserId) params.set('investorUserId', investorUserId);
-    const qs = params.toString();
-    return request<AdminInvestorDocument[]>(
-      `/admin/investor/documents${qs ? `?${qs}` : ''}`,
-    );
-  },
-  uploadDocument: (body: {
-    investorUserId: string;
-    kind: InvestorDocumentKind;
-    title: string;
-    url: string;
-  }) =>
-    request<AdminInvestorDocument>('/admin/investor/documents', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  removeDocument: (id: string) =>
-    request<void>(`/admin/investor/documents/${id}`, { method: 'DELETE' }),
-
-  // distributions
-  listDistributions: (period?: string) => {
-    const qs = period ? `?period=${encodeURIComponent(period)}` : '';
-    return request<AdminDistribution[]>(`/admin/investor/distributions${qs}`);
-  },
-  recompute: (body: { period?: string; investorUserId?: string }) =>
-    request<{ period: string; computed: number }>(
-      '/admin/investor/distributions/recompute',
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-  updateDistribution: (
-    id: string,
-    body: { status: DistributionStatus; ledgerEventId?: string },
-  ) =>
-    request<AdminDistribution>(`/admin/investor/distributions/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-};
-
-// ─── Host Quick Replies ─────────────────────────────────────────────────────
-
-export const hostQuickRepliesApi = {
-  list: () => request<HostQuickReply[]>('/host/quick-replies'),
-  create: (body: { label: string; body: string; sortOrder?: number }) =>
-    request<HostQuickReply>('/host/quick-replies', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  update: (id: string, body: { label: string; body: string; sortOrder?: number }) =>
-    request<HostQuickReply>(`/host/quick-replies/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-  remove: (id: string) =>
-    request<{ success: boolean }>(`/host/quick-replies/${id}`, {
-      method: 'DELETE',
-    }),
-};
-
-// ─── Add-ons ──────────────────────────────────────────────────────────────────
-
-import type {
-  AddOn,
-  AddOnStatus,
-  BookingAddOn,
-  ServiceProvider,
-  ServiceProviderKind,
-  CancellationTier,
-  AddOnScope,
-} from './types';
-
-export const addOnsApi = {
-  // Public (listing detail page)
-  listForListing: (listingId: string) =>
-    request<AddOn[]>(`/listings/${listingId}/addons`),
-
-  // Guest (booking detail)
-  listForBooking: (bookingId: string) =>
-    request<BookingAddOn[]>(`/bookings/${bookingId}/addons`),
-
-  // Admin — service providers
-  listProviders: (activeOnly = false) =>
-    request<ServiceProvider[]>(
-      `/admin/service-providers${activeOnly ? '?activeOnly=true' : ''}`,
-    ),
-
-  createProvider: (body: {
-    name: string;
-    kind: ServiceProviderKind;
-    ownerUserId: string;
-    contactEmail?: string;
-    contactPhone?: string;
-  }) =>
-    request<ServiceProvider>('/admin/service-providers', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  activateProvider: (id: string) =>
-    request<ServiceProvider>(`/admin/service-providers/${id}/activate`, {
-      method: 'PATCH',
-    }),
-
-  deactivateProvider: (id: string) =>
-    request<ServiceProvider>(`/admin/service-providers/${id}/deactivate`, {
-      method: 'PATCH',
-    }),
-
-  // Admin — add-ons
-  listAdmin: (params?: { status?: AddOnStatus; providerId?: string }) => {
-    const qs = new URLSearchParams();
-    if (params?.status) qs.set('status', params.status);
-    if (params?.providerId) qs.set('providerId', params.providerId);
-    const q = qs.toString();
-    return request<AddOn[]>(`/admin/addons${q ? `?${q}` : ''}`);
-  },
-
-  create: (body: {
-    providerId: string;
-    title: string;
-    description: string;
-    priceMinor: number;
-    commissionRate?: number;
-    cancellationTier?: CancellationTier;
-    minLeadHours?: number;
-    maxPerBooking?: number;
-    scope?: AddOnScope;
-    listingId?: string;
-  }) =>
-    request<AddOn>('/admin/addons', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  approve: (id: string, reviewNotes?: string) =>
-    request<AddOn>(`/admin/addons/${id}/approve`, {
-      method: 'POST',
-      body: JSON.stringify({ reviewNotes }),
-    }),
-
-  reject: (id: string, reviewNotes?: string) =>
-    request<AddOn>(`/admin/addons/${id}/reject`, {
-      method: 'POST',
-      body: JSON.stringify({ reviewNotes }),
-    }),
-
-  retire: (id: string) =>
-    request<AddOn>(`/admin/addons/${id}/retire`, { method: 'POST' }),
-};
-
-// ─── Utility ──────────────────────────────────────────────────────────────────
-
-export function formatINR(paise: number): string {
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(paise / 100);
-}
-
-// ─── Membership / SIP (Phase 2 §5.13) ────────────────────────────────────────
-
-export const membershipApi = {
-  getMembership: () => request<Membership>('/me/membership'),
-  getPerks: () => request<MemberPerks>('/me/perks'),
-
-  listSips: () => request<TripSip[]>('/me/sip'),
-
-  startSip: (body: { monthlyMinor: number; anchorDay: number }) =>
-    request<TripSip>('/me/sip', { method: 'POST', body: JSON.stringify(body) }),
-
-  getSip: (id: string) => request<TripSipDetail>(`/me/sip/${id}`),
-
-  getSipBalance: (id: string) => request<SipBalance>(`/me/sip/${id}/balance`),
-
-  setStatus: (id: string, status: SipStatusValue) =>
-    request<TripSip>(`/me/sip/${id}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ status }),
-    }),
-
-  contribute: (id: string, body: { amountMinor: number; paymentRef?: string }) =>
-    request<SipContribution>(`/me/sip/${id}/contributions`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-};
-
-export interface NotificationPreferences {
-  channels?: Record<string, Record<string, boolean>>;
-  quietHours?: { start: string; end: string; tz?: string };
-}
-
-export const notificationPrefsApi = {
-  get: () => request<NotificationPreferences>('/me/notification-preferences'),
-  upsert: (body: NotificationPreferences) =>
-    request<NotificationPreferences>('/me/notification-preferences', {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-};
-
-// ── SOS (§5.12) ─────────────────────────────────────────────────────────────
-
-export type SosTier = 'MEDICAL' | 'SECURITY' | 'TRANSPORT' | 'OTHER';
-export type SosStatus =
-  | 'OPEN'
-  | 'ACKNOWLEDGED'
-  | 'IN_PROGRESS'
-  | 'RESOLVED'
-  | 'FALSE_ALARM';
-
-export interface TrustedContact {
-  id: string;
-  name: string;
-  /** E.164 phone, optional. At least one of phone or email is required. */
-  phone: string | null;
-  /** Email, optional. At least one of phone or email is required. */
-  email: string | null;
-  relation: string;
-  primary: boolean;
-  createdAt: string;
-}
-
-export interface SosBroadcast {
-  id: string;
-  channel: string;
-  target: string;
-  status: string;
-  lastError: string | null;
-  sentAt: string;
-}
-
-export interface SosIncident {
-  id: string;
-  userId: string;
-  bookingId: string | null;
-  tier: SosTier;
-  lat: number;
-  lng: number;
-  message: string | null;
-  status: SosStatus;
-  openedAt: string;
-  ackedAt: string | null;
-  ackedBy: string | null;
-  resolvedAt: string | null;
-  resolvedBy: string | null;
-  broadcasts?: SosBroadcast[];
-  user?: { id: string; fullName: string; phone: string | null };
-}
-
-export interface SosMessage {
-  id: string;
-  incidentId: string;
-  senderId: string;
-  senderRole: 'GUEST' | 'ADMIN';
-  content: string;
-  createdAt: string;
-}
-
-export interface SosTimelineEntry {
-  status: string;
-  at: string;
-  note?: string;
-}
-
-export interface SosTimeline {
-  status: SosStatus;
-  timeline: SosTimelineEntry[];
-}
-
-export const sosApi = {
-  trigger: (body: {
-    tier: SosTier;
-    lat: number;
-    lng: number;
-    message?: string;
-    bookingId?: string;
-  }) =>
-    request<SosIncident>('/sos', { method: 'POST', body: JSON.stringify(body) }),
-  listMine: () => request<SosIncident[]>('/sos'),
-  getIncident: (id: string) => request<SosIncident>(`/sos/${id}`),
-  /** Guest-facing status timeline (OPENED → ACKED → IN_PROGRESS → RESOLVED). */
-  getTimeline: (id: string) => request<SosTimeline>(`/sos/${id}/timeline`),
-  /** Guest-side chat with the responding admin. Polls every 3s on the detail page. */
-  listMessages: (id: string) => request<SosMessage[]>(`/sos/${id}/messages`),
-  sendMessage: (id: string, content: string) =>
-    request<SosMessage>(`/sos/${id}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content }),
-    }),
-
-  listContacts: () => request<TrustedContact[]>('/me/trusted-contacts'),
-  createContact: (body: Omit<TrustedContact, 'id' | 'createdAt'>) =>
-    request<TrustedContact>('/me/trusted-contacts', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  updateContact: (
-    id: string,
-    body: Omit<TrustedContact, 'id' | 'createdAt'>,
-  ) =>
-    request<TrustedContact>(`/me/trusted-contacts/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(body),
-    }),
-  deleteContact: (id: string) =>
-    request<{ success: boolean }>(`/me/trusted-contacts/${id}`, {
-      method: 'DELETE',
-    }),
-};
-
-export const adminSosApi = {
-  list: (status?: SosStatus) =>
-    request<SosIncident[]>(
-      `/admin/sos${status ? `?status=${status}` : ''}`,
-    ),
-  get: (id: string) => request<SosIncident>(`/admin/sos/${id}`),
-  getTimeline: (id: string) => request<SosTimeline>(`/admin/sos/${id}/timeline`),
-  listMessages: (id: string) => request<SosMessage[]>(`/admin/sos/${id}/messages`),
-  sendMessage: (id: string, content: string) =>
-    request<SosMessage>(`/admin/sos/${id}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content }),
-    }),
-  ack: (id: string, note?: string) =>
-    request<SosIncident>(`/admin/sos/${id}/ack`, {
-      method: 'POST',
-      body: JSON.stringify({ note }),
-    }),
-  start: (id: string) =>
-    request<SosIncident>(`/admin/sos/${id}/start`, { method: 'POST' }),
-  resolve: (id: string, body: { note?: string; falseAlarm?: boolean }) =>
-    request<SosIncident>(`/admin/sos/${id}/resolve`, {
-      method: 'POST',
-      body: JSON.stringify({
-        note: body.note,
-        falseAlarm: body.falseAlarm ? 'true' : undefined,
-      }),
-    }),
-};
-
-// ─── Experiences (§5.15) ────────────────────────────────────────────────────
-
-import type {
-  Experience,
-  ExperienceBooking,
-  ExperienceStatus,
-  Itinerary,
-  TripGroup,
-  TripGroupDetail,
-  TripGroupBalances,
-  ExpenseSplit,
-  TripGroupMember,
-  ExpenseSplitMethod,
-} from './types';
-
-export const experiencesApi = {
-  // Public
-  listPublic: (opts?: { city?: string; category?: string }) => {
-    const params = new URLSearchParams();
-    if (opts?.city) params.set('city', opts.city);
-    if (opts?.category) params.set('category', opts.category);
-    const qs = params.toString();
-    return request<Experience[]>(`/experiences${qs ? `?${qs}` : ''}`);
-  },
-  getCategories: () =>
-    request<{ categories: readonly string[] }>('/experiences/meta/categories'),
-  getById: (id: string) => request<Experience>(`/experiences/${id}`),
-
-  // Host
-  listHost: () => request<Experience[]>('/host/experiences'),
-  create: (body: {
-    title: string;
-    description: string;
+interface ApiListingTag {
+  tag: {
     category: string;
-    city: string;
-    state?: string;
-    country?: string;
-    latitude?: number;
-    longitude?: number;
-    startsAt: string;
-    endsAt: string;
-    capacity: number;
-    priceMinor: number;
-    listingId?: string;
-    imageUrl?: string;
-  }) =>
-    request<Experience>('/host/experiences', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  update: (
-    id: string,
-    body: Partial<{
-      title: string;
-      description: string;
-      category: string;
-      city: string;
-      state: string;
-      country: string;
-      latitude: number;
-      longitude: number;
-      startsAt: string;
-      endsAt: string;
-      capacity: number;
-      priceMinor: number;
-      imageUrl: string;
-    }>,
-  ) =>
-    request<Experience>(`/host/experiences/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-  close: (id: string) =>
-    request<Experience>(`/host/experiences/${id}`, { method: 'DELETE' }),
-  getHostBookings: (id: string) =>
-    request<ExperienceBooking[]>(`/host/experiences/${id}/bookings`),
-
-  // Guest
-  listGuestBookings: () =>
-    request<ExperienceBooking[]>('/guest/experiences/bookings'),
-  book: (id: string, body: { seats: number; idempotencyKey: string }) =>
-    request<ExperienceBooking>(`/guest/experiences/${id}/book`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  cancelBooking: (id: string) =>
-    request<ExperienceBooking>(`/guest/experiences/bookings/${id}`, {
-      method: 'DELETE',
-    }),
-
-  // Admin
-  listAdmin: (status?: ExperienceStatus) => {
-    const qs = status ? `?status=${status}` : '';
-    return request<Experience[]>(`/admin/experiences${qs}`);
-  },
-  moderate: (
-    id: string,
-    body: { action: 'APPROVED' | 'REJECTED'; notes?: string },
-  ) =>
-    request<Experience>(`/admin/experiences/${id}/moderate`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }),
-};
-
-// ─── Trip Groups (§5.8) ─────────────────────────────────────────────────────
-
-export const tripGroupsApi = {
-  list: () => request<TripGroup[]>('/trip-groups'),
-
-  create: (body: {
     name: string;
-    destination?: string;
-    startsAt?: string;
-    endsAt?: string;
-    notes?: string;
-  }) =>
-    request<TripGroup>('/trip-groups', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  getDetail: (id: string) => request<TripGroupDetail>(`/trip-groups/${id}`),
-
-  remove: (id: string) =>
-    request<{ deleted: boolean }>(`/trip-groups/${id}`, { method: 'DELETE' }),
-
-  invite: (id: string, body: { email: string; fullName: string }) =>
-    request<TripGroupMember>(`/trip-groups/${id}/members`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  accept: (id: string) =>
-    request<TripGroupMember>(`/trip-groups/${id}/accept`, { method: 'POST' }),
-
-  removeMember: (id: string, memberId: string) =>
-    request<{ removed: boolean }>(
-      `/trip-groups/${id}/members/${memberId}`,
-      { method: 'DELETE' },
-    ),
-
-  createExpense: (
-    id: string,
-    body: {
-      title: string;
-      totalMinor: number;
-      method: ExpenseSplitMethod;
-      memberIds?: string[];
-      shares?: Array<{ memberId: string; amountMinor: number }>;
-      notes?: string;
-      incurredAt?: string;
-    },
-  ) =>
-    request<ExpenseSplit>(`/trip-groups/${id}/expenses`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  deleteExpense: (id: string, expenseId: string) =>
-    request<{ deleted: boolean }>(
-      `/trip-groups/${id}/expenses/${expenseId}`,
-      { method: 'DELETE' },
-    ),
-
-  markShareSettled: (
-    id: string,
-    expenseId: string,
-    shareId: string,
-    settled: boolean,
-  ) =>
-    request<ExpenseSplit>(
-      `/trip-groups/${id}/expenses/${expenseId}/shares/${shareId}`,
-      { method: 'PATCH', body: JSON.stringify({ settled }) },
-    ),
-
-  getBalances: (id: string) =>
-    request<TripGroupBalances>(`/trip-groups/${id}/balances`),
-};
-
-// ─── AI Itinerary (§5.9) ────────────────────────────────────────────────────
-
-import type {
-  ItineraryMessage,
-  ItinerarySuggestion,
-  ItineraryUsage,
-  SendMessageResult,
-} from './types';
-
-export const itinerariesApi = {
-  list: () => request<Itinerary[]>('/itineraries'),
-
-  /** Per-user usage + monthly cap. */
-  usage: () => request<ItineraryUsage>('/itineraries/usage'),
-
-  /** Step 1: get 2–3 concept cards before committing to a full plan. */
-  suggest: (body: {
-    destination: string;
-    startsAt: string;
-    endsAt: string;
-    travelers: number;
-    interests?: string[];
-    budgetMinor?: number;
-  }) =>
-    request<{ suggestions: ItinerarySuggestion[] }>('/itineraries/suggestions', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  /** Step 2: full day-by-day generation. Optionally pass themeHint from a chosen suggestion. */
-  generate: (body: {
-    destination: string;
-    startsAt: string;
-    endsAt: string;
-    travelers: number;
-    interests?: string[];
-    budgetMinor?: number;
-    listingId?: string;
-    themeHint?: string;
-  }) =>
-    request<Itinerary>('/itineraries/generate', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-
-  getById: (id: string) => request<Itinerary>(`/itineraries/${id}`),
-
-  /** Step 3: chat refinement — list prior messages. */
-  listMessages: (id: string) =>
-    request<ItineraryMessage[]>(`/itineraries/${id}/messages`),
-
-  /** Step 3: chat refinement — send a message; assistant may patch the itinerary. */
-  sendMessage: (id: string, content: string) =>
-    request<SendMessageResult>(`/itineraries/${id}/messages`, {
-      method: 'POST',
-      body: JSON.stringify({ content }),
-    }),
-
-  finalize: (id: string) =>
-    request<Itinerary>(`/itineraries/${id}/finalize`, { method: 'PATCH' }),
-
-  remove: (id: string) =>
-    request<{ deleted: boolean }>(`/itineraries/${id}`, { method: 'DELETE' }),
-};
-
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-export function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-// ── Stay Passport ───────────────────────────────────────────────────────────
-
-export interface PassportStamp {
-  id: string;
-  bookingId: string;
-  themeId: string;
-  theme: string;
-  stampShape: string;
-  propertyName: string;
-  city: string;
-  nights: number;
-  stayStart: string;
-  stayEnd: string;
-  checkedInAt: string | null;
-  completedAt: string | null;
-  state: 'PENDING' | 'ENTRY' | 'SEALED';
-  memoryLine: string;
-}
-
-export interface PassportCollection {
-  id: string;
-  name: string;
-  description: string;
-  required: number;
-  collected: number;
-  complete: boolean;
-  missing: { themeId: string; displayName: string }[];
-}
-
-export interface Passport {
-  stats: {
-    totalStamps: number;
-    sealedStamps: number;
-    totalNights: number;
-    distinctThemes: number;
   };
-  collections: PassportCollection[];
-  stamps: PassportStamp[];
 }
 
-export const passportApi = {
-  get: () => request<Passport>('/me/passport'),
-};
-
-// ── Stay Pass ticket (per booking) ───────────────────────────────────────────
-
-export interface BookingTicket {
-  status: 'PENDING' | 'RENDERED' | 'FAILED' | 'VOIDED';
-  themeId?: string;
-  assets: { hero: string | null; full: string | null; pdf: string | null } | null;
+interface ApiListingHost {
+  userId: string;
+  user?: {
+    fullName?: string | null;
+  };
 }
 
-export const ticketApi = {
-  /** The Stay Pass ticket for a booking (owner/admin). PENDING while it renders. */
-  get: (bookingId: string) => request<BookingTicket>(`/bookings/${bookingId}/ticket`),
-};
+interface ApiListing {
+  id: string;
+  title: string;
+  description: string;
+  city: string;
+  state: string;
+  country: string;
+  latitude: number | null;
+  longitude: number | null;
+  propertyType: string | null;
+  experienceTags: string[];
+  dietaryOptions: string[];
+  media: ApiListingMedia[];
+  tags: ApiListingTag[];
+  rateRules: ApiRateRule[];
+  host?: ApiListingHost;
+}
+
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api"
+).replace(/\/+$/, "");
+
+function mapListingToProperty(listing: ApiListing): Property {
+  const rateRule = listing.rateRules?.[0];
+
+  const tagNames =
+    listing.tags
+      ?.map((listingTag) => listingTag.tag?.name)
+      .filter((name): name is string => Boolean(name)) ?? [];
+
+  const experienceTags = listing.experienceTags ?? [];
+  const dietaryOptions = listing.dietaryOptions ?? [];
+
+  const amenities = Array.from(
+    new Set([...tagNames, ...experienceTags, ...dietaryOptions]),
+  );
+
+  const mediaUrls =
+    listing.media
+      ?.map((media) => media.url)
+      .filter((url): url is string => Boolean(url)) ?? [];
+
+  const images = mediaUrls.length > 0 ? mediaUrls : ["/file.svg"];
+
+  const category = listing.propertyType || "Stay";
+  const hostName = listing.host?.user?.fullName || "Dhyana Stays Host";
+
+  return {
+    id: listing.id,
+    slug: listing.id,
+    name: listing.title,
+    tagline: listing.description,
+    description: listing.description,
+    story: listing.description,
+    category,
+    location: {
+      city: listing.city,
+      state: listing.state,
+      country: listing.country,
+      coordinates: {
+        lat: listing.latitude ?? 0,
+        lng: listing.longitude ?? 0,
+      },
+    },
+    images,
+    galleryImages: images,
+    price: Math.round((rateRule?.baseNightlyRate ?? 0) / 100),
+    rating: 0,
+    reviewCount: 0,
+    maxGuests: rateRule?.maxGuests ?? 2,
+
+    // These fields are not currently stored in the backend listing model.
+    bedrooms: 1,
+    bathrooms: 1,
+    area: "Details available on request",
+
+    amenities,
+    highlights: experienceTags,
+    host: {
+      name: hostName,
+      avatar: "/file.svg",
+      since: "",
+      responseRate: "",
+      responseTime: "",
+      bio: `Hosted by ${hostName}`,
+      verified: false,
+      languages: [],
+    },
+    houseRules: [],
+    cancellationPolicy:
+      "The applicable cancellation policy will be shown during booking.",
+    badges: Array.from(new Set([...tagNames, ...experienceTags])),
+    isFeatured: false,
+    isTrending: false,
+    sustainability: [],
+  };
+}
+
+async function parseListingResponse(
+  response: Response,
+): Promise<ApiListing> {
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error("This stay could not be found.");
+    }
+
+    throw new Error(
+      `Unable to fetch stay: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const data: unknown = await response.json();
+
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("The stay API returned an invalid response.");
+  }
+
+  return data as ApiListing;
+}
+
+export interface PublicListingsQuery {
+  q?: string;
+  city?: string;
+  cities?: string[];
+  propertyType?: string;
+  propertyTypes?: string[];
+  experienceTags?: string[];
+  dietaryOptions?: string[];
+  minPrice?: number;
+  maxPrice?: number;
+  minGuests?: number;
+  sort?: "newest" | "price-asc" | "price-desc";
+}
+
+export async function getPublicListings(
+  query: PublicListingsQuery = {},
+  signal?: AbortSignal,
+): Promise<Property[]> {
+  const params = new URLSearchParams();
+
+  if (query.q?.trim()) {
+    params.set("q", query.q.trim());
+  }
+
+  if (query.city?.trim()) {
+    params.set("city", query.city.trim());
+  }
+
+  if (query.cities?.length) {
+    params.set("cities", query.cities.join(","));
+  }
+
+  if (query.propertyType?.trim()) {
+    params.set("propertyType", query.propertyType.trim());
+  }
+
+  if (query.propertyTypes?.length) {
+    params.set("propertyTypes", query.propertyTypes.join(","));
+  }
+
+  if (query.experienceTags?.length) {
+    params.set("experienceTags", query.experienceTags.join(","));
+  }
+
+  if (query.dietaryOptions?.length) {
+    params.set("dietaryOptions", query.dietaryOptions.join(","));
+  }
+
+  if (query.minPrice !== undefined) {
+    params.set("minPrice", String(query.minPrice));
+  }
+
+  if (query.maxPrice !== undefined) {
+    params.set("maxPrice", String(query.maxPrice));
+  }
+
+  if (query.minGuests !== undefined) {
+    params.set("minGuests", String(query.minGuests));
+  }
+
+  if (query.sort) {
+    params.set("sort", query.sort);
+  }
+
+  const queryString = params.toString();
+  const endpoint = queryString
+    ? `${API_BASE_URL}/listings?${queryString}`
+    : `${API_BASE_URL}/listings`;
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to fetch listings: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const data: unknown = await response.json();
+
+  if (!Array.isArray(data)) {
+    throw new Error("The listings API returned an invalid response.");
+  }
+
+  return (data as ApiListing[]).map(mapListingToProperty);
+}
+
+
+export interface ListingFacets {
+  experienceTags: string[];
+  propertyTypes: string[];
+  dietaryOptions: string[];
+}
+
+export async function getListingFacets(
+  signal?: AbortSignal,
+): Promise<ListingFacets> {
+  const response = await fetch(`${API_BASE_URL}/listings/meta/facets`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Unable to fetch listing filters: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const data: unknown = await response.json();
+
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("The listing-facets API returned an invalid response.");
+  }
+
+  const facets = data as Partial<ListingFacets>;
+
+  return {
+    experienceTags: Array.isArray(facets.experienceTags)
+      ? facets.experienceTags
+      : [],
+    propertyTypes: Array.isArray(facets.propertyTypes)
+      ? facets.propertyTypes
+      : [],
+    dietaryOptions: Array.isArray(facets.dietaryOptions)
+      ? facets.dietaryOptions
+      : [],
+  };
+}
+
+export async function getPublicListingById(
+  id: string,
+  signal?: AbortSignal,
+): Promise<Property> {
+  const response = await fetch(
+    `${API_BASE_URL}/listings/${encodeURIComponent(id)}`,
+    {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+      cache: "no-store",
+      signal,
+    },
+  );
+
+  const listing = await parseListingResponse(response);
+  return mapListingToProperty(listing);
+}

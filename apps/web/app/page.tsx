@@ -1,1462 +1,491 @@
-'use client';
-
+import Link from "next/link";
+import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
+import ServicesSection, { SpotlightSection } from "./components/ServicesSection";
+import DestinationsSection from "./components/DestinationsSection";
+import TestimonialsCarousel from "./components/TestimonialsCarousel";
 import {
-  type KeyboardEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
-import type { LatLngBounds } from 'leaflet';
-import dynamic from 'next/dynamic';
-import ListingCard from '../components/ListingCard';
-import { listingsApi } from '../lib/api';
+  Search,
+  ArrowRight,
+  Users,
+  CalendarDays,
+  Sparkles,
+  Bot,
+  Clock,
+  Leaf,
+  Heart,
+  ShieldCheck,
+} from "lucide-react";
 import {
-  normalizeDiscoveryTagUrlState,
-  normalizeDiscoveryUrlState,
-  parseDiscoveryTagCandidates,
-} from '../lib/discovery-url-state';
-import type { DiscoverySort, Listing, Tag } from '../lib/types';
-import {
-  DIETARY_OPTIONS,
-  EXPERIENCE_TAGS,
-  PROPERTY_TYPES,
-} from '../lib/types';
+  categories,
+  testimonials,
+  totalGuestStoryCount,
+  blogPosts,
+} from "@/lib/mock-data";
 
-const ListingMap = dynamic(() => import('../components/ListingMap'), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-[500px] rounded-xl bg-gray-100 animate-pulse flex items-center justify-center">
-      <span className="text-gray-400">Loading map...</span>
-    </div>
-  ),
-});
-
-function useDebounce<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState<T>(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
-
-type ViewMode = 'grid' | 'map' | 'split';
-
-type SearchSuggestion = {
-  label: string;
-  value: string;
-  type: 'Stay' | 'City' | 'State';
-  secondary?: string;
-};
-
-type TagMetadataStatus = 'loading' | 'ready' | 'failed';
-
-function arraysEqual(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-
-  return left.every((value, index) => value === right[index]);
-}
-
-function MapStatusOverlay({
-  loading,
-  error,
-  empty,
-  announceState = true,
-}: {
-  loading: boolean;
-  error: string;
-  empty: boolean;
-  announceState?: boolean;
-}) {
-  if (!loading && !error && !empty) return null;
+// ============================================
+// HERO SECTION — Organic Minimalism
+// ============================================
+function HeroSection() {
+  const features = [
+    { icon: ShieldCheck, label: "Architect Curated" },
+    { icon: Heart, label: "Loved by Guests" },
+    { icon: Leaf, label: "Sustainably Built" },
+  ];
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-4 z-[1000] flex justify-center px-4">
-      <div className="rounded-xl border border-gray-200 bg-white/95 px-4 py-3 text-sm shadow-lg backdrop-blur">
-        {loading && (
-          <div className="flex items-center gap-2 text-gray-700">
-            <span className="spinner h-4 w-4 text-brand-700" />
-            Searching this map area...
-          </div>
-        )}
-
-        {!loading && error && (
-          <div
-            className="text-red-600"
-            role={announceState ? 'alert' : undefined}
-          >
-            Unable to load stays for this area.
-          </div>
-        )}
-
-        {!loading && !error && empty && (
-          <div
-            className="text-gray-600"
-            role={announceState ? 'status' : undefined}
-            aria-live={announceState ? 'polite' : undefined}
-            aria-atomic={announceState ? 'true' : undefined}
-          >
-            No stays found in this map area. Move or zoom the map to explore.
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default function HomePage() {
-  const [allListings, setAllListings] = useState<Listing[]>([]);
-  const [results, setResults] = useState<Listing[]>([]);
-  const [mapListings, setMapListings] = useState<Listing[]>([]);
-  const [mapLoading, setMapLoading] = useState(false);
-  const [mapError, setMapError] = useState('');
-  const [hasLoadedMapBounds, setHasLoadedMapBounds] = useState(false);
-  const mapRequestId = useRef(0);
-  const searchRequestId = useRef(0);
-  const mapAbortControllerRef = useRef<AbortController | null>(null);
-  const [allTags, setAllTags] = useState<Tag[]>([]);
-  const [tagMetadataStatus, setTagMetadataStatus] =
-    useState<TagMetadataStatus>('loading');
-  const [search, setSearch] = useState('');
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
-  const searchBoxRef = useRef<HTMLDivElement>(null);
-  const [loading, setLoading] = useState(true);
-  const [searching, setSearching] = useState(false);
-  const [error, setError] = useState('');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [selectedListingId, setSelectedListingId] = useState<string | null>(
-    null,
-  );
-
-  const listingCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const [showFilters, setShowFilters] = useState(false);
-  const [urlStateReady, setUrlStateReady] = useState(false);
-  const restoringUrlStateRef = useRef(false);
-  const pendingUrlTagCandidatesRef = useRef<string[]>([]);
-
-  // Filter state
-  const [filterMaxPrice, setFilterMaxPrice] = useState('');
-  const [filterGuests, setFilterGuests] = useState('');
-  const [filterState, setFilterState] = useState('');
-  const [filterTags, setFilterTags] = useState<string[]>([]);
-
-  // Discovery facets (§5.18) — server-side
-  const [filterExperienceTags, setFilterExperienceTags] = useState<string[]>([]);
-  const [filterPropertyType, setFilterPropertyType] = useState('');
-  const [filterDietary, setFilterDietary] = useState<string[]>([]);
-  const [filterSort, setFilterSort] = useState<DiscoverySort | ''>('');
-
-  const debouncedSearch = useDebounce(search, 350);
-  const validTagIds = useMemo(() => allTags.map((tag) => tag.id), [allTags]);
-
-  const applyUrlState = useCallback(() => {
-    const params = new URLSearchParams(window.location.search);
-
-    const normalizedUrlState = normalizeDiscoveryUrlState(params, {
-      validExperienceTags: EXPERIENCE_TAGS,
-      validPropertyTypes: PROPERTY_TYPES,
-      validDietaryOptions: DIETARY_OPTIONS,
-    });
-    const pendingTagCandidates = parseDiscoveryTagCandidates(params);
-    pendingUrlTagCandidatesRef.current = pendingTagCandidates;
-
-    let activeTagIds: string[] = [];
-    let canonicalParams = normalizedUrlState.canonicalParams;
-
-    if (tagMetadataStatus === 'ready') {
-      const normalizedTagState = normalizeDiscoveryTagUrlState(
-        canonicalParams,
-        validTagIds,
-      );
-
-      activeTagIds = normalizedTagState.tagIds;
-      canonicalParams = normalizedTagState.canonicalParams;
-      pendingUrlTagCandidatesRef.current = activeTagIds;
-    }
-
-    setSearch(normalizedUrlState.q);
-    setFilterState(normalizedUrlState.state);
-    setFilterGuests(normalizedUrlState.guests);
-    setFilterMaxPrice(normalizedUrlState.maxPrice);
-    setFilterTags(activeTagIds);
-    setFilterExperienceTags(normalizedUrlState.experiences);
-    setFilterPropertyType(normalizedUrlState.propertyType);
-    setFilterDietary(normalizedUrlState.dietary);
-    setFilterSort(normalizedUrlState.sort);
-
-    const hasUrlFilters =
-      Boolean(normalizedUrlState.state) ||
-      Boolean(normalizedUrlState.guests) ||
-      Boolean(normalizedUrlState.maxPrice) ||
-      activeTagIds.length > 0 ||
-      normalizedUrlState.experiences.length > 0 ||
-      Boolean(normalizedUrlState.propertyType) ||
-      normalizedUrlState.dietary.length > 0 ||
-      Boolean(normalizedUrlState.sort);
-
-    setShowFilters(hasUrlFilters);
-    setViewMode(normalizedUrlState.view);
-
-    setShowSuggestions(false);
-    setActiveSuggestionIndex(-1);
-
-    const canonicalQuery = canonicalParams.toString();
-    const currentUrl =
-      `${window.location.pathname}` +
-      `${window.location.search}` +
-      `${window.location.hash}`;
-    const canonicalUrl =
-      `${window.location.pathname}` +
-      `${canonicalQuery ? `?${canonicalQuery}` : ''}` +
-      `${window.location.hash}`;
-
-    if (canonicalUrl !== currentUrl) {
-      window.history.replaceState(
-        window.history.state,
-        '',
-        canonicalUrl,
-      );
-    }
-  }, [tagMetadataStatus, validTagIds]);
-
-  useEffect(() => {
-    restoringUrlStateRef.current = true;
-    applyUrlState();
-    setUrlStateReady(true);
-
-    const handlePopState = () => {
-      restoringUrlStateRef.current = true;
-      applyUrlState();
-    };
-
-    window.addEventListener('popstate', handlePopState);
-
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [applyUrlState]);
-
-  useEffect(() => {
-    if (!urlStateReady) return;
-
-    if (restoringUrlStateRef.current) {
-      if (debouncedSearch === search) {
-        restoringUrlStateRef.current = false;
-      }
-
-      return;
-    }
-
-    const params = new URLSearchParams(window.location.search);
-
-    const setOrDelete = (key: string, value: string) => {
-      const normalizedValue = value.trim();
-
-      if (normalizedValue) {
-        params.set(key, normalizedValue);
-      } else {
-        params.delete(key);
-      }
-    };
-
-    setOrDelete('q', debouncedSearch);
-    setOrDelete('state', filterState);
-    setOrDelete('guests', filterGuests);
-    setOrDelete('maxPrice', filterMaxPrice);
-    setOrDelete('propertyType', filterPropertyType);
-    setOrDelete('sort', filterSort);
-
-    if (viewMode !== 'grid') {
-      params.set('view', viewMode);
-    } else {
-      params.delete('view');
-    }
-
-    if (tagMetadataStatus === 'ready') {
-      if (filterTags.length > 0) {
-        params.set('tags', filterTags.join(','));
-      } else {
-        params.delete('tags');
-      }
-    }
-
-    if (filterExperienceTags.length > 0) {
-      params.set(
-        'experiences',
-        filterExperienceTags.join(','),
-      );
-    } else {
-      params.delete('experiences');
-    }
-
-    if (filterDietary.length > 0) {
-      params.set('dietary', filterDietary.join(','));
-    } else {
-      params.delete('dietary');
-    }
-
-    const query = params.toString();
-
-    const nextUrl =
-      `${window.location.pathname}` +
-      `${query ? `?${query}` : ''}` +
-      `${window.location.hash}`;
-
-    const currentUrl =
-      `${window.location.pathname}` +
-      `${window.location.search}` +
-      `${window.location.hash}`;
-
-    if (nextUrl === currentUrl) return;
-
-    window.history.pushState(
-      window.history.state,
-      '',
-      nextUrl,
-    );
-  }, [
-    search,
-    debouncedSearch,
-    viewMode,
-    filterState,
-    filterGuests,
-    filterMaxPrice,
-    filterTags,
-    filterExperienceTags,
-    filterPropertyType,
-    filterDietary,
-    filterSort,
-    urlStateReady,
-    tagMetadataStatus,
-  ]);
-
-  const handleListingSelect = useCallback((listingId: string) => {
-    setSelectedListingId(listingId);
-
-    window.requestAnimationFrame(() => {
-      listingCardRefs.current[listingId]?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-      });
-    });
-  }, []);
-
-  const visibleMapListings = useMemo(() => {
-    const resultIds = new Set(results.map((listing) => listing.id));
-
-    return mapListings.filter((listing) => resultIds.has(listing.id));
-  }, [mapListings, results]);
-
-  useEffect(() => {
-    if (!selectedListingId) return;
-
-    const selectedListingIsVisible = visibleMapListings.some(
-      (listing) => listing.id === selectedListingId,
-    );
-
-    if (!selectedListingIsVisible) {
-      setSelectedListingId(null);
-    }
-  }, [selectedListingId, visibleMapListings]);
-
-  useEffect(() => {
-    if (!hoveredId) return;
-
-    const hoveredListingIsVisible = visibleMapListings.some(
-      (listing) => listing.id === hoveredId,
-    );
-
-    if (!hoveredListingIsVisible) {
-      setHoveredId(null);
-    }
-  }, [hoveredId, visibleMapListings]);
-
-  useEffect(() => {
-    if (viewMode !== 'split') {
-      setHoveredId(null);
-    }
-  }, [viewMode]);
-
-  const showMapEmptyState =
-    hasLoadedMapBounds &&
-    !mapLoading &&
-    !mapError &&
-    visibleMapListings.length === 0;
-
-  const activeFilterCount = useMemo(() => {
-    let n = 0;
-    if (filterMaxPrice) n++;
-    if (filterGuests) n++;
-    if (filterState) n++;
-    n += filterTags.length;
-    n += filterExperienceTags.length;
-    if (filterPropertyType) n++;
-    n += filterDietary.length;
-    if (filterSort) n++;
-    return n;
-  }, [
-    filterMaxPrice,
-    filterGuests,
-    filterState,
-    filterTags,
-    filterExperienceTags,
-    filterPropertyType,
-    filterDietary,
-    filterSort,
-  ]);
-
-  const uniqueStates = useMemo(
-    () => [...new Set(allListings.map((l) => l.state).filter(Boolean))].sort(),
-    [allListings],
-  );
-
-  const searchSuggestions = useMemo<SearchSuggestion[]>(() => {
-    const query = search.trim().toLowerCase();
-
-    if (query.length < 2) return [];
-
-    const suggestions: SearchSuggestion[] = [];
-    const seen = new Set<string>();
-
-    const addSuggestion = (suggestion: SearchSuggestion) => {
-      const key = `${suggestion.type}:${suggestion.value.toLowerCase()}`;
-
-      if (!seen.has(key)) {
-        seen.add(key);
-        suggestions.push(suggestion);
-      }
-    };
-
-    allListings.forEach((listing) => {
-      if (listing.title.toLowerCase().includes(query)) {
-        addSuggestion({
-          label: listing.title,
-          value: listing.title,
-          type: 'Stay',
-          secondary: `${listing.city}, ${listing.state}`,
-        });
-      }
-    });
-
-    allListings.forEach((listing) => {
-      if (listing.city.toLowerCase().includes(query)) {
-        addSuggestion({
-          label: listing.city,
-          value: listing.city,
-          type: 'City',
-          secondary: listing.state,
-        });
-      }
-    });
-
-    allListings.forEach((listing) => {
-      if (listing.state.toLowerCase().includes(query)) {
-        addSuggestion({
-          label: listing.state,
-          value: listing.state,
-          type: 'State',
-          secondary: listing.country,
-        });
-      }
-    });
-
-    return suggestions.slice(0, 6);
-  }, [allListings, search]);
-
-  const selectSearchSuggestion = useCallback(
-    (suggestion: SearchSuggestion) => {
-      setSearch(suggestion.value);
-      setShowSuggestions(false);
-      setActiveSuggestionIndex(-1);
-    },
-    [],
-  );
-
-  const handleSearchKeyDown = (
-    event: KeyboardEvent<HTMLInputElement>,
-  ) => {
-    const hasSuggestions = searchSuggestions.length > 0;
-    const suggestionsOpen = showSuggestions && hasSuggestions;
-
-    if (event.key === 'ArrowDown') {
-      if (!hasSuggestions) return;
-
-      event.preventDefault();
-      setShowSuggestions(true);
-
-      setActiveSuggestionIndex((current) =>
-        current >= searchSuggestions.length - 1
-          ? 0
-          : current + 1,
-      );
-
-      return;
-    }
-
-    if (event.key === 'ArrowUp') {
-      if (!hasSuggestions) return;
-
-      event.preventDefault();
-      setShowSuggestions(true);
-
-      setActiveSuggestionIndex((current) =>
-        current <= 0
-          ? searchSuggestions.length - 1
-          : current - 1,
-      );
-
-      return;
-    }
-
-    if (
-      event.key === 'Enter' &&
-      suggestionsOpen &&
-      activeSuggestionIndex >= 0
-    ) {
-      event.preventDefault();
-
-      selectSearchSuggestion(
-        searchSuggestions[activeSuggestionIndex],
-      );
-
-      return;
-    }
-
-    if (event.key === 'Escape' && showSuggestions) {
-      event.preventDefault();
-      setShowSuggestions(false);
-      setActiveSuggestionIndex(-1);
-    }
-  };
-
-  const tagsByCategory = useMemo(() => {
-    const map: Record<string, Tag[]> = {};
-    allTags.forEach((t) => {
-      if (!map[t.category]) map[t.category] = [];
-      map[t.category].push(t);
-    });
-    return map;
-  }, [allTags]);
-
-  // Initial load
-  useEffect(() => {
-    listingsApi.getPublic()
-      .then((listings) => {
-        setAllListings(listings);
-        setResults(listings);
-        setMapListings(listings);
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
-
-    listingsApi.getTags()
-      .then((tags) => {
-        setAllTags(tags);
-        setTagMetadataStatus('ready');
-      })
-      .catch(() => {
-        setAllTags([]);
-        setTagMetadataStatus('failed');
-      });
-  }, []);
-
-  useEffect(() => {
-    if (tagMetadataStatus !== 'ready') {
-      return;
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    const normalizedTagState = normalizeDiscoveryTagUrlState(
-      params,
-      validTagIds,
-    );
-
-    pendingUrlTagCandidatesRef.current = normalizedTagState.tagIds;
-
-    if (!arraysEqual(filterTags, normalizedTagState.tagIds)) {
-      restoringUrlStateRef.current = true;
-      setFilterTags(normalizedTagState.tagIds);
-    }
-
-    const canonicalQuery = normalizedTagState.canonicalParams.toString();
-    const currentUrl =
-      `${window.location.pathname}` +
-      `${window.location.search}` +
-      `${window.location.hash}`;
-    const canonicalUrl =
-      `${window.location.pathname}` +
-      `${canonicalQuery ? `?${canonicalQuery}` : ''}` +
-      `${window.location.hash}`;
-
-    if (canonicalUrl !== currentUrl) {
-      window.history.replaceState(
-        window.history.state,
-        '',
-        canonicalUrl,
-      );
-    }
-  }, [tagMetadataStatus, validTagIds]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        searchBoxRef.current &&
-        !searchBoxRef.current.contains(event.target as Node)
-      ) {
-        setShowSuggestions(false);
-        setActiveSuggestionIndex(-1);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
-
-  const hasDiscoveryFacets = useMemo(
-    () =>
-      filterExperienceTags.length > 0 ||
-      !!filterPropertyType ||
-      filterDietary.length > 0 ||
-      !!filterSort,
-    [filterExperienceTags, filterPropertyType, filterDietary, filterSort],
-  );
-
-  // Apply client-side filters on top of search results
-  const applyFilters = useCallback((base: Listing[]) => {
-    let out = base;
-    if (filterState) {
-      out = out.filter((l) => l.state.toLowerCase() === filterState.toLowerCase());
-    }
-    if (filterGuests) {
-      const g = parseInt(filterGuests, 10);
-      out = out.filter((l) => (l.rateRules?.[0]?.maxGuests ?? 0) >= g);
-    }
-    if (filterMaxPrice) {
-      const maxPaise = parseFloat(filterMaxPrice) * 100;
-      out = out.filter((l) => (l.rateRules?.[0]?.baseNightlyRate ?? Infinity) <= maxPaise);
-    }
-    if (filterTags.length > 0) {
-      out = out.filter((l) =>
-        filterTags.every((tagId) =>
-          l.tags?.some((lt) => lt.tagId === tagId),
-        ),
-      );
-    }
-    return out;
-  }, [filterState, filterGuests, filterMaxPrice, filterTags]);
-
-  const handleMapBoundsChange = useCallback(
-    async (bounds: LatLngBounds) => {
-      mapAbortControllerRef.current?.abort();
-
-      const controller = new AbortController();
-      mapAbortControllerRef.current = controller;
-
-      const requestId = ++mapRequestId.current;
-      const southWest = bounds.getSouthWest();
-      const northEast = bounds.getNorthEast();
-
-      setMapLoading(true);
-      setMapError('');
-
-      try {
-        const listings = await listingsApi.getByBounds(
-          southWest.lat,
-          southWest.lng,
-          northEast.lat,
-          northEast.lng,
-          controller.signal,
-        );
-
-        if (requestId === mapRequestId.current) {
-          setMapListings(listings);
-          setHasLoadedMapBounds(true);
-        }
-      } catch (error) {
-        if (controller.signal.aborted) return;
-
-        if (requestId === mapRequestId.current) {
-          setMapError(
-            error instanceof Error
-              ? error.message
-              : 'Unable to load listings for this map area.',
-          );
-          setHasLoadedMapBounds(true);
-        }
-      } finally {
-        if (mapAbortControllerRef.current === controller) {
-          mapAbortControllerRef.current = null;
-        }
-
-        if (requestId === mapRequestId.current) {
-          setMapLoading(false);
-        }
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    return () => {
-      mapAbortControllerRef.current?.abort();
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      searchRequestId.current += 1;
-    };
-  }, []);
-
-  // Search via API (Meilisearch with DB fallback) or facet-driven discovery
-  const runSearch = useCallback(async (q: string) => {
-    const requestId = ++searchRequestId.current;
-    const useDiscovery = hasDiscoveryFacets || !!q.trim();
-    if (!useDiscovery) {
-      if (requestId === searchRequestId.current) {
-        setResults(applyFilters(allListings));
-        setSearching(false);
-      }
-      return;
-    }
-    setSearching(true);
-    try {
-      if (hasDiscoveryFacets) {
-        const data = await listingsApi.getPublic({
-          q: q.trim() || undefined,
-          experienceTags: filterExperienceTags.length ? filterExperienceTags : undefined,
-          propertyType: filterPropertyType || undefined,
-          dietaryOptions: filterDietary.length ? filterDietary : undefined,
-          sort: filterSort || undefined,
-        });
-        if (requestId === searchRequestId.current) {
-          setResults(applyFilters(data));
-        }
-      } else {
-        const data = await listingsApi.search(q);
-        if (requestId === searchRequestId.current) {
-          setResults(applyFilters(data));
-        }
-      }
-    } catch {
-      if (requestId !== searchRequestId.current) {
-        return;
-      }
-
-      const lower = q.toLowerCase();
-      setResults(
-        applyFilters(allListings.filter(
-          (l) =>
-            l.title.toLowerCase().includes(lower) ||
-            l.city.toLowerCase().includes(lower) ||
-            l.state.toLowerCase().includes(lower) ||
-            l.description.toLowerCase().includes(lower),
-        )),
-      );
-    } finally {
-      if (requestId === searchRequestId.current) {
-        setSearching(false);
-      }
-    }
-  }, [
-    allListings,
-    applyFilters,
-    hasDiscoveryFacets,
-    filterExperienceTags,
-    filterPropertyType,
-    filterDietary,
-    filterSort,
-  ]);
-
-  useEffect(() => {
-    void runSearch(debouncedSearch);
-  }, [debouncedSearch, runSearch]);
-
-  // Re-apply filters when filter values change without new search
-  useEffect(() => {
-    if (!debouncedSearch.trim() && !hasDiscoveryFacets) {
-      setResults(applyFilters(allListings));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterState, filterGuests, filterMaxPrice, filterTags, allListings, hasDiscoveryFacets]);
-
-  const clearFilters = () => {
-    pendingUrlTagCandidatesRef.current = [];
-    setFilterMaxPrice('');
-    setFilterGuests('');
-    setFilterState('');
-    setFilterTags([]);
-    setFilterExperienceTags([]);
-    setFilterPropertyType('');
-    setFilterDietary([]);
-    setFilterSort('');
-  };
-
-  const toggleTag = (tagId: string) => {
-    pendingUrlTagCandidatesRef.current = [];
-    setFilterTags((prev) =>
-      prev.includes(tagId) ? prev.filter((t) => t !== tagId) : [...prev, tagId],
-    );
-  };
-
-  const toggleExperience = (tag: string) => {
-    setFilterExperienceTags((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
-    );
-  };
-
-  const toggleDietary = (option: string) => {
-    setFilterDietary((prev) =>
-      prev.includes(option) ? prev.filter((t) => t !== option) : [...prev, option],
-    );
-  };
-
-  const formatFacet = (s: string) =>
-    s.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-
-  const suggestionsRendered =
-    showSuggestions && searchSuggestions.length > 0;
-
-  const activeSuggestionId =
-    suggestionsRendered &&
-    activeSuggestionIndex >= 0 &&
-    activeSuggestionIndex < searchSuggestions.length
-      ? `search-suggestion-${activeSuggestionIndex}`
-      : undefined;
-
-  const resultsStatusText =
-    loading
-      ? 'Loading stays.'
-      : searching
-        ? 'Searching stays.'
-        : `${results.length} curated ${results.length === 1 ? 'stay' : 'stays'}.`;
-
-  const visibleResultsStatusText =
-    loading || searching
-      ? 'Searching...'
-      : `${results.length} curated ${results.length === 1 ? 'stay' : 'stays'}`;
-
-  const discoveryFocusRingClassName =
-    'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/30 focus-visible:ring-offset-2';
-  const mapViewDescriptionId = 'discovery-map-description';
-  const splitMapDescriptionId = 'discovery-split-map-description';
-  const mapListingsSummary = `${visibleMapListings.length} curated ${visibleMapListings.length === 1 ? 'stay' : 'stays'}`;
-  const mapViewDescription = `Map showing ${visibleMapListings.length} ${visibleMapListings.length === 1 ? 'stay' : 'stays'} in the current area. Use Tab to move through markers and Enter to open a marker.`;
-
-  return (
-    <>
-      {/* Hero */}
-      <section className="relative bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500 text-white overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-10 left-10 w-64 h-64 rounded-full bg-white blur-3xl" />
-          <div className="absolute bottom-0 right-20 w-96 h-96 rounded-full bg-gold-500 blur-3xl" />
-        </div>
-        <div className="container-page relative py-20 md:py-28 text-center">
-          <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur rounded-full px-4 py-1.5 text-sm font-medium mb-6">
-            <span>✨</span>
-            <span>Curated wellness retreats across India</span>
-          </div>
-          <h1 className="text-4xl md:text-6xl font-bold leading-tight mb-4">
-            Find your perfect
-            <br />
-            <span className="text-gold-400">sanctuary</span>
+    <section className="relative bg-background pt-[70px] md:pt-40 pb-6 md:pb-8 overflow-hidden">
+      {/* Decorative soft blobs */}
+      <div className="absolute -top-24 -left-32 w-[420px] h-[420px] rounded-full bg-sage/15 blur-3xl pointer-events-none" />
+      <div className="absolute top-24 -right-32 w-[380px] h-[380px] rounded-full bg-primary/10 blur-3xl pointer-events-none" />
+
+      <div className="relative max-w-[1400px] mx-auto px-6 lg:px-8 grid lg:grid-cols-2 gap-5 sm:gap-14 items-center">
+        {/* Left: copy */}
+        <div className="animate-fade-in-up">
+          <span className="inline-flex items-center gap-2 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full bg-surface shadow-organic mb-3 sm:mb-6">
+            <Sparkles size={14} className="text-primary" />
+            <span className="text-xs font-semibold text-foreground tracking-wide uppercase">
+              India&apos;s Premier Curated Stays
+            </span>
+          </span>
+
+          <h1 className="heading-organic text-[1.85rem] leading-[1.15] sm:text-5xl lg:text-6xl text-foreground mb-2.5 sm:mb-6 max-w-xl">
+            Stays You&apos;ll Fall In Love With{" "}
+            <span className="text-primary">From the First Glance</span>
           </h1>
-          <p className="text-brand-100 text-lg md:text-xl max-w-xl mx-auto mb-10">
-            Handpicked stays for mindful travellers — from Himalayan retreats to coastal hideaways.
-          </p>
-          <div className="max-w-lg mx-auto">
-            <div ref={searchBoxRef} className="relative">
-              <span className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-lg text-gray-400">
-                {searching ? '⏳' : '🔍'}
-              </span>
 
+          <p className="text-muted text-sm sm:text-base lg:text-lg max-w-lg mb-3 sm:mb-5 lg:mb-8 leading-relaxed">
+            Architect-inspected properties, warm local hospitality, and
+            experiences designed to feel like home — curated across India&apos;s
+            most beautiful destinations.
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4 sm:mb-6 lg:mb-10">
+            <Link
+              href="/stays"
+              className="px-5 py-2.5 sm:px-7 sm:py-3.5 text-sm font-semibold bg-primary text-primary-foreground rounded-full shadow-organic hover:bg-primary-hover hover:-translate-y-0.5 transition-all"
+            >
+              Explore Stays
+            </Link>
+            <Link
+              href="/traveller/ai-planner"
+              className="flex items-center gap-2 px-5 py-2.5 sm:px-7 sm:py-3.5 text-sm font-semibold bg-surface border border-sage text-sage rounded-full hover:bg-sage hover:text-white transition-all"
+            >
+              <Sparkles size={16} />
+              Plan My Trip with AI
+            </Link>
+          </div>
+
+          {/* Feature highlights */}
+          <div className="grid grid-cols-3 gap-2.5 sm:gap-4 max-w-md">
+            {features.map((f) => (
+              <div key={f.label} className="flex flex-col items-start gap-1.5 sm:gap-2.5">
+                <span className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-sage/12 text-sage flex items-center justify-center shrink-0">
+                  <f.icon size={16} className="sm:hidden" />
+                  <f.icon size={18} className="hidden sm:block" />
+                </span>
+                <span className="text-[11px] sm:text-xs font-medium text-foreground leading-tight">
+                  {f.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Right: organic blob image */}
+        <div className="relative animate-fade-in">
+          <div className="relative rounded-[40px] rounded-tr-[120px] overflow-hidden shadow-organic aspect-[4/5] max-w-[230px] sm:max-w-md mx-auto">
+            <img
+              src="https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?q=80&w=1400&auto=format&fit=crop"
+              alt="A curated Dhyana Stays property nestled in nature"
+              fetchPriority="high"
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          </div>
+          {/* floating badge */}
+          <div className="absolute top-3 left-3 bottom-auto sm:top-auto sm:bottom-6 sm:left-4 bg-surface rounded-[24px] shadow-organic px-3 py-2.5 sm:px-5 sm:py-4 flex items-center gap-2.5 sm:gap-3">
+            <span className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-sage/15 text-sage flex items-center justify-center shrink-0">
+              <ShieldCheck size={16} className="sm:hidden" />
+              <ShieldCheck size={18} className="hidden sm:block" />
+            </span>
+            <div>
+              <p className="text-xs sm:text-sm font-bold text-foreground leading-tight">
+                100% Curated
+              </p>
+              <p className="text-[10px] sm:text-[11px] text-muted">Every stay inspected</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Floating search bar */}
+      <div className="relative max-w-4xl mx-auto px-6 mt-5 sm:mt-8 lg:mt-12">
+        <div className="bg-surface rounded-[28px] shadow-organic p-2 animate-fade-in-up">
+          <div className="flex flex-col md:flex-row items-stretch gap-2">
+            <div className="flex-1 flex items-center gap-3 px-4 py-2.5 md:px-5 md:py-3 rounded-[18px] bg-background">
+              <Search size={18} className="text-subtle shrink-0" />
               <input
                 type="text"
-                placeholder="Search by city, state, or keyword..."
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  setShowSuggestions(true);
-                  setActiveSuggestionIndex(-1);
-                }}
-                onFocus={() => {
-                  setShowSuggestions(true);
-                  setActiveSuggestionIndex(-1);
-                }}
-                autoComplete="off"
-                aria-label="Search stays"
-                role="combobox"
-                aria-autocomplete="list"
-                aria-controls={suggestionsRendered ? 'search-suggestions' : undefined}
-                aria-expanded={suggestionsRendered}
-                aria-activedescendant={activeSuggestionId}
-                onKeyDown={handleSearchKeyDown}
-                className="w-full rounded-2xl border-0 py-4 pl-11 pr-4 text-base text-gray-900 shadow-lg
-                           focus:outline-none focus:ring-2 focus:ring-gold-500/50"
+                placeholder="Where do you want to go?"
+                className="w-full bg-transparent text-foreground placeholder-subtle text-sm focus:outline-none"
               />
+            </div>
+            <div className="flex items-center gap-3 px-4 py-2.5 md:px-5 md:py-3 rounded-[18px] bg-background">
+              <CalendarDays size={18} className="text-subtle shrink-0" />
+              <span className="text-sm text-subtle whitespace-nowrap">
+                Check-in — Check-out
+              </span>
+            </div>
+            <div className="flex items-center gap-3 px-4 py-2.5 md:px-5 md:py-3 rounded-[18px] bg-background">
+              <Users size={18} className="text-subtle shrink-0" />
+              <span className="text-sm text-subtle">Guests</span>
+            </div>
+            <Link
+              href="/stays"
+              className="flex items-center justify-center gap-2 px-8 py-2.5 md:py-3 bg-primary text-primary-foreground font-semibold text-sm rounded-[18px] hover:bg-primary-hover transition-colors whitespace-nowrap"
+            >
+              <Search size={16} />
+              Search
+            </Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
-              {suggestionsRendered && (
-                <div
-                  id="search-suggestions"
-                  role="listbox"
-                  className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-xl"
-                >
-                  <div className="py-2">
-                    {searchSuggestions.map((suggestion, index) => (
-                      <button
-                        id={`search-suggestion-${index}`}
-                        key={`${suggestion.type}-${suggestion.value}`}
-                        type="button"
-                        role="option"
-                        aria-selected={activeSuggestionIndex === index}
-                        onMouseEnter={() => setActiveSuggestionIndex(index)}
-                        onClick={() => selectSearchSuggestion(suggestion)}
-                        className={`flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors focus:outline-none ${
-                          activeSuggestionIndex === index
-                            ? 'bg-brand-50'
-                            : 'hover:bg-gray-50'
+// ============================================
+// AI TRIP PLANNER SECTION
+// ============================================
+function AiPlannerSection() {
+  const promptChips = [
+    "Peaceful farm stay near Auroville for 2 days",
+    "Family weekend under ₹15,000",
+    "Pet-friendly stay with a pool",
+  ];
+  const preview = [
+    { time: "6:30 AM", title: "Sunrise yoga at the stay", state: "done" },
+    { time: "11:00 AM", title: "Matrimandir & Auroville tour", state: "now" },
+    { time: "4:30 PM", title: "Cycle to Serenity Beach", state: "next" },
+  ];
+
+  return (
+    <section className="py-6 md:py-12 bg-background">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-8">
+        <div className="rounded-2xl sm:rounded-[32px] bg-sage overflow-hidden shadow-organic">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6 lg:gap-10 items-center p-4 sm:p-6 md:p-12">
+            {/* Left: pitch + prompt */}
+            <div>
+              <span className="text-xs font-semibold text-white/80 uppercase tracking-widest flex items-center gap-1.5">
+                <Bot size={14} /> AI Trip Planner
+              </span>
+              <h2 className="heading-organic text-xl sm:text-3xl lg:text-5xl text-white mt-2 sm:mt-3">
+                Tell Us the Trip. We Build the Plan.
+              </h2>
+              <p className="text-white/80 text-sm sm:text-base mt-2 sm:mt-4 leading-relaxed max-w-lg">
+                Describe your dream trip in one line — the AI shortlists stays that
+                match your preferences, builds a day-by-day itinerary, tracks you
+                through the trip, reschedules when you run late, and keeps SOS help
+                one tap away.
+              </p>
+
+              {/* Prompt input (opens the planner) */}
+              <Link
+                href="/traveller/ai-planner"
+                className="mt-3.5 sm:mt-7 flex items-center gap-2 sm:gap-3 rounded-2xl sm:rounded-[20px] bg-white p-1.5 pl-4 sm:p-2 sm:pl-5 shadow-organic hover:-translate-y-0.5 transition-all group"
+              >
+                <Sparkles size={16} className="text-sage shrink-0" />
+                <span className="flex-1 text-sm text-neutral-500 truncate">
+                  Describe your dream trip — &ldquo;quiet mountain cabin for two, fast wifi…&rdquo;
+                </span>
+                <span className="px-4 py-2 sm:px-5 sm:py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-2xl group-hover:bg-primary-hover transition-colors whitespace-nowrap">
+                  Plan with AI
+                </span>
+              </Link>
+              <div className="flex flex-wrap gap-1.5 sm:gap-2 mt-2.5 sm:mt-4">
+                {promptChips.map((c) => (
+                  <Link
+                    key={c}
+                    href="/traveller/ai-planner"
+                    className="px-3 py-1 sm:px-3.5 sm:py-1.5 text-xs text-white/85 border border-white/25 rounded-full hover:bg-white/10 transition-colors"
+                  >
+                    &ldquo;{c}&rdquo;
+                  </Link>
+                ))}
+              </div>
+              <p className="text-[11px] text-white/60 mt-3 sm:mt-5 flex items-center gap-1.5">
+                <Bot size={11} />
+                Also available on every page — tap the AI Planner button at the bottom right.
+              </p>
+            </div>
+
+            {/* Right: live itinerary preview */}
+            <div className="relative">
+              <div className="rounded-2xl sm:rounded-[24px] bg-white shadow-organic p-3.5 sm:p-5 max-w-sm mx-auto">
+                <div className="flex items-center justify-between mb-2.5 sm:mb-4">
+                  <p className="text-sm font-semibold text-neutral-800">Auroville Escape · Day 2</p>
+                  <span className="flex items-center gap-1.5 text-[10px] font-semibold text-sage uppercase tracking-wider">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sage animate-pulse" /> Live tracking
+                  </span>
+                </div>
+                {preview.map((p, i) => (
+                  <div key={p.title} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <span
+                        className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${
+                          p.state === "done"
+                            ? "bg-neutral-100 text-neutral-400"
+                            : p.state === "now"
+                            ? "bg-sage text-white"
+                            : "bg-primary/15 text-primary"
                         }`}
                       >
-                        <div className="min-w-0">
-                          <p className="truncate font-medium text-gray-900">
-                            {suggestion.label}
-                          </p>
+                        {i + 1}
+                      </span>
+                      {i < preview.length - 1 && <span className="w-px flex-1 bg-neutral-200 my-1" />}
+                    </div>
+                    <div className={`pb-2.5 sm:pb-4 ${p.state === "done" ? "opacity-50" : ""}`}>
+                      <p className="text-[10px] text-neutral-400 tabular-nums flex items-center gap-1">
+                        <Clock size={9} /> {p.time}
+                        {p.state === "now" && (
+                          <span className="ml-1 text-[8px] font-bold uppercase text-sage bg-sage/15 px-1.5 py-0.5 rounded-full">Now</span>
+                        )}
+                      </p>
+                      <p className="text-sm text-neutral-800 font-medium mt-0.5">{p.title}</p>
+                    </div>
+                  </div>
+                ))}
+                <div className="rounded-xl sm:rounded-[14px] bg-terracotta/10 px-3 py-2 sm:px-3.5 sm:py-2.5 text-[11px] text-neutral-500">
+                  Running 30 min late — <span className="text-terracotta font-semibold">auto-rescheduled</span> your beach ride &amp; dinner.
+                </div>
+              </div>
+              {/* floating chip */}
+              <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full bg-primary shadow-organic text-xs font-semibold text-primary-foreground whitespace-nowrap">
+                <Sparkles size={12} /> 96% match with your preferences
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
-                          {suggestion.secondary && (
-                            <p className="truncate text-sm text-gray-500">
-                              {suggestion.secondary}
-                            </p>
-                          )}
-                        </div>
+// ============================================
+// CATEGORIES SECTION
+// ============================================
+function CategoriesSection() {
+  // 3D emoji renders (Microsoft Fluent 3D, MIT licensed) — one per category,
+  // swapped in for the old flat line icons.
+  const fluent3d = "https://raw.githubusercontent.com/microsoft/fluentui-emoji/main/assets";
+  const iconMap: Record<string, string> = {
+    Home: `${fluent3d}/House/3D/house_3d.png`,
+    Sprout: `${fluent3d}/Seedling/3D/seedling_3d.png`,
+    Heart: `${fluent3d}/Lotus/3D/lotus_3d.png`,
+    Crown: `${fluent3d}/Crown/3D/crown_3d.png`,
+    Leaf: `${fluent3d}/Herb/3D/herb_3d.png`,
+    Landmark: `${fluent3d}/Classical building/3D/classical_building_3d.png`,
+    Laptop: `${fluent3d}/Laptop/3D/laptop_3d.png`,
+    HeartHandshake: `${fluent3d}/Two hearts/3D/two_hearts_3d.png`,
+    Users: `${fluent3d}/People hugging/3D/people_hugging_3d.png`,
+    PawPrint: `${fluent3d}/Paw prints/3D/paw_prints_3d.png`,
+    Mountain: `${fluent3d}/Camping/3D/camping_3d.png`,
+    Castle: `${fluent3d}/Castle/3D/castle_3d.png`,
+  };
 
-                        <span className="flex-shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700">
-                          {suggestion.type}
-                        </span>
-                      </button>
-                    ))}
+  return (
+    <section className="py-8 md:py-14 bg-background">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-8">
+        <div className="flex items-end justify-between mb-3 sm:mb-5 lg:mb-14">
+          <div>
+            <span className="text-xs font-semibold text-sage uppercase tracking-widest">
+              Explore
+            </span>
+            <h2 className="heading-organic text-xl sm:text-3xl lg:text-5xl text-foreground mt-1 sm:mt-2">
+              Find Your Perfect Escape
+            </h2>
+          </div>
+          <Link
+            href="/stays"
+            className="hidden md:flex items-center gap-2 text-sm text-primary hover:underline"
+          >
+            View All <ArrowRight size={14} />
+          </Link>
+        </div>
+
+        <div className="relative">
+          <div className="flex overflow-x-auto overscroll-x-contain snap-x snap-mandatory scroll-smooth scrollbar-hide gap-2.5 sm:gap-4 -mx-6 px-6 pb-1 sm:grid sm:grid-cols-3 sm:mx-0 sm:px-0 sm:pb-0 sm:overflow-visible sm:snap-none md:grid-cols-4 lg:grid-cols-6 stagger-children">
+            {categories.slice(0, 12).map((cat) => (
+              <Link
+                key={cat.slug}
+                href={`/stays?category=${cat.slug}`}
+                className="group shrink-0 w-[92px] snap-start sm:w-auto sm:shrink p-2.5 sm:p-6 rounded-2xl sm:rounded-[28px] bg-surface card-hover text-center"
+              >
+                <div className="w-9 h-9 sm:w-16 sm:h-16 mx-auto mb-1.5 sm:mb-4 flex items-center justify-center">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    loading="lazy"
+                    src={iconMap[cat.icon]}
+                    alt=""
+                    aria-hidden="true"
+                    className="w-8 h-8 sm:w-14 sm:h-14 object-contain drop-shadow-[0_6px_10px_rgba(0,0,0,0.25)] transition-transform duration-300 ease-out group-hover:-translate-y-1.5 group-hover:scale-110 group-hover:rotate-[-4deg]"
+                  />
+                </div>
+                <h3 className="text-[11px] sm:text-sm font-medium text-foreground mb-0.5 sm:mb-1 leading-tight">
+                  {cat.name}
+                </h3>
+                <p className="text-[10px] sm:text-xs text-subtle">{cat.count} stays</p>
+              </Link>
+            ))}
+          </div>
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background to-transparent sm:hidden" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ============================================
+// BLOG SECTION
+// ============================================
+function BlogSection() {
+  return (
+    <section className="py-8 md:py-14 bg-background">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-8">
+        <div className="flex items-end justify-between mb-3 sm:mb-5 lg:mb-14">
+          <div>
+            <span className="text-xs font-semibold text-sage uppercase tracking-widest">
+              Stories & Inspiration
+            </span>
+            <h2 className="heading-organic text-xl sm:text-3xl lg:text-5xl text-foreground mt-1 sm:mt-2">
+              From the Journal
+            </h2>
+          </div>
+          <Link
+            href="/blog"
+            className="hidden md:flex items-center gap-2 text-sm text-primary hover:underline"
+          >
+            All Articles <ArrowRight size={14} />
+          </Link>
+        </div>
+
+        <div className="relative">
+          <div className="flex overflow-x-auto overscroll-x-contain snap-x snap-mandatory scroll-smooth scrollbar-hide gap-3 md:gap-6 -mx-6 px-6 pb-1 md:grid md:grid-cols-2 md:mx-0 md:px-0 md:pb-0 md:overflow-visible md:snap-none lg:grid-cols-4 stagger-children">
+            {blogPosts.map((post) => (
+              <Link
+                key={post.id}
+                href={`/blog/${post.slug}`}
+                className="group shrink-0 w-[175px] snap-start md:w-auto md:shrink rounded-2xl md:rounded-[28px] overflow-hidden bg-surface card-hover"
+              >
+                <div className="relative h-28 md:h-44 overflow-hidden bg-surface-hover">
+                  <img loading="lazy"
+                    src={post.image}
+                    alt={post.title}
+                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                </div>
+                <div className="p-3 md:p-5">
+                  <span className="text-[9px] md:text-[10px] font-medium text-sage uppercase tracking-wider">
+                    {post.category}
+                  </span>
+                  <h3 className="text-xs md:text-sm font-semibold text-foreground mt-1 md:mt-2 mb-1 md:mb-2 group-hover:text-primary transition-colors line-clamp-2">
+                    {post.title}
+                  </h3>
+                  <p className="text-[11px] md:text-xs text-subtle line-clamp-2 mb-1.5 md:mb-3">
+                    {post.excerpt}
+                  </p>
+                  <div className="flex items-center justify-between text-[10px] md:text-xs text-subtle">
+                    <span>{post.date}</span>
+                    <span>{post.readTime} read</span>
                   </div>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Listings */}
-      <section className="container-page py-12">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">
-              {search ? `Results for "${search}"` : 'All Stays'}
-            </h2>
-            <p
-              className="text-gray-500 text-sm mt-0.5"
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              <span aria-hidden="true">{visibleResultsStatusText}</span>
-              <span className="sr-only">{resultsStatusText}</span>
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {(search || activeFilterCount > 0) && (
-              <button
-                onClick={() => { setSearch(''); clearFilters(); }}
-                className={`btn-ghost text-sm ${discoveryFocusRingClassName}`}
-              >
-                Clear all
-              </button>
-            )}
-
-            {/* Filter toggle */}
-            <button
-              onClick={() => setShowFilters((v) => !v)}
-              aria-expanded={showFilters}
-              aria-controls={showFilters ? 'discovery-filters' : undefined}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${showFilters || activeFilterCount > 0
-                ? 'bg-brand-700 text-white border-brand-700'
-                : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
-                } ${discoveryFocusRingClassName}`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-              </svg>
-              Filters
-              {activeFilterCount > 0 && (
-                <>
-                  <span
-                    aria-hidden="true"
-                    className="bg-white text-brand-700 rounded-full w-4 h-4 text-xs flex items-center justify-center font-bold leading-none"
-                  >
-                    {activeFilterCount}
-                  </span>
-                  <span className="sr-only">
-                    {activeFilterCount} active {activeFilterCount === 1 ? 'filter' : 'filters'}
-                  </span>
-                </>
-              )}
-            </button>
-
-            {/* View mode toggle */}
-            <div
-              className="flex items-center rounded-lg bg-gray-100 p-1"
-              role="group"
-              aria-label="Listing view"
-            >
-              <button
-                onClick={() => setViewMode('grid')}
-                aria-label="Grid view"
-                aria-pressed={viewMode === 'grid'}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  } ${discoveryFocusRingClassName}`}
-                title="Grid view"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                </svg>
-              </button>
-              <button
-                onClick={() => setViewMode('map')}
-                aria-label="Map view"
-                aria-pressed={viewMode === 'map'}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'map' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  } ${discoveryFocusRingClassName}`}
-                title="Map view"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                </svg>
-              </button>
-              <button
-                onClick={() => setViewMode('split')}
-                aria-label="Split view"
-                aria-pressed={viewMode === 'split'}
-                className={`hidden px-3 py-1.5 rounded-md text-sm font-medium transition-colors md:inline-flex ${
-                  viewMode === 'split'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                } ${discoveryFocusRingClassName}`}
-                title="Split view"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5h16M4 5v14M4 5l8 7m8-7v14m0-14l-8 7m0 0v7" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Filter panel */}
-        {showFilters && (
-          <div
-            id="discovery-filters"
-            className="bg-white border border-gray-200 rounded-xl p-5 mb-6 space-y-5"
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              {/* State filter */}
-              <div>
-                <label htmlFor="discovery-filter-state" className="label text-xs">State</label>
-                <select
-                  id="discovery-filter-state"
-                  value={filterState}
-                  onChange={(e) => setFilterState(e.target.value)}
-                  className="input text-sm"
-                >
-                  <option value="">All states</option>
-                  {uniqueStates.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Guests filter */}
-              <div>
-                <label htmlFor="discovery-filter-guests" className="label text-xs">Minimum guests</label>
-                <input
-                  id="discovery-filter-guests"
-                  type="number"
-                  min={1}
-                  max={20}
-                  placeholder="Any"
-                  value={filterGuests}
-                  onChange={(e) => setFilterGuests(e.target.value)}
-                  className="input text-sm"
-                />
-              </div>
-
-              {/* Max price */}
-              <div>
-                <label htmlFor="discovery-filter-max-price" className="label text-xs">Max price per night (₹)</label>
-                <input
-                  id="discovery-filter-max-price"
-                  type="number"
-                  min={0}
-                  step={500}
-                  placeholder="Any"
-                  value={filterMaxPrice}
-                  onChange={(e) => setFilterMaxPrice(e.target.value)}
-                  className="input text-sm"
-                />
-              </div>
-
-              {/* Sort */}
-              <div>
-                <label htmlFor="discovery-filter-sort" className="label text-xs">Sort by</label>
-                <select
-                  id="discovery-filter-sort"
-                  value={filterSort}
-                  onChange={(e) => setFilterSort(e.target.value as DiscoverySort | '')}
-                  className="input text-sm"
-                >
-                  <option value="">Relevance</option>
-                  <option value="newest">Newest first</option>
-                  <option value="price-asc">Price: low to high</option>
-                  <option value="price-desc">Price: high to low</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Experience tag facets */}
-            <div>
-              <p className="text-xs font-medium text-gray-500 mb-2">Experience</p>
-              <div className="flex flex-wrap gap-2">
-                {EXPERIENCE_TAGS.map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => toggleExperience(tag)}
-                    aria-pressed={filterExperienceTags.includes(tag)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterExperienceTags.includes(tag)
-                      ? 'bg-brand-700 text-white border-brand-700'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                      } ${discoveryFocusRingClassName}`}
-                  >
-                    {formatFacet(tag)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Property type facet */}
-            <div>
-              <p className="text-xs font-medium text-gray-500 mb-2">Property type</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setFilterPropertyType('')}
-                  aria-pressed={!filterPropertyType}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${!filterPropertyType
-                    ? 'bg-brand-700 text-white border-brand-700'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                    } ${discoveryFocusRingClassName}`}
-                >
-                  Any
-                </button>
-                {PROPERTY_TYPES.map((pt) => (
-                  <button
-                    key={pt}
-                    onClick={() => setFilterPropertyType(pt)}
-                    aria-pressed={filterPropertyType === pt}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterPropertyType === pt
-                      ? 'bg-brand-700 text-white border-brand-700'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                      } ${discoveryFocusRingClassName}`}
-                  >
-                    {formatFacet(pt)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Dietary facets */}
-            <div>
-              <p className="text-xs font-medium text-gray-500 mb-2">Dietary options</p>
-              <div className="flex flex-wrap gap-2">
-                {DIETARY_OPTIONS.map((option) => (
-                  <button
-                    key={option}
-                    onClick={() => toggleDietary(option)}
-                    aria-pressed={filterDietary.includes(option)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterDietary.includes(option)
-                      ? 'bg-brand-700 text-white border-brand-700'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                      } ${discoveryFocusRingClassName}`}
-                  >
-                    {formatFacet(option)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Tag filters by category */}
-            {Object.keys(tagsByCategory).length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-3">Amenities &amp; Features</p>
-                <div className="space-y-3">
-                  {Object.entries(tagsByCategory).map(([category, tags]) => (
-                    <div key={category}>
-                      <p className="text-xs text-gray-400 mb-1.5 capitalize">{category}</p>
-                      <div className="flex flex-wrap gap-2">
-                        {tags.map((tag) => (
-                          <button
-                            key={tag.id}
-                            onClick={() => toggleTag(tag.id)}
-                            aria-pressed={filterTags.includes(tag.id)}
-                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterTags.includes(tag.id)
-                              ? 'bg-brand-700 text-white border-brand-700'
-                              : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                              } ${discoveryFocusRingClassName}`}
-                          >
-                            {tag.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activeFilterCount > 0 && (
-              <div className="flex justify-end">
-                <button
-                  onClick={clearFilters}
-                  className={`btn-ghost text-sm text-gray-500 ${discoveryFocusRingClassName}`}
-                >
-                  Clear filters
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {error && (
-          <div className="alert-error mb-6" role="alert">
-            Could not load listings: {error}
-            <span className="block text-xs mt-1 opacity-70">Make sure the API is running on port 3001.</span>
-          </div>
-        )}
-
-        {(loading || searching) && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="card animate-pulse">
-                <div className="h-52 bg-gray-200" />
-                <div className="p-4 space-y-3">
-                  <div className="h-4 bg-gray-200 rounded w-3/4" />
-                  <div className="h-3 bg-gray-200 rounded w-full" />
-                  <div className="h-3 bg-gray-200 rounded w-2/3" />
-                </div>
-              </div>
+              </Link>
             ))}
           </div>
-        )}
+          <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-background to-transparent md:hidden" />
+        </div>
+      </div>
+    </section>
+  );
+}
 
-        {!loading && !searching && !error && results.length === 0 && (
-          <div className="text-center py-20">
-            <div className="text-6xl mb-4">🏕️</div>
-            <h3 className="text-xl font-semibold text-gray-700 mb-2">
-              {search || activeFilterCount > 0 ? 'No stays match your filters' : 'No stays available yet'}
-            </h3>
-            <p className="text-gray-400 text-sm max-w-sm mx-auto">
-              {search || activeFilterCount > 0
-                ? 'Try adjusting your search or filters.'
-                : 'Check back soon — our curators are adding new retreats.'}
-            </p>
-            {(search || activeFilterCount > 0) && (
-              <button
-                onClick={() => { setSearch(''); clearFilters(); }}
-                className={`btn-primary mt-6 ${discoveryFocusRingClassName}`}
+// ============================================
+// CTA SECTION
+// ============================================
+function CTASection() {
+  return (
+    <section className="py-8 md:py-14 bg-background">
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-8">
+        <div className="grid md:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
+          {/* For Hosts */}
+          <div className="relative rounded-2xl sm:rounded-[32px] overflow-hidden p-5 sm:p-10 lg:p-14 bg-primary shadow-organic group">
+            <div className="relative z-10">
+              <span className="text-xs font-semibold text-white/80 uppercase tracking-widest">
+                For Property Owners
+              </span>
+              <h3 className="heading-organic text-xl sm:text-2xl lg:text-4xl text-white mt-2 sm:mt-3 mb-2 sm:mb-4">
+                List Your Stay
+              </h3>
+              <p className="text-sm text-white/85 mb-4 sm:mb-8 max-w-sm leading-relaxed">
+                Join India&apos;s most prestigious curated stays network. Our
+                architecture team will inspect, score, and elevate your property.
+              </p>
+              <Link
+                href="/business"
+                className="inline-flex items-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 bg-white text-primary font-semibold text-sm rounded-full shadow-organic hover:-translate-y-0.5 transition-all"
               >
-                Browse all stays
-              </button>
-            )}
+                Apply as Host <ArrowRight size={14} />
+              </Link>
+            </div>
           </div>
-        )}
 
-        {!loading && !searching && results.length > 0 && (
-          <>
-            {/* Grid view */}
-            {viewMode === 'grid' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {results.map((listing) => (
-                  <ListingCard key={listing.id} listing={listing} />
-                ))}
-              </div>
-            )}
-
-            {/* Map view */}
-            {viewMode === 'map' && (
-              <div
-                className="relative"
-                role="region"
-                aria-label="Map of available stays"
-                aria-busy={mapLoading}
-                aria-describedby={mapViewDescriptionId}
+          {/* For Investors */}
+          <div className="relative rounded-2xl sm:rounded-[32px] overflow-hidden p-5 sm:p-10 lg:p-14 bg-sage shadow-organic group">
+            <div className="relative z-10">
+              <span className="text-xs font-semibold text-white/80 uppercase tracking-widest">
+                For Investors
+              </span>
+              <h3 className="heading-organic text-xl sm:text-2xl lg:text-4xl text-white mt-2 sm:mt-3 mb-2 sm:mb-4">
+                Invest in Hospitality
+              </h3>
+              <p className="text-sm text-white/85 mb-4 sm:mb-8 max-w-sm leading-relaxed">
+                Fractional ownership of curated stays with transparent ROI
+                tracking, professional management, and monthly revenue
+                distribution.
+              </p>
+              <Link
+                href="/investor"
+                className="inline-flex items-center gap-2 px-5 sm:px-6 py-2.5 sm:py-3 bg-white text-sage font-semibold text-sm rounded-full shadow-organic hover:-translate-y-0.5 transition-all"
               >
-                <p id={mapViewDescriptionId} className="sr-only">
-                  {mapViewDescription}
-                </p>
-                <ListingMap
-                  listings={visibleMapListings}
-                  height="clamp(380px, 65vh, 600px)"
-                  selectedId={selectedListingId}
-                  onListingSelect={handleListingSelect}
-                  onBoundsChange={handleMapBoundsChange}
-                />
-
-                <MapStatusOverlay
-                  loading={mapLoading}
-                  error={mapError}
-                  empty={showMapEmptyState}
-                />
-              </div>
-            )}
-
-            {/* Split view */}
-            {viewMode === 'split' && (
-              <div className="flex flex-col gap-6 lg:min-h-[600px] lg:flex-row">
-                <div
-                  className="relative w-full lg:w-1/2 lg:flex-shrink-0"
-                  role="region"
-                  aria-label="Map of available stays"
-                  aria-busy={mapLoading}
-                  aria-describedby={splitMapDescriptionId}
-                >
-                  <p id={splitMapDescriptionId} className="sr-only">
-                    {mapViewDescription}
-                  </p>
-                  <ListingMap
-                    listings={visibleMapListings}
-                    height="clamp(380px, 65vh, 600px)"
-                    selectedId={hoveredId ?? selectedListingId}
-                    onListingSelect={handleListingSelect}
-                    onBoundsChange={handleMapBoundsChange}
-                  />
-
-                  <MapStatusOverlay
-                    loading={mapLoading}
-                    error={mapError}
-                    empty={showMapEmptyState}
-                    announceState={false}
-                  />
-                </div>
-                <div
-                  className="w-full lg:max-h-[600px] lg:w-1/2 lg:overflow-y-auto lg:pr-1"
-                  role="region"
-                  aria-label="Stays in the current map area"
-                  aria-busy={mapLoading}
-                >
-                  {mapLoading && visibleMapListings.length === 0 ? (
-                    <div className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-gray-200 bg-white px-6 text-center">
-                      <div>
-                        <span className="spinner mb-3 h-5 w-5 text-brand-700" />
-                        <p className="text-sm font-medium text-gray-700">
-                          Searching this map area...
-                        </p>
-                      </div>
-                    </div>
-                  ) : mapError && visibleMapListings.length === 0 ? (
-                    <div
-                      className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-red-200 bg-white px-6 text-center"
-                      role="alert"
-                    >
-                      <div>
-                        <div className="mb-3 text-3xl">⚠️</div>
-                        <p className="font-medium text-gray-900">
-                          Unable to load stays
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Move the map or try again shortly.
-                        </p>
-                      </div>
-                    </div>
-                  ) : visibleMapListings.length === 0 ? (
-                    <div
-                      className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white px-6 text-center"
-                      role="status"
-                      aria-live="polite"
-                      aria-atomic="true"
-                    >
-                      <div>
-                        <div className="mb-3 text-4xl">🗺️</div>
-                        <p className="font-medium text-gray-900">
-                          No stays in this area
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Move or zoom the map to explore another location.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4" aria-label={mapListingsSummary}>
-                      {visibleMapListings.map((listing) => {
-                        const isSelected = selectedListingId === listing.id;
-
-                        return (
-                          <div
-                            key={listing.id}
-                            ref={(element) => {
-                              listingCardRefs.current[listing.id] = element;
-                            }}
-                            onMouseEnter={() => setHoveredId(listing.id)}
-                            onMouseLeave={() => setHoveredId(null)}
-                            className={`scroll-m-3 rounded-2xl transition-shadow ${
-                              isSelected
-                                ? 'ring-2 ring-brand-700 ring-offset-2'
-                                : ''
-                            }`}
-                          >
-                            <ListingCard listing={listing} />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </section>
-
-      {/* Features section */}
-      <section className="bg-white border-t border-gray-100 py-16">
-        <div className="container-page">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-12">Why Dhyana Stays?</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              {
-                icon: '🌿',
-                title: 'Curated by experts',
-                desc: 'Every property is personally vetted by our wellness curators for authenticity and quality.',
-              },
-              {
-                icon: '🔒',
-                title: 'Secure bookings',
-                desc: 'Razorpay-powered payments with full/deposit options and transparent refund policies.',
-              },
-              {
-                icon: '🤝',
-                title: 'Host community',
-                desc: 'Join our network of conscious hosts and earn with weekly payouts and full transparency.',
-              },
-            ].map((f) => (
-              <div key={f.title} className="text-center p-6">
-                <div className="text-4xl mb-4">{f.icon}</div>
-                <h3 className="font-semibold text-gray-900 mb-2">{f.title}</h3>
-                <p className="text-gray-500 text-sm leading-relaxed">{f.desc}</p>
-              </div>
-            ))}
+                Explore Projects <ArrowRight size={14} />
+              </Link>
+            </div>
           </div>
         </div>
-      </section>
+      </div>
+    </section>
+  );
+}
+
+// ============================================
+// MAIN PAGE
+// ============================================
+export default function HomePage() {
+  return (
+    <>
+      <Navbar />
+      <main>
+        <HeroSection />
+        <SpotlightSection />
+        <AiPlannerSection />
+        <CategoriesSection />
+        <ServicesSection />
+        <DestinationsSection />
+        <TestimonialsCarousel testimonials={testimonials} totalCount={totalGuestStoryCount} />
+        <BlogSection />
+        <CTASection />
+      </main>
+      <Footer />
     </>
   );
 }

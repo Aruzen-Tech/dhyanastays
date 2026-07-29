@@ -36,6 +36,12 @@ export class PaymentService {
     private readonly stateMachine: BookingStateMachine,
   ) {}
 
+  getGatewayConfig() {
+    return {
+      configured: !this.razorpay.isStubMode(),
+    };
+  }
+
   /**
    * Initialise a payment order with Razorpay.
    * Returns the Razorpay order details for the client to complete payment.
@@ -503,7 +509,7 @@ export class PaymentService {
 
         if (capturedAttempt) {
           // Replay the same webhook handler to keep state-transition logic in one place.
-           
+
           await this.handlePaymentCaptured({
             payload: {
               payment: {

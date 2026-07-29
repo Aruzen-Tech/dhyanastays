@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Headers,
   Param,
   Post,
@@ -26,6 +27,16 @@ class PayBalanceDto {
 @Controller('payments')
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
+
+  /**
+   * Reports whether Razorpay credentials are configured.
+   * No credentials or secrets are returned.
+   */
+  @Roles(UserRole.GUEST)
+  @Get('config')
+  config() {
+    return this.paymentService.getGatewayConfig();
+  }
 
   /**
    * Guest initiates a payment order.

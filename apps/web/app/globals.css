@@ -1,662 +1,248 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   CSS Custom Properties — Nature-luxury theme
-   Light mode: deep evergreen accents, warm ivory & stone surfaces, antique gold
-   Dark mode:  soft sage accents, forest-night surfaces, brightened gold
-───────────────────────────────────────────────────────────────────────────── */
+/* ============================================
+   DHYANA STAYS — Design System Tokens
+   Premium Hospitality Theme (Light & Dark)
+   ============================================ */
 
-@layer base {
-  :root {
-    /* Brand scale — deep evergreen in light mode */
-    --brand-50:  243 247 244;
-    --brand-100: 229 239 232;
-    --brand-200: 200 221 207;
-    --brand-300: 158 193 172;
-    --brand-400: 108 156 128;
-    --brand-500:  72 126  97;
-    --brand-600:  47  98  73;
-    --brand-700:  34  77  56;   /* primary — deep evergreen */
-    --brand-800:  24  58  42;
-    --brand-900:  15  40  28;
+@theme inline {
+  --color-background: var(--color-bg-primary);
+  --color-surface: var(--color-bg-secondary);
+  --color-surface-hover: var(--color-bg-tertiary);
+  --color-border: var(--color-border);
+  --color-border-subtle: var(--color-border-subtle);
 
-    /* Luxury accent — antique gold (decorative use) */
-    --gold: 166 129 72;
+  --color-foreground: var(--color-text-primary);
+  --color-muted: var(--color-text-secondary);
+  --color-subtle: var(--color-text-tertiary);
 
-    /* Page surface — warm ivory */
-    --surface: 246 244 238;
+  --color-primary: var(--color-gold);
+  --color-primary-hover: var(--color-gold-dark);
+  --color-primary-dark: var(--color-gold-dark);
+  --color-primary-foreground: #FFFFFF; /* Organic Minimalism: white text on the orange CTA */
 
-    /* Gray scale — warm stone/linen neutrals */
-    --white:     255 255 255;
-    --gray-50:   250 249 246;
-    --gray-100:  244 242 236;
-    --gray-200:  232 228 219;
-    --gray-300:  214 208 196;
-    --gray-400:  163 155 140;
-    --gray-500:  120 112  98;
-    --gray-600:   92  85  72;
-    --gray-700:   68  63  53;
-    --gray-800:   45  42  35;
-    --gray-900:   28  26  21;
+  --color-sage: var(--color-sage-base);
+  --color-terracotta: var(--color-terracotta-base);
 
-    /* Ambient wash — faint evergreen glow behind every page */
-    --ambient: radial-gradient(1200px 480px at 50% -8%, rgba(34, 77, 56, 0.06), transparent 62%);
-
-    /* Glass tints — warm ivory */
-    --glass-bg: rgba(252, 251, 247, 0.72);
-    --glass-border: rgba(31, 42, 35, 0.08);
-    --glass-shadow: 0 8px 32px 0 rgba(21, 32, 25, 0.08);
-
-    /* Nav glass */
-    --nav-bg: rgba(246, 244, 238, 0.88);
-    --nav-border: rgba(31, 42, 35, 0.06);
-  }
-
-  .dark {
-    /* Brand scale — soft sage in dark mode */
-    --brand-50:   22  30  25;
-    --brand-100:  30  40  33;
-    --brand-200:  45  61  51;
-    --brand-300:  63  85  71;
-    --brand-400:  94 124 105;
-    --brand-500: 137 168 148;
-    --brand-600: 183 205 190;
-    --brand-700: 220 233 224;   /* primary — near-white sage */
-    --brand-800: 235 243 237;
-    --brand-900: 247 250 248;
-
-    /* Luxury accent — brightened gold for dark surfaces */
-    --gold: 209 174 118;
-
-    /* Page surface — forest night */
-    --surface:  10  13  11;
-
-    /* Gray scale — inverted, green-tinted */
-    --white:     19  24  20;   /* card surfaces */
-    --gray-50:   10  13  11;   /* page background */
-    --gray-100:  19  24  20;   /* subtle bg */
-    --gray-200:  38  46  40;   /* borders */
-    --gray-300:  60  70  63;
-    --gray-400: 108 121 111;
-    --gray-500: 152 165 155;
-    --gray-600: 197 208 200;
-    --gray-700: 222 230 224;
-    --gray-800: 238 243 239;
-    --gray-900: 248 250 248;   /* primary text */
-
-    /* Ambient wash — soft sage glow */
-    --ambient: radial-gradient(1200px 480px at 50% -8%, rgba(137, 168, 148, 0.05), transparent 62%);
-
-    /* Glass tints */
-    --glass-bg: rgba(19, 24, 20, 0.72);
-    --glass-border: rgba(255, 255, 255, 0.07);
-    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
-
-    /* Nav glass */
-    --nav-bg: rgba(10, 13, 11, 0.88);
-    --nav-border: rgba(255, 255, 255, 0.06);
-  }
-
-  /* Smooth theme transitions — only on color-related properties */
-  html {
-    scroll-behavior: smooth;
-    transition: background-color 0.25s ease;
-  }
-
-  body,
-  .card,
-  .input,
-  .btn-primary,
-  .btn-secondary,
-  .btn-ghost,
-  nav,
-  header,
-  footer {
-    transition: background-color 0.25s ease,
-                border-color    0.25s ease,
-                color           0.25s ease,
-                box-shadow      0.25s ease;
-  }
-
-  body {
-    @apply bg-surface text-gray-900 antialiased;
-    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
-    /* Ambient evergreen wash layered over organic grain */
-    background-image: var(--ambient), url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
-    background-attachment: fixed;
-  }
-
-  * {
-    box-sizing: border-box;
-  }
-
-  h1, h2, h3, h4, h5, h6 {
-    @apply tracking-tight;
-  }
-
-  /* Custom scrollbar */
-  ::-webkit-scrollbar            { width: 5px; height: 5px; }
-  ::-webkit-scrollbar-track      { background: transparent; }
-  ::-webkit-scrollbar-thumb      { @apply bg-gray-300 rounded-full; }
-  ::-webkit-scrollbar-thumb:hover{ @apply bg-gray-400; }
-
-  /* Selection */
-  ::selection {
-    @apply bg-brand-700 text-white;
-  }
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-playfair);
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   Component Classes
-───────────────────────────────────────────────────────────────────────────── */
-@layer components {
-
-  /* ── Buttons ───────────────────────────────────────────────────────────── */
-
-  .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
-           bg-brand-700 text-white font-semibold text-sm
-           hover:bg-brand-800 active:scale-[0.97]
-           transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed
-           shadow-sm hover:shadow-md relative overflow-hidden;
-  }
-
-  /* Gold-tinted shimmer on hover */
-  .btn-primary::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(var(--gold), 0.22) 50%, transparent 100%);
-    transform: translateX(-100%);
-    transition: transform 0.4s ease;
-  }
-  .btn-primary:hover::after {
-    transform: translateX(100%);
-  }
-
-  .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
-           border border-brand-700 text-brand-700 font-semibold text-sm
-           hover:bg-brand-50 active:scale-[0.97]
-           transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed;
-  }
-
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl
-           text-gray-600 font-medium text-sm
-           hover:bg-gray-100 active:bg-gray-200 active:scale-[0.97]
-           transition-all duration-150;
-  }
-
-  /* btn-danger: fixed colors (not theme-inverted) */
-  .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
-           font-semibold text-sm
-           active:scale-[0.97]
-           transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed
-           shadow-sm;
-    background-color: #dc2626;
-    color: #ffffff;
-  }
-  .btn-danger:hover { background-color: #b91c1c; }
-  .btn-danger:active { background-color: #991b1b; }
-
-  /* ── Form Inputs ───────────────────────────────────────────────────────── */
-
-  .input {
-    @apply w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-white
-           text-gray-900 text-sm placeholder-gray-400
-           focus:outline-none focus:ring-2 focus:ring-brand-700/20 focus:border-brand-700
-           transition-all duration-150 disabled:bg-gray-50 disabled:text-gray-500;
-  }
-
-  .label {
-    @apply block text-sm font-medium text-gray-700 mb-1.5;
-  }
-
-  /* ── Cards ─────────────────────────────────────────────────────────────── */
-
-  .card {
-    @apply bg-white rounded-2xl border border-gray-200 overflow-hidden;
-    box-shadow: 0 1px 4px 0 rgba(21,32,25,0.05), 0 1px 2px -1px rgba(21,32,25,0.04);
-    transition: box-shadow 0.2s ease, transform 0.2s ease, background-color 0.25s ease, border-color 0.25s ease;
-  }
-
-  .card-hover {
-    @apply card cursor-pointer;
-  }
-  .card-hover:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 40px -8px rgba(21,32,25,0.14);
-  }
-
-  /* ── Glass Effects ─────────────────────────────────────────────────────── */
-
-  .glass {
-    background: var(--glass-bg);
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-  }
-
-  .glass-card {
-    @apply rounded-2xl overflow-hidden;
-    background: var(--glass-bg);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
-    transition: box-shadow 0.25s ease, transform 0.25s ease;
-  }
-  .glass-card:hover {
-    transform: translateY(-2px);
-  }
-
-  /* Navbar glass — applied in Navbar component */
-  .glass-nav {
-    background: var(--nav-bg);
-    backdrop-filter: blur(24px) saturate(200%);
-    -webkit-backdrop-filter: blur(24px) saturate(200%);
-    border-bottom: 1px solid var(--nav-border);
-  }
-
-  /* ── Gradient accents ──────────────────────────────────────────────────── */
-
-  .gradient-border {
-    position: relative;
-    background: rgb(var(--white));
-    background-clip: padding-box;
-    border: 1.5px solid transparent;
-  }
-  .gradient-border::before {
-    content: '';
-    position: absolute;
-    inset: -1.5px;
-    border-radius: inherit;
-    background: linear-gradient(135deg, rgba(var(--brand-700),0.4) 0%, rgba(var(--gold),0.35) 50%, rgba(var(--brand-700),0.4) 100%);
-    background-size: 200% 200%;
-    animation: border-spin 4s ease infinite;
-    z-index: -1;
-  }
-
-  /* ── Section container ─────────────────────────────────────────────────── */
-
-  .container-page {
-    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
-  }
-
-  /* ── Page heading ──────────────────────────────────────────────────────── */
-
-  .page-title {
-    @apply text-2xl font-bold text-gray-900 tracking-tight;
-    font-family: 'Playfair Display', Georgia, serif;
-  }
-
-  /* Eyebrow — small-caps gold kicker above serif headings */
-  .eyebrow {
-    @apply text-xs font-semibold uppercase;
-    letter-spacing: 0.18em;
-    color: rgb(var(--gold));
-  }
-
-  /* ── Alert / notice ────────────────────────────────────────────────────── */
-
-  .alert-info {
-    @apply bg-brand-50 border border-brand-200 text-brand-700 rounded-xl px-4 py-3 text-sm;
-  }
-
-  .alert-error {
-    background-color: rgba(239, 68, 68, 0.08);
-    border: 1px solid rgba(239, 68, 68, 0.25);
-    @apply rounded-xl px-4 py-3 text-sm;
-    color: #dc2626;
-  }
-  .dark .alert-error {
-    background-color: rgba(239, 68, 68, 0.12);
-    border-color: rgba(239, 68, 68, 0.3);
-    color: #fca5a5;
-  }
-
-  .alert-success {
-    background-color: rgba(34, 197, 94, 0.08);
-    border: 1px solid rgba(34, 197, 94, 0.25);
-    @apply rounded-xl px-4 py-3 text-sm;
-    color: #16a34a;
-  }
-  .dark .alert-success {
-    background-color: rgba(34, 197, 94, 0.12);
-    border-color: rgba(34, 197, 94, 0.3);
-    color: #86efac;
-  }
-
-  /* ── Divider ───────────────────────────────────────────────────────────── */
-
-  .divider {
-    @apply border-t border-gray-100 my-6;
-  }
-
-  /* ── Spinner ───────────────────────────────────────────────────────────── */
-
-  .spinner {
-    @apply inline-block w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin;
-  }
-
-  /* ── Status Badge (fixed semantic colors) ─────────────────────────────── */
-
-  .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
-  }
-  .badge-success  { background-color: rgba(34,197,94,0.12);  color: #16a34a; }
-  .badge-error    { background-color: rgba(239,68,68,0.12);   color: #dc2626; }
-  .badge-warning  { background-color: rgba(245,158,11,0.12);  color: #d97706; }
-  .badge-info     { background-color: rgba(59,130,246,0.12);  color: #2563eb; }
-  .badge-neutral  { @apply bg-gray-100 text-gray-700; }
-
-  .dark .badge-success  { background-color: rgba(34,197,94,0.15);  color: #4ade80; }
-  .dark .badge-error    { background-color: rgba(239,68,68,0.15);   color: #f87171; }
-  .dark .badge-warning  { background-color: rgba(245,158,11,0.15);  color: #fbbf24; }
-  .dark .badge-info     { background-color: rgba(59,130,246,0.15);  color: #60a5fa; }
-  .dark .badge-neutral  { @apply bg-gray-200 text-gray-600; }
-
-  /* ── Loading skeleton / shimmer ────────────────────────────────────────── */
-
-  .skeleton {
-    @apply bg-gray-100 rounded-xl relative overflow-hidden;
-  }
-  .skeleton::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.6) 50%, transparent 100%);
-    background-size: 200% 100%;
-    animation: shimmer 1.8s ease-in-out infinite;
-  }
-  .dark .skeleton { @apply bg-gray-200; }
-  .dark .skeleton::after {
-    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
-    background-size: 200% 100%;
-  }
-
-  /* ── Animated page entry ───────────────────────────────────────────────── */
-
-  .page-enter {
-    @apply animate-slide-up;
-  }
-
-  /* ── Focus ring ────────────────────────────────────────────────────────── */
-
-  .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-brand-700/30 focus:ring-offset-2;
-  }
-
-  /* ── Discovery map price markers ───────────────────────────────────────── */
-
-  .price-map-marker-shell {
-    display: flex !important;
-    align-items: flex-start;
-    justify-content: center;
-    overflow: visible !important;
-    background: transparent !important;
-    border: 0 !important;
-  }
-
-  .price-map-marker {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 32px;
-    min-width: 64px;
-    padding: 0 12px;
-    border: 1px solid rgba(var(--gray-900), 0.14);
-    border-radius: 9999px;
-    background: rgb(var(--white));
-    color: rgb(var(--gray-900));
-    box-shadow:
-      0 4px 12px rgba(0, 0, 0, 0.16),
-      0 1px 3px rgba(0, 0, 0, 0.12);
-    font-size: 12px;
-    font-weight: 700;
-    line-height: 1;
-    white-space: nowrap;
-    transition:
-      transform 150ms ease,
-      box-shadow 150ms ease,
-      background-color 150ms ease;
-  }
-
-  .price-map-marker::after {
-    content: '';
-    position: absolute;
-    bottom: -5px;
-    left: 50%;
-    width: 9px;
-    height: 9px;
-    background: inherit;
-    border-right: 1px solid rgba(var(--gray-900), 0.14);
-    border-bottom: 1px solid rgba(var(--gray-900), 0.14);
-    transform: translateX(-50%) rotate(45deg);
-  }
-
-  .price-map-marker-shell:hover .price-map-marker {
-    transform: translateY(-2px);
-    box-shadow:
-      0 8px 18px rgba(0, 0, 0, 0.2),
-      0 2px 5px rgba(0, 0, 0, 0.14);
-  }
-
-  .price-map-marker--selected {
-    background: rgb(var(--brand-700));
-    color: rgb(var(--surface));
-    border-color: rgb(var(--brand-700));
-    box-shadow:
-      0 0 0 3px rgba(var(--brand-700), 0.2),
-      0 8px 18px rgba(0, 0, 0, 0.22);
-  }
-
-  .price-map-marker--selected::after {
-    border-color: rgb(var(--brand-700));
-  }
-
-  .price-map-cluster-shell {
-    display: flex !important;
-    align-items: flex-start;
-    justify-content: center;
-    overflow: visible !important;
-    background: transparent !important;
-    border: 0 !important;
-  }
-
-  .price-map-cluster {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 36px;
-    min-width: 72px;
-    max-width: 96px;
-    padding: 0 12px;
-    border: 1px solid rgba(var(--gray-900), 0.14);
-    border-radius: 9999px;
-    background: rgb(var(--white));
-    color: rgb(var(--gray-900));
-    box-shadow:
-      0 4px 12px rgba(0, 0, 0, 0.16),
-      0 1px 3px rgba(0, 0, 0, 0.12);
-    font-size: 12px;
-    font-weight: 700;
-    line-height: 1;
-    white-space: nowrap;
-    transition:
-      transform 150ms ease,
-      box-shadow 150ms ease,
-      background-color 150ms ease;
-  }
-
-  .price-map-cluster::after {
-    content: '';
-    position: absolute;
-    bottom: -5px;
-    left: 50%;
-    width: 9px;
-    height: 9px;
-    background: inherit;
-    border-right: 1px solid rgba(var(--gray-900), 0.14);
-    border-bottom: 1px solid rgba(var(--gray-900), 0.14);
-    transform: translateX(-50%) rotate(45deg);
-  }
-
-  .price-map-cluster-shell:hover .price-map-cluster,
-  .price-map-cluster-shell:focus-visible .price-map-cluster {
-    transform: translateY(-2px);
-    box-shadow:
-      0 8px 18px rgba(0, 0, 0, 0.2),
-      0 2px 5px rgba(0, 0, 0, 0.14);
-  }
-
-  .price-map-cluster--selected {
-    background: rgb(var(--brand-700));
-    color: rgb(var(--surface));
-    border-color: rgb(var(--brand-700));
-    box-shadow:
-      0 0 0 3px rgba(var(--brand-700), 0.2),
-      0 8px 18px rgba(0, 0, 0, 0.22);
-  }
-
-  .price-map-cluster--selected::after {
-    border-color: rgb(var(--brand-700));
-  }
-
-  .price-map-cluster-popup {
-    width: min(280px, calc(100vw - 64px));
-  }
-
-  .price-map-cluster-popup-button {
-    display: flex;
-    width: 100%;
-    align-items: flex-start;
-    justify-content: space-between;
-    border: 1px solid rgba(var(--gray-900), 0.1);
-    border-radius: 0.75rem;
-    background: rgb(var(--white));
-    padding: 0.75rem;
-    transition:
-      border-color 150ms ease,
-      box-shadow 150ms ease,
-      background-color 150ms ease,
-      transform 150ms ease;
-  }
-
-  .price-map-cluster-popup-button:hover {
-    transform: translateY(-1px);
-    border-color: rgba(var(--brand-700), 0.3);
-    background: rgba(var(--brand-50), 0.9);
-  }
-
-  .price-map-cluster-popup-button:focus-visible {
-    outline: none;
-    border-color: rgb(var(--brand-700));
-    box-shadow:
-      0 0 0 3px rgba(var(--brand-700), 0.18),
-      0 4px 12px rgba(0, 0, 0, 0.08);
-  }
-
-  .price-map-cluster-popup-button--selected {
-    border-color: rgb(var(--brand-700));
-    background: rgba(var(--brand-50), 0.95);
-    box-shadow: 0 0 0 2px rgba(var(--brand-700), 0.14);
-  }
-
-  .price-map-cluster-popup-action,
-  .price-map-cluster-popup-link {
-    border-radius: 9999px;
-    padding: 0.35rem 0.75rem;
-    font-size: 12px;
-    font-weight: 700;
-    line-height: 1.2;
-    transition:
-      border-color 150ms ease,
-      box-shadow 150ms ease,
-      background-color 150ms ease,
-      color 150ms ease;
-  }
-
-  .price-map-cluster-popup-action {
-    border: 1px solid rgba(var(--brand-700), 0.14);
-    background: rgb(var(--white));
-    color: rgb(var(--gray-900));
-  }
-
-  .price-map-cluster-popup-action:hover {
-    border-color: rgba(var(--brand-700), 0.3);
-    background: rgba(var(--brand-50), 0.9);
-  }
-
-  .price-map-cluster-popup-link {
-    color: rgb(var(--brand-700));
-  }
-
-  .price-map-cluster-popup-link:hover {
-    color: rgb(var(--brand-800));
-    background: rgba(var(--brand-50), 0.9);
-  }
-
-  .price-map-cluster-popup-action:focus-visible,
-  .price-map-cluster-popup-link:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px rgba(var(--brand-700), 0.18);
-  }
+:root {
+  /* LIGHT MODE — Organic Minimalism (Scandinavian / Japandi, nature-inspired) */
+  --color-bg-primary: #F6F1E8;   /* Cream */
+  --color-bg-secondary: #FFFFFF; /* White — floating cards */
+  --color-bg-tertiary: #EFE7D8;  /* Warm Beige — hover / alt bands */
+
+  --color-border: #E5E5E5;
+  --color-border-subtle: #EFE7D8;
+  --color-border-light: #DCDCDC; /* Light Gray */
+
+  --color-text-primary: #2B2B2B;   /* Dark Charcoal */
+  --color-text-secondary: #686868; /* Soft Gray — darkened from #777777 for WCAG AA contrast (4.5:1+) */
+  --color-text-tertiary: #6D685D;  /* darkened from #9A958A for WCAG AA contrast (4.5:1+) */
+
+  /* Warm Orange — primary CTA (token keeps its legacy "gold" name) */
+  --color-gold: #E48A4A;
+  --color-gold-light: #F0A868;
+  --color-gold-dark: #C96F32; /* hover — a shade darker, per spec */
+
+  /* Forest Green accent + warm rust alert tone */
+  --color-sage-base: #4E6E58;
+  --color-terracotta-base: #C0503A;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   Utility overrides & enhancements
-───────────────────────────────────────────────────────────────────────────── */
-@layer utilities {
-  /* Gradient text — evergreen into gold */
-  .text-gradient {
-    @apply bg-clip-text text-transparent;
-    background-image: linear-gradient(135deg, rgb(var(--brand-700)) 0%, rgb(var(--brand-500)) 55%, rgb(var(--gold)) 100%);
-  }
+.dark {
+  /* DARK MODE — same organic, warm palette at night (no cold blue/black) */
+  --color-bg-primary: #21190F;   /* Warm dark charcoal-brown */
+  --color-bg-secondary: #2B2118; /* Floating surface */
+  --color-bg-tertiary: #34281C;  /* Hover elevation */
 
-  /* Gold accent text (decorative — headings, eyebrows, dividers) */
-  .text-gold {
-    color: rgb(var(--gold));
-  }
+  --color-border: #3D2F22;
+  --color-border-subtle: #2B2118;
+  --color-border-light: #4A3A2A;
 
-  /* Glow on focus */
-  .glow-focus:focus {
-    box-shadow: 0 0 0 3px rgba(var(--brand-700), 0.2);
-  }
+  --color-text-primary: #F6F1E8;   /* Cream */
+  --color-text-secondary: #B7AFA0; /* Warm muted gray */
+  --color-text-tertiary: #999084;  /* lightened from #8A8175 for WCAG AA contrast (4.5:1+) */
 
-  /* Staggered animation delays */
-  .delay-75   { animation-delay: 75ms;  }
-  .delay-100  { animation-delay: 100ms; }
-  .delay-150  { animation-delay: 150ms; }
-  .delay-200  { animation-delay: 200ms; }
-  .delay-300  { animation-delay: 300ms; }
-  .delay-500  { animation-delay: 500ms; }
+  /* Warm Orange — primary CTA, brightened for dark surfaces */
+  --color-gold: #E9995C;
+  --color-gold-light: #F3B384;
+  --color-gold-dark: #C97A3E;
 
-  /* Fixed-color white/black that never inverts */
-  .text-fixed-white { color: #ffffff !important; }
-  .text-fixed-black { color: #000000 !important; }
-  .bg-fixed-white   { background-color: #ffffff !important; }
-  .bg-fixed-black   { background-color: #000000 !important; }
+  /* Forest Green accent + warm rust alert tone */
+  --color-sage-base: #6E9478;
+  --color-terracotta-base: #D97057;
 }
 
-/* Print: strip app chrome so invoices etc. print clean (Save as PDF). */
-@media print {
-  header,
-  footer,
-  .no-print {
-    display: none !important;
-  }
-  body {
-    background: #ffffff !important;
-  }
-  main {
-    animation: none !important;
-  }
+
+/* ============================================
+   Base Styles
+   ============================================ */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-light) transparent;
+}
+
+body {
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-inter, 'Inter', system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   Glass Morphism Utilities
+   ============================================ */
+
+.glass {
+  background: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--color-border);
+}
+
+.glass-gold {
+  background: color-mix(in srgb, var(--color-gold) 12%, var(--color-bg-secondary) 88%);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid color-mix(in srgb, var(--color-gold) 30%, transparent);
+}
+
+/* Gold gradient text (hero accents, stats) */
+.text-gradient-gold {
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-light));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Hide scrollbar but keep scrollability (category carousels) */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* ============================================
+   Typography
+   ============================================ */
+
+.heading-display {
+  font-family: var(--font-playfair, 'Playfair Display', serif);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.heading-sans {
+  font-family: var(--font-inter, 'Inter', sans-serif);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* Organic Minimalism heading — modern rounded sans, used on the homepage */
+.heading-organic {
+  font-family: var(--font-inter, 'Inter', sans-serif);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+/* ============================================
+   Animations
+   ============================================ */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease forwards;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s ease forwards;
+}
+
+/* Staggered children animation */
+.stagger-children > * {
+  opacity: 0;
+  animation: fadeInUp 0.5s ease forwards;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.1s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.15s; }
+
+/* ============================================
+   Card Hover Effects
+   ============================================ */
+
+.card-hover {
+  transition: transform 250ms ease, box-shadow 250ms ease;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.1);
+}
+
+.dark .card-hover {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+.dark .card-hover:hover {
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+
+/* Organic Minimalism — soft floating shadow, spec: 0 10px 30px rgba(0,0,0,0.08) */
+.shadow-organic {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.dark .shadow-organic {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+
+/* Soft blurred blob — decorative background shape */
+.blob-shape {
+  border-radius: 68% 32% 61% 39% / 45% 55% 45% 55%;
+}
+
+/* ============================================
+   Scrollbar & Focus
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-light);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-tertiary);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
