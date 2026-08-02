@@ -36,7 +36,7 @@ export default function HostConversationPage() {
 
   useEffect(() => {
     fetchConversation();
-    const interval = setInterval(fetchConversation, 15000);
+    const interval = setInterval(fetchConversation, 5000);
     return () => clearInterval(interval);
   }, [fetchConversation]);
 
@@ -47,9 +47,8 @@ export default function HostConversationPage() {
       setConversation((prev) =>
         prev ? { ...prev, messages: [...prev.messages, msg] } : prev,
       );
-    } catch {
-      // ignore
     } finally {
+      // Let the error propagate to MessageThread (block reason + draft restore).
       setSending(false);
     }
   };

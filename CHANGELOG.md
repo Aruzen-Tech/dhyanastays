@@ -16,6 +16,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-02 — Messaging: delivery tracking + contact-number blocking
+
+Migration `0037_message_delivery_status`. Applies to every direct thread
+(guest↔host, host↔admin) — all funnel through one `sendMessage`.
+
+### Added
+- **Delivery status per message** — `MessageStatus` (SENT → DELIVERED → READ) with
+  `deliveredAt` / `readAt`. Messages become **DELIVERED** when the recipient opens
+  the thread (`getConversationById`) and **READ** on `markRead`. The sender sees
+  WhatsApp-style ticks (✓ sent · ✓✓ delivered · ✓✓ blue read) in `MessageThread`;
+  open threads poll every **5s** (was 15s) so status updates feel live.
+- **Contact-number blocking** — messages containing a phone / mobile / telephone /
+  contact number are rejected with *"This message type is not allowed … please try
+  a different message,"* and the attempt is audit-logged (`MESSAGE_BLOCKED_CONTACT`).
+  The detector handles obfuscation (spaced/dashed digits, `+91`, spelled-out
+  "nine eight…", "double 5") while leaving prices, dates, pincodes and flat numbers
+  alone. New `contact-filter.ts` (**26** unit cases).
+
+### Changed
+- `MessageThread` now surfaces the send error inline and **restores the draft** on a
+  block/failure (was silently swallowed); the three thread pages let the error
+  propagate.
+
+---
+
 ## 2026-07-30 — Fix: host "Access denied" on their own bookings
 
 ### Fixed

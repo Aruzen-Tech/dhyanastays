@@ -13,6 +13,59 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-08-02 — Messaging: delivery tracking + contact-number blocking
+
+**Commit:** _pending_ · **Migration:** `0037_message_delivery_status` (applied to dev DB)
+
+The participant matrix (guest↔host = `GUEST_HOST`, host↔admin = `HOST_ADMIN`)
+already existed and every direct thread funnels through one
+`MessagingService.sendMessage`, so both features drop in at a single point.
+
+### Schema
+
+- `enum MessageStatus { SENT DELIVERED READ }`; `Message` += `status
+  @default(SENT)`, `deliveredAt DateTime?`, `readAt DateTime?`. Migration is
+  idempotent (guarded `CREATE TYPE`, `ADD COLUMN IF NOT EXISTS`) and backfills
+  existing `isRead=true` rows to `READ` with `readAt/deliveredAt = createdAt`.
+
+### Delivery lifecycle (polled, no WebSocket layer exists)
+
+- **SENT** on create.
+- **DELIVERED** — `getConversationById(convId, viewerId)` flips the counterparty's
+  still-`SENT` messages to `DELIVERED` (+`deliveredAt`) and patches the returned
+  payload in place (no re-fetch). Admin's read-only `adminGetConversationById`
+  does not mark delivery.
+- **READ** — `markRead` sets `status=READ`, `readAt`, `isRead=true` for the
+  counterparty's non-`READ` messages (leaves `deliveredAt` intact).
+- `getConversations` list preview `select` gains `status`.
+- Web: `MessageThread` renders `StatusTicks` (✓ / ✓✓ / ✓✓-blue) on own,
+  non-system messages; open-thread poll `15000 → 5000` ms in the guest/host/admin
+  `messages/[id]` pages (each already calls `markRead` per poll).
+
+### Contact-number blocking
+
+- **`contact-filter.ts`** — `containsContactNumber(text)`: expands spelled digits
+  and `double/triple N`, collapses separators _between digits only_ (so
+  `98765 43210`, `+91-98765-43210`, `9 8 7 6 5…` merge but `45000 and 12000`
+  doesn't), then blocks a run of **≥10 digits**, or a **≥7-digit** run next to a
+  contact keyword (phone/mobile/whatsapp/tel/call/contact/…). Pincodes, flat
+  numbers, prices, dates stay allowed. `CONTACT_BLOCK_MESSAGE` export.
+- `sendMessage` runs it before create; on a hit → audit `MESSAGE_BLOCKED_CONTACT`
+  then throw `BadRequestException(CONTACT_BLOCK_MESSAGE)`. System welcome messages
+  (`isSystem`, written via `message.create`) bypass it.
+- Web: `MessageThread` catches the send rejection, shows it inline, and **restores
+  the draft**; the three thread pages drop their swallowing `catch`. The concierge
+  chat already surfaced send errors.
+
+### Tests
+
+- `contact-filter.spec.ts` (26: 14 blocked incl. obfuscation, 12 allowed) +
+  `messaging.service.spec.ts` (3: block-throws-and-skips-create, delivered-on-
+  fetch, read-on-markRead). Full API suite **351/351**; api + web `tsc` clean;
+  eslint clean.
+
+---
+
 ## 2026-07-30 — Fix: host "Access denied" on their own bookings
 
 **Commit:** _pending_ · **Migration:** none

@@ -100,6 +100,7 @@ cp apps/web/.env.local.example apps/web/.env.local
 | Variable | Value for local dev |
 |---|---|
 | `DATABASE_URL` | `postgresql://dhyana:dhyana@localhost:5432/dhyana_stays` (matches Docker) — adjust user/password for a native Postgres |
+| `DIRECT_URL` | **same value as `DATABASE_URL`** — required by the schema; this is what `prisma migrate` actually connects with |
 | `JWT_ACCESS_SECRET` | any string ≥ 16 chars |
 | `JWT_REFRESH_SECRET` | any string ≥ 16 chars |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | credentials for the seeded first admin (add these two lines; the seed skips admin creation without them) |
@@ -148,7 +149,7 @@ pnpm infra:up        # starts postgres:16, redis:6.2, meilisearch:v1.12
 # 1. Generate the Prisma client
 pnpm --filter @dhyana/api prisma:generate
 
-# 2. Apply all migrations (0001 → 0032, idempotent)
+# 2. Apply all migrations (idempotent)
 pnpm --filter @dhyana/api prisma:deploy
 
 # 3. Apply the post-migrate SQL (booking-overlap GiST index — required)
@@ -157,6 +158,22 @@ pnpm --filter @dhyana/api post-migrate
 # 4. Seed baseline data (creates the first admin from ADMIN_EMAIL/ADMIN_PASSWORD)
 pnpm --filter @dhyana/api seed
 ```
+
+> **`P1000: Authentication failed … credentials for 'dhyana' are not valid`?**
+> A Postgres server is answering on `localhost:5432` but the `dhyana` login was
+> rejected — you're pointing at a database that doesn't have that user. Fix one
+> of these:
+> - **Using Docker:** make sure the container is actually up — `docker ps` should
+>   list `postgres:16`. If not, run `pnpm infra:up`. If a container is up but auth
+>   still fails, an old volume has a different password: `docker compose down -v`
+>   (wipes the dev DB — safe on first setup) then `pnpm infra:up`.
+> - **Port 5432 already in use / a native Postgres is installed:** that native
+>   server is intercepting the connection and has no `dhyana` role. Either stop it
+>   (Windows: Services → `postgresql-x64-16` → Stop) and use Docker, **or** create
+>   the role/db in it (see §5B), **or** point `DATABASE_URL` *and* `DIRECT_URL` at
+>   your native superuser, e.g. `postgresql://postgres:<yourpass>@localhost:5432/dhyana_stays`.
+> - Remember migrations connect via **`DIRECT_URL`** — if you only fixed
+>   `DATABASE_URL`, update `DIRECT_URL` to match too.
 
 ---
 
