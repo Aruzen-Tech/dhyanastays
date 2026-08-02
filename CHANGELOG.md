@@ -16,6 +16,93 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-02 — Messaging: delivery tracking + contact-number blocking
+
+Migration `0037_message_delivery_status`. Applies to every direct thread
+(guest↔host, host↔admin) — all funnel through one `sendMessage`.
+
+### Added
+- **Delivery status per message** — `MessageStatus` (SENT → DELIVERED → READ) with
+  `deliveredAt` / `readAt`. Messages become **DELIVERED** when the recipient opens
+  the thread (`getConversationById`) and **READ** on `markRead`. The sender sees
+  WhatsApp-style ticks (✓ sent · ✓✓ delivered · ✓✓ blue read) in `MessageThread`;
+  open threads poll every **5s** (was 15s) so status updates feel live.
+- **Contact-number blocking** — messages containing a phone / mobile / telephone /
+  contact number are rejected with *"This message type is not allowed … please try
+  a different message,"* and the attempt is audit-logged (`MESSAGE_BLOCKED_CONTACT`).
+  The detector handles obfuscation (spaced/dashed digits, `+91`, spelled-out
+  "nine eight…", "double 5") while leaving prices, dates, pincodes and flat numbers
+  alone. New `contact-filter.ts` (**26** unit cases).
+
+### Changed
+- `MessageThread` now surfaces the send error inline and **restores the draft** on a
+  block/failure (was silently swallowed); the three thread pages let the error
+  propagate.
+
+---
+
+## 2026-07-30 — Fix: host "Access denied" on their own bookings
+
+### Fixed
+- Host booking authorization matched on the **`role === 'HOST'` string**, but the
+  JWT strategy defaults an absent/quirky role claim to `GUEST` — so a legitimate
+  host could be denied viewing/managing their own booking (`getBookingById` threw
+  *"Access denied"*). `getBookingById`, the manual-lifecycle `assertHostOrAdmin`,
+  and `cancelBooking` now authorize the listing's host by **owner `userId`**
+  (already loaded via `listing.host.userId`) instead of the role string — robust
+  and one fewer query. Admin still authorized by role.
+
+---
+
+## 2026-07-27 — Manual booking lifecycle for host + admin
+
+Staff can now drive a booking through its whole cycle by hand from their
+dashboard — previously neither could (no manual check-in at all, host couldn't
+complete/cancel, no override for a stuck payment). Every action still routes
+through the booking state machine, so guards + `statusHistory` are enforced.
+
+### Added
+- **Confirm** a stuck `PAYMENT_PENDING` booking — new state-machine event
+  `MANUAL_CONFIRMED` (any plan → `CONFIRMED_PAID`); records an offline `Payment`,
+  overlap-checked under SERIALIZABLE isolation. No payout line (settled out of
+  band, like pay-on-arrival). `POST /bookings/:id/confirm`.
+- **Manual check-in** (no QR scan) — `CONFIRMED_* → CHECKED_IN`, re-anchors the
+  payout clock. `POST /bookings/:id/mark-checked-in` (distinct from the guest
+  self-check-in `/check-in`, which only records arrival details).
+- **Host complete + cancel** — `completeBooking` now accepts `CHECKED_IN` too;
+  host can complete/cancel their own listings' bookings (was admin-only).
+- **Dashboards** — host & admin bookings tables gain status-aware **Confirm /
+  Check in / Complete / Cancel** buttons.
+
+### API
+- `POST /bookings/:id/complete` broadened from admin-L2 to host+admin (owner-checked).
+- `POST /bookings/:id/cancel` now also authorizes the listing's host.
+
+---
+
+## 2026-07-27 — Auto-run migrations on deploy (fixes recurring prod 500)
+
+### Added
+- **Container start-up migration hook** — `apps/api/docker-entrypoint.sh` runs
+  `prisma migrate deploy` (+ the post-migrate GiST index, non-fatal) before the
+  API serves. The Dockerfile `CMD` now points at it. Because Render's free tier
+  has no `preDeployCommand`, applying migrations at container start is what keeps
+  the deployed DB in sync — pushing a migration now applies it on the next boot,
+  so the "column does not exist" 500s stop recurring.
+
+### Fixed
+- **Corrupted `apps/api/.env`** — a pasted `db execute` fragment had overwritten
+  `DATABASE_URL`/`DIRECT_URL` with the *production* Render URL plus trailing
+  garbage; restored both to the local Docker Postgres URL so local dev doesn't
+  hit prod.
+
+### Docs
+- `render.yaml` + `docs/DEPLOYMENT.md §5` updated: migrations are automatic, and
+  documented the **`prisma migrate` uses `DIRECT_URL` (not `DATABASE_URL`)**
+  gotcha — the reason manual `$env:DATABASE_URL` overrides kept hitting localhost.
+
+---
+
 ## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
 
 ### Added

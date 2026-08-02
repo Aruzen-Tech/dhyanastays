@@ -122,6 +122,21 @@ describe('BookingStateMachine — valid transitions', () => {
     expect(calls[0].data.status).toBe('CONFIRMED_PAID');
   });
 
+  it('PAYMENT_PENDING → CONFIRMED_PAID on MANUAL_CONFIRMED (any plan, operator override)', async () => {
+    const { tx, calls } = makeTxMock();
+    // No plan guard — works for a DEPOSIT_50 booking too.
+    const booking = makeBooking({ status: 'PAYMENT_PENDING', plan: 'DEPOSIT_50' });
+    await sm.transition(tx as never, booking, 'MANUAL_CONFIRMED', { actorId: 'admin-1' });
+    expect(calls[0].data.status).toBe('CONFIRMED_PAID');
+  });
+
+  it('CHECKED_IN → COMPLETED on STAY_COMPLETED (manual completion of a checked-in stay)', async () => {
+    const { tx, calls } = makeTxMock();
+    const booking = makeBooking({ status: 'CHECKED_IN', plan: 'FULL' });
+    await sm.transition(tx as never, booking, 'STAY_COMPLETED', { actorId: 'host-1' });
+    expect(calls[0].data.status).toBe('COMPLETED');
+  });
+
   it('CONFIRMED_DEPOSIT → CONFIRMED_DEPOSIT on PAY_LATER_INSTALMENT_CAPTURED (self-loop)', async () => {
     const { tx, calls } = makeTxMock();
     const booking = makeBooking({

@@ -181,6 +181,41 @@ export default function AdminBookingsPage() {
     });
   };
 
+  const handleConfirm = (bookingId: string) => {
+    setConfirmModal({
+      title: 'Confirm this booking?',
+      message: 'Marks a pending booking as CONFIRMED (payment taken/verified offline). Records a manual payment; no online charge.',
+      confirmLabel: 'Yes, confirm',
+      confirmClass: 'btn-primary',
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setActionLoading(bookingId);
+        try {
+          const updated = await bookingsApi.confirmManual(bookingId);
+          setBookings((prev) => prev.map((b) => (b.id === bookingId ? updated : b)));
+          showToast('Booking confirmed');
+        } catch (e: unknown) {
+          setError(e instanceof Error ? e.message : 'Action failed');
+        } finally {
+          setActionLoading(null);
+        }
+      },
+    });
+  };
+
+  const handleCheckIn = async (bookingId: string) => {
+    setActionLoading(bookingId);
+    try {
+      const updated = await bookingsApi.markCheckedIn(bookingId);
+      setBookings((prev) => prev.map((b) => (b.id === bookingId ? updated : b)));
+      showToast('Guest checked in');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Action failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleBulkComplete = () => {
     const ids = Array.from(selected);
     const completable = bookings.filter(
@@ -389,7 +424,9 @@ export default function AdminBookingsPage() {
               <tbody className="divide-y divide-gray-100">
                 {bookings.map((b) => {
                   const isProcessing = actionLoading === b.id || actionLoading === 'bulk';
-                  const canComplete = ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'].includes(b.status);
+                  const canConfirm = b.status === 'PAYMENT_PENDING';
+                  const canCheckIn = ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'].includes(b.status);
+                  const canComplete = ['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT', 'CHECKED_IN'].includes(b.status);
                   const canCancel = ['PAYMENT_PENDING', 'CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE'].includes(b.status);
                   const guest = (b as any).guest as { fullName?: string; email?: string } | undefined;
 
@@ -472,12 +509,30 @@ export default function AdminBookingsPage() {
 
                       {/* Actions */}
                       <td className="px-5 py-4">
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-1.5">
+                          {canConfirm && (
+                            <button
+                              onClick={() => handleConfirm(b.id)}
+                              disabled={isProcessing}
+                              className="btn-primary text-xs py-1 px-3"
+                            >
+                              {isProcessing ? <span className="spinner" /> : 'Confirm'}
+                            </button>
+                          )}
+                          {canCheckIn && (
+                            <button
+                              onClick={() => handleCheckIn(b.id)}
+                              disabled={isProcessing}
+                              className="btn-primary text-xs py-1 px-3"
+                            >
+                              {isProcessing ? <span className="spinner" /> : 'Check in'}
+                            </button>
+                          )}
                           {canComplete && (
                             <button
                               onClick={() => handleComplete(b.id)}
                               disabled={isProcessing}
-                              className="btn-primary text-xs py-1 px-3"
+                              className="btn-secondary text-xs py-1 px-3"
                             >
                               {isProcessing ? <span className="spinner" /> : 'Complete'}
                             </button>
@@ -491,7 +546,7 @@ export default function AdminBookingsPage() {
                               {isProcessing ? <span className="spinner" /> : 'Cancel'}
                             </button>
                           )}
-                          {!canComplete && !canCancel && (
+                          {!canConfirm && !canCheckIn && !canComplete && !canCancel && (
                             <span className="text-xs text-gray-400">—</span>
                           )}
                         </div>

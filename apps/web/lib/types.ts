@@ -942,6 +942,8 @@ export interface MessageUser {
 export type ConversationKind = 'STANDARD' | 'CONCIERGE';
 export type ConversationStatus = 'OPEN' | 'CLOSED';
 
+export type MessageStatus = 'SENT' | 'DELIVERED' | 'READ';
+
 export interface ConversationMessage {
   id: string;
   conversationId: string;
@@ -950,6 +952,9 @@ export interface ConversationMessage {
   body: string;
   isRead: boolean;
   isSystem: boolean;
+  status?: MessageStatus;
+  deliveredAt?: string | null;
+  readAt?: string | null;
   createdAt: string;
   sender: MessageUser;
 }

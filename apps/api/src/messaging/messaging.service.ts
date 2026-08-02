@@ -19,6 +19,7 @@ import { AuditService } from '../common/services/audit.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { HostSettingsService } from '../host-settings/host-settings.service';
+import { CONTACT_BLOCK_MESSAGE, containsContactNumber } from './contact-filter';
 
 /**
  * Concierge SLA: host must reply within this window after a guest message,
@@ -152,7 +153,7 @@ export class MessagingService {
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
-          select: { body: true, createdAt: true, senderId: true, isRead: true, isSystem: true },
+          select: { body: true, createdAt: true, senderId: true, isRead: true, isSystem: true, status: true },
         },
         _count: {
           select: {
@@ -191,6 +192,26 @@ export class MessagingService {
     if (conversation.userOneId !== userId && conversation.userTwoId !== userId) {
       throw new ForbiddenException('Not your conversation');
     }
+
+    // The recipient opening the thread → the counterparty's still-SENT messages
+    // become DELIVERED (the sender sees this on their next poll). READ is a
+    // separate, explicit step via markRead.
+    const toDeliver = conversation.messages.filter(
+      (m) => m.senderId !== userId && m.status === 'SENT',
+    );
+    if (toDeliver.length > 0) {
+      const now = new Date();
+      await this.prisma.message.updateMany({
+        where: { id: { in: toDeliver.map((m) => m.id) } },
+        data: { status: 'DELIVERED', deliveredAt: now },
+      });
+      // Reflect the update in the returned payload without a re-fetch.
+      for (const m of toDeliver) {
+        m.status = 'DELIVERED';
+        m.deliveredAt = now;
+      }
+    }
+
     return conversation;
   }
 
@@ -226,12 +247,25 @@ export class MessagingService {
       throw new BadRequestException('Conversation is closed');
     }
 
+    // Block off-platform contact sharing (phone / mobile / telephone numbers).
+    if (containsContactNumber(dto.body)) {
+      await this.auditService.log(
+        userId,
+        'MESSAGE_BLOCKED_CONTACT',
+        'conversation',
+        conversationId,
+        { reason: 'contact_number' },
+      );
+      throw new BadRequestException(CONTACT_BLOCK_MESSAGE);
+    }
+
     const message = await this.prisma.message.create({
       data: {
         conversationId,
         senderId: userId,
         senderRole: userRole,
         body: dto.body,
+        // status defaults to SENT.
       },
       include: {
         sender: { select: { id: true, fullName: true, role: true, avatarUrl: true } },
@@ -270,13 +304,16 @@ export class MessagingService {
       throw new ForbiddenException('Not your conversation');
     }
 
+    const now = new Date();
     await this.prisma.message.updateMany({
       where: {
         conversationId,
         senderId: { not: userId },
-        isRead: false,
+        status: { not: 'READ' },
       },
-      data: { isRead: true },
+      // Leave deliveredAt as-is (it's already set once delivered; status=READ
+      // drives the read ticks regardless).
+      data: { isRead: true, status: 'READ', readAt: now },
     });
 
     return { success: true };

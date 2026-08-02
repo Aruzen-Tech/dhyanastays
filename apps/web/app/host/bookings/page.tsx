@@ -55,17 +55,37 @@ export default function HostBookingsPage() {
     loadBookings(1, statusFilter);
   }, [user, statusFilter]);
 
-  const handleCollect = async (bookingId: string) => {
+  // Generic lifecycle action runner: disables the row while in flight, reloads,
+  // toasts. Used by Confirm / Check-in / Complete / Mark-paid / Cancel.
+  const runAction = async (
+    bookingId: string,
+    fn: () => Promise<unknown>,
+    okMsg: string,
+  ) => {
+    setError('');
     setCollectingId(bookingId);
     try {
-      await bookingsApi.collectOnArrival(bookingId);
-      setToast('Payment marked as collected');
+      await fn();
+      setToast(okMsg);
       loadBookings(page, statusFilter);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setCollectingId(null);
     }
+  };
+
+  const handleCollect = (id: string) =>
+    runAction(id, () => bookingsApi.collectOnArrival(id), 'Payment marked as collected');
+  const handleConfirm = (id: string) =>
+    runAction(id, () => bookingsApi.confirmManual(id), 'Booking confirmed');
+  const handleCheckIn = (id: string) =>
+    runAction(id, () => bookingsApi.markCheckedIn(id), 'Guest checked in');
+  const handleComplete = (id: string) =>
+    runAction(id, () => bookingsApi.complete(id), 'Booking completed');
+  const handleCancel = (id: string) => {
+    if (!confirm('Cancel this booking? A refund may apply per the cancellation policy.')) return;
+    void runAction(id, () => bookingsApi.cancel(id, 'Cancelled by host'), 'Booking cancelled');
   };
 
   const showToast = (msg: string) => {
@@ -258,22 +278,52 @@ export default function HostBookingsPage() {
                       <StatusBadge status={b.status} size="sm" />
                     </td>
                     <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <Link
                           href={`/bookings/${b.id}`}
                           className="btn-ghost text-xs text-brand-700 hover:underline"
                         >
                           View
                         </Link>
-                        {b.plan === 'PAY_ON_ARRIVAL' && b.status === 'CONFIRMED_DEPOSIT' && (
-                          <button
-                            onClick={() => handleCollect(b.id)}
-                            disabled={collectingId === b.id}
-                            className="text-xs font-medium text-white bg-brand-700 hover:bg-brand-800 rounded-full px-2.5 py-1 disabled:opacity-50"
-                          >
-                            {collectingId === b.id ? 'Saving…' : 'Mark paid'}
-                          </button>
-                        )}
+                        {(() => {
+                          const busy = collectingId === b.id;
+                          const btn = 'text-xs font-medium rounded-full px-2.5 py-1 disabled:opacity-50';
+                          const primary = `${btn} text-white bg-brand-700 hover:bg-brand-800`;
+                          const neutral = `${btn} text-gray-600 border border-gray-300 hover:border-brand-400`;
+                          return (
+                            <>
+                              {b.status === 'PAYMENT_PENDING' && (
+                                <button onClick={() => handleConfirm(b.id)} disabled={busy} className={primary}>
+                                  {busy ? '…' : 'Confirm'}
+                                </button>
+                              )}
+                              {b.plan === 'PAY_ON_ARRIVAL' && b.status === 'CONFIRMED_DEPOSIT' && (
+                                <button onClick={() => handleCollect(b.id)} disabled={busy} className={primary}>
+                                  {busy ? '…' : 'Mark paid'}
+                                </button>
+                              )}
+                              {['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'].includes(b.status) && (
+                                <button onClick={() => handleCheckIn(b.id)} disabled={busy} className={primary}>
+                                  {busy ? '…' : 'Check in'}
+                                </button>
+                              )}
+                              {['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT', 'CHECKED_IN'].includes(b.status) && (
+                                <button onClick={() => handleComplete(b.id)} disabled={busy} className={neutral}>
+                                  {busy ? '…' : 'Complete'}
+                                </button>
+                              )}
+                              {['PAYMENT_PENDING', 'CONFIRMED_PAID', 'CONFIRMED_DEPOSIT', 'BALANCE_DUE'].includes(b.status) && (
+                                <button
+                                  onClick={() => handleCancel(b.id)}
+                                  disabled={busy}
+                                  className={`${btn} text-red-600 border border-red-200 hover:bg-red-50`}
+                                >
+                                  {busy ? '…' : 'Cancel'}
+                                </button>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                     </td>
                   </tr>
