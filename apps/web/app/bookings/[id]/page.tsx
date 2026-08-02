@@ -40,6 +40,12 @@ export default function BookingDetailPage() {
   const [toast, setToast] = useState('');
   const [ticket, setTicket] = useState<BookingTicket | null>(null);
   const stayPassEnabled = useFeature('stay_pass');
+  // Review state (must stay above the early returns — hooks run unconditionally).
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewSubmitted, setReviewSubmitted] = useState(false);
+  const [reviewError, setReviewError] = useState('');
 
   useEffect(() => {
     if (!isLoading && !user) router.push('/auth/login');
@@ -159,13 +165,6 @@ export default function BookingDetailPage() {
   const canCancel = ['PAYMENT_PENDING', 'CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE'].includes(booking.status);
   const canPayBalance = booking.status === 'BALANCE_DUE';
   const showPreparation = ['CONFIRMED_DEPOSIT', 'CONFIRMED_PAID', 'BALANCE_DUE', 'COMPLETED'].includes(booking.status);
-
-  // Review state
-  const [reviewRating, setReviewRating] = useState(5);
-  const [reviewComment, setReviewComment] = useState('');
-  const [reviewSubmitting, setReviewSubmitting] = useState(false);
-  const [reviewSubmitted, setReviewSubmitted] = useState(false);
-  const [reviewError, setReviewError] = useState('');
 
   const handleSubmitReview = async () => {
     setReviewError('');

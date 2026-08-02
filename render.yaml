@@ -8,9 +8,12 @@
 # select the repo. Render creates everything below and prompts for the
 # `sync: false` values.
 #
-# NOTE (free plan): pre-deploy commands are not available on the free tier, so
-# run migrations from your machine against the DB's external connection string
-# — exact commands in docs/DEPLOYMENT.md §5.
+# MIGRATIONS: applied automatically at container start by
+# apps/api/docker-entrypoint.sh (`prisma migrate deploy`) — the free tier has no
+# `preDeployCommand`, so the container itself brings the schema in sync before
+# serving. On a paid plan you may instead set a service-level `preDeployCommand:
+# npx prisma migrate deploy` and drop the migrate step from the entrypoint.
+# See docs/DEPLOYMENT.md §5.
 # ─────────────────────────────────────────────────────────────────────────────
 
 databases:

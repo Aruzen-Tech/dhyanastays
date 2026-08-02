@@ -40,6 +40,7 @@ COPY --from=build --chown=appuser:appgroup /app/apps/api/node_modules ./apps/api
 COPY --from=build --chown=appuser:appgroup /app/apps/api/dist ./apps/api/dist
 COPY --from=build --chown=appuser:appgroup /app/apps/api/prisma ./apps/api/prisma
 COPY --from=build --chown=appuser:appgroup /app/apps/api/package.json ./apps/api/package.json
+COPY --from=build --chown=appuser:appgroup /app/apps/api/docker-entrypoint.sh ./apps/api/docker-entrypoint.sh
 
 ENV NODE_ENV=production
 ENV PORT=3001
@@ -47,4 +48,6 @@ EXPOSE 3001
 
 USER appuser
 WORKDIR /app/apps/api
-CMD ["node", "dist/main.js"]
+# Applies pending migrations (prisma migrate deploy) before starting the API —
+# see docker-entrypoint.sh. `sh` avoids relying on the file's exec bit (Windows).
+CMD ["sh", "docker-entrypoint.sh"]
