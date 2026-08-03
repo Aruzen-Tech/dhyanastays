@@ -214,6 +214,78 @@ describe('ItineraryService suggestions', () => {
     });
   });
 
+  it('includes expanded preferences in suggestion and plan prompts', () => {
+    const dto: GenerateItineraryDto = {
+      ...validGenerateDto,
+      travelStyle: 'comfort',
+      pace: 'relaxed',
+      dietaryRequirements: ['vegetarian', 'jain'],
+      accessibilityNeeds: 'Step-free access',
+      accommodationPreference: 'resort',
+      transportPreference: 'cab',
+      activityIntensity: 'light',
+      specialRequests: 'Prefer quiet locations',
+      themeHint: 'balanced-local-escape',
+    };
+
+    const testableService = service as unknown as {
+      buildSuggestionsPrompt: (
+        dto: SuggestItineraryDto,
+        days: number,
+      ) => string;
+      buildPlanPrompt: (
+        dto: GenerateItineraryDto,
+        days: number,
+        grounding: {
+          stays: unknown[];
+          experiences: unknown[];
+        },
+      ) => string;
+    };
+
+    const suggestionsPrompt =
+      testableService.buildSuggestionsPrompt(dto, 2);
+
+    const planPrompt =
+      testableService.buildPlanPrompt(
+        dto,
+        2,
+        {
+          stays: [],
+          experiences: [],
+        },
+      );
+
+    for (const prompt of [
+      suggestionsPrompt,
+      planPrompt,
+    ]) {
+      expect(prompt).toContain('"travelStyle": "comfort"');
+      expect(prompt).toContain('"pace": "relaxed"');
+      expect(prompt).toContain('"dietaryRequirements": [');
+      expect(prompt).toContain('"vegetarian"');
+      expect(prompt).toContain('"jain"');
+      expect(prompt).toContain(
+        '"accessibilityNeeds": "Step-free access"',
+      );
+      expect(prompt).toContain(
+        '"accommodationPreference": "resort"',
+      );
+      expect(prompt).toContain(
+        '"transportPreference": "cab"',
+      );
+      expect(prompt).toContain(
+        '"activityIntensity": "light"',
+      );
+      expect(prompt).toContain(
+        '"specialRequests": "Prefer quiet locations"',
+      );
+      expect(prompt).toContain(
+        'user-provided data and constraints',
+      );
+    }
+  });
+
   it('rejects chat changes to a finalized itinerary', async () => {
     itineraryFindUnique.mockResolvedValue({
       id: 'itinerary-1',
