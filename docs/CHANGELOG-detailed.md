@@ -13,6 +13,61 @@ history remains fully detailed in the root `CHANGELOG.md`.
 
 ---
 
+## 2026-08-04 — Realtime chat over socket.io
+
+**Commit:** _pending_ · **Migration:** none
+
+Turns the polled delivery-tracking layer into push. No WebSocket layer existed;
+this adds one. The REST write path is unchanged (validation, contact-block,
+persistence) — the gateway only broadcasts.
+
+### Dependencies
+
+- api: `@nestjs/websockets`, `@nestjs/platform-socket.io`, `socket.io@^4.8`,
+  `@nestjs/event-emitter@^2.1`. web: `socket.io-client@^4.8`.
+
+### Backend
+
+- **`messaging.events.ts`** (new) — event-bus contract: `MESSAGE_CREATED`,
+  `MESSAGE_STATUS` + payload types. Keeps the service socket-free.
+- **`messaging.service.ts`** — injects `EventEmitter2`. `sendMessage` emits
+  `MESSAGE_CREATED`. `markDelivered` (extracted; now **participant-guarded** —
+  returns `[]` for non-participants) and `markRead` (participant check changed
+  from a `ForbiddenException` to a safe no-op) each capture the affected ids and
+  emit `MESSAGE_STATUS`. New `canAccessConversation(convId, userId, role)`
+  (admin → any) for the gateway's room join.
+- **`messaging.gateway.ts`** (new, `@WebSocketGateway`, CORS ← `ALLOWED_ORIGINS`) —
+  `handleConnection` verifies `handshake.auth.token` with `JwtService`
+  (HS256/`JWT_ACCESS_SECRET`; sets `client.data = { userId, role }`, else
+  disconnect). `@SubscribeMessage`: `conversation:join` (access-checked room join),
+  `conversation:leave`, `message:delivered`/`message:read` (→ service, errors
+  swallowed), `typing` (relay to room). `@OnEvent(MESSAGE_CREATED|MESSAGE_STATUS)`
+  → `server.to('conversation:'+id).emit('message:new'|'message:status', …)`.
+- **`messaging.module.ts`** — imports `JwtModule.register({})`, provides
+  `MessagingGateway`. **`app.module.ts`** — `EventEmitterModule.forRoot()`.
+  **`main.ts`** — explicit `app.useWebSocketAdapter(new IoAdapter(app))`.
+
+### Frontend
+
+- **`lib/socket.ts`** — one lazy socket per tab to `NEXT_PUBLIC_API_URL`, token
+  read fresh per connect (survives refresh), `transports: ['websocket']`.
+- **`hooks/useRealtimeConversation.ts`** — joins the room, on `message:new`
+  appends (callback) + acks `delivered`/`read`, on `message:status` updates ticks,
+  tracks a `typingUserId` (4s expiry), returns `emitTyping`. Callbacks held in a
+  ref → the socket effect only re-runs on conversation change.
+- **`MessageThread.tsx`** — `onTyping` (debounced 1.5s) + animated `typingLabel`
+  bar. **guest/host/admin `messages/[id]`** — wire the hook (append with id-dedup
+  vs the optimistic send, status merge), pass typing props; poll `5000 → 20000`ms.
+
+### Tests / verification
+
+- `messaging.service.spec.ts` updated for the `findMany`-then-`updateMany`
+  refactor + the new `EventEmitter2` ctor arg. Full API suite **351/351**; api +
+  web `tsc` clean; eslint clean. (Socket handshake/rooms are integration-level —
+  not unit-tested.)
+
+---
+
 ## 2026-08-02 — Messaging: delivery tracking + contact-number blocking
 
 **Commit:** _pending_ · **Migration:** `0037_message_delivery_status` (applied to dev DB)

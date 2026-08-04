@@ -1,6 +1,7 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
@@ -22,6 +23,10 @@ async function bootstrap() {
 
   // Use Pino as the application logger
   app.useLogger(app.get(Logger));
+
+  // Realtime messaging over socket.io (MessagingGateway). Explicit adapter so
+  // the WS server reliably attaches to the same HTTP server / port.
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // ── Security headers ──────────────────────────────────────────────
   app.use(
