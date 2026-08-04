@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
 import MessageThread from '../../../../components/MessageThread';
 import { useAuth } from '../../../../context/AuthContext';
+import { useRealtimeConversation } from '../../../../hooks/useRealtimeConversation';
 import { hostMessagingApi } from '../../../../lib/api';
 import type { Conversation } from '../../../../lib/types';
 
@@ -36,9 +37,31 @@ export default function HostConversationPage() {
 
   useEffect(() => {
     fetchConversation();
-    const interval = setInterval(fetchConversation, 5000);
+    // Realtime handles live updates; poll is a slow reliability fallback.
+    const interval = setInterval(fetchConversation, 20000);
     return () => clearInterval(interval);
   }, [fetchConversation]);
+
+  const { typingUserId, emitTyping } = useRealtimeConversation(id, {
+    currentUserId: user?.sub ?? '',
+    onMessage: (m) =>
+      setConversation((prev) =>
+        prev && !prev.messages.some((x) => x.id === m.id)
+          ? { ...prev, messages: [...prev.messages, m] }
+          : prev,
+      ),
+    onStatus: (ids, status) =>
+      setConversation((prev) =>
+        prev
+          ? {
+              ...prev,
+              messages: prev.messages.map((x) =>
+                ids.includes(x.id) ? { ...x, status } : x,
+              ),
+            }
+          : prev,
+      ),
+  });
 
   const handleSend = async (body: string) => {
     setSending(true);
@@ -109,6 +132,8 @@ export default function HostConversationPage() {
           currentUserId={user?.sub ?? ''}
           onSend={handleSend}
           sending={sending}
+          onTyping={emitTyping}
+          typingLabel={typingUserId ? `${otherUser.fullName} is typing…` : undefined}
         />
       </div>
     </div>

@@ -16,6 +16,39 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-04 — Realtime chat (socket.io) — truly instant messaging
+
+Builds on the delivery-tracking work: messages, delivered/read ticks and typing
+now push over WebSockets instead of polling. No schema change.
+
+### Added
+- **socket.io gateway** (`MessagingGateway`) — authenticates the handshake with
+  the same access JWT, joins clients to per-conversation rooms, and broadcasts
+  `message:new`, `message:status` (delivered/read) and `typing`. The durable
+  write path stays REST (validation + contact-block + persistence); the gateway
+  only pushes. Decoupled from the service via an in-process event bus
+  (`@nestjs/event-emitter`), so the service stays socket-free.
+- **Instant delivery + read** — on an incoming message the recipient's client
+  acks `delivered` then `read` over the socket; the sender's ✓ → ✓✓ → blue ✓✓
+  update immediately. **Typing indicator** ("… is typing") across guest↔host and
+  host↔admin threads.
+- Web: shared socket client (`lib/socket.ts`) + `useRealtimeConversation` hook,
+  wired into the guest/host/admin thread pages and `MessageThread`.
+
+### Changed
+- Thread polling relegated to a **20s reliability fallback** (was 5s) — the
+  socket handles live updates.
+- `markDelivered`/`markRead` are now **participant-guarded no-ops** for
+  non-participants (an admin observing a guest↔host thread over the room never
+  marks or leaks status).
+
+### Dependencies
+- api: `@nestjs/websockets`, `@nestjs/platform-socket.io`, `socket.io`,
+  `@nestjs/event-emitter`. web: `socket.io-client`. Explicit `IoAdapter` in
+  bootstrap; gateway CORS mirrors `ALLOWED_ORIGINS`.
+
+---
+
 ## 2026-08-02 — Messaging: delivery tracking + contact-number blocking
 
 Migration `0037_message_delivery_status`. Applies to every direct thread

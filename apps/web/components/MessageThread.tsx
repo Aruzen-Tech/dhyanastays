@@ -46,13 +46,33 @@ interface Props {
   currentUserId: string;
   onSend: (body: string) => Promise<void>;
   sending?: boolean;
+  /** Emitted (debounced) as the user types, for the realtime typing indicator. */
+  onTyping?: (isTyping: boolean) => void;
+  /** Shown above the composer when the other party is typing. */
+  typingLabel?: string;
 }
 
-export default function MessageThread({ messages, currentUserId, onSend, sending }: Props) {
+export default function MessageThread({
+  messages,
+  currentUserId,
+  onSend,
+  sending,
+  onTyping,
+  typingLabel,
+}: Props) {
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const typingIdle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setDraft(e.target.value);
+    if (!onTyping) return;
+    onTyping(true);
+    clearTimeout(typingIdle.current);
+    typingIdle.current = setTimeout(() => onTyping(false), 1500);
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -64,6 +84,8 @@ export default function MessageThread({ messages, currentUserId, onSend, sending
     const msg = draft.trim();
     setError('');
     setDraft('');
+    clearTimeout(typingIdle.current);
+    onTyping?.(false);
     try {
       await onSend(msg);
     } catch (err) {
@@ -128,6 +150,18 @@ export default function MessageThread({ messages, currentUserId, onSend, sending
         <div ref={bottomRef} />
       </div>
 
+      {/* Typing indicator */}
+      {typingLabel && (
+        <div className="px-4 pb-1 text-xs text-gray-400 italic flex items-center gap-1">
+          <span className="inline-flex gap-0.5">
+            <span className="w-1 h-1 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1 h-1 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1 h-1 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+          </span>
+          {typingLabel}
+        </div>
+      )}
+
       {/* Send error (e.g. contact-number block) */}
       {error && (
         <div className="px-4 py-2 text-xs text-red-600 bg-red-50 border-t border-red-100">
@@ -140,7 +174,7 @@ export default function MessageThread({ messages, currentUserId, onSend, sending
         <textarea
           ref={inputRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
           rows={1}

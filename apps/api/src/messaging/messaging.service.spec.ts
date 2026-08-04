@@ -16,6 +16,7 @@ function makeService(prisma: any) {
       { create: jest.fn() } as any,
       audit as any,
       { getSettings: jest.fn() } as any,
+      { emit: jest.fn() } as any,
     ),
     audit,
   };
@@ -60,7 +61,11 @@ describe('MessagingService — delivery lifecycle', () => {
       conversation: {
         findUnique: jest.fn().mockResolvedValue({ ...OPEN_CONVO, messages }),
       },
-      message: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      message: {
+        // markDelivered selects the counterparty's SENT ids, then updates.
+        findMany: jest.fn().mockResolvedValue([{ id: 'm1' }]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
     };
     const { service } = makeService(prisma);
     const convo: any = await service.getConversationById('c1', 'guest-1');
@@ -79,14 +84,17 @@ describe('MessagingService — delivery lifecycle', () => {
   it('markRead flips the counterparty\'s messages to READ', async () => {
     const prisma = {
       conversation: { findUnique: jest.fn().mockResolvedValue(OPEN_CONVO) },
-      message: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+      message: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'm1' }, { id: 'm2' }]),
+        updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
     };
     const { service } = makeService(prisma);
     await service.markRead('c1', 'guest-1');
 
     expect(prisma.message.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ conversationId: 'c1', senderId: { not: 'guest-1' } }),
+        where: { id: { in: ['m1', 'm2'] } },
         data: expect.objectContaining({ status: 'READ', isRead: true }),
       }),
     );
