@@ -139,7 +139,54 @@ export class ItineraryGroundingService {
       );
     }
 
-    return candidates;
+    return candidates
+      .sort((a, b) => this.scoreStay(b, dto) - this.scoreStay(a, dto))
+      .slice(0, 8);
+  }
+
+  private scoreStay(
+    stay: GroundedStayCandidate,
+    dto: GenerateItineraryDto,
+  ): number {
+    let score = 0;
+
+    if (
+      dto.budgetMinor !== undefined &&
+      stay.price.totalMinor <= dto.budgetMinor * dto.travelers
+    ) {
+      score += 30;
+    }
+
+    if (dto.interests?.length) {
+      const matches = dto.interests.filter((interest) =>
+        stay.experienceTags.some((tag) =>
+          tag.toLowerCase().includes(interest.toLowerCase()),
+        ),
+      );
+
+      score += matches.length * 10;
+    }
+
+    if (
+      dto.dietaryRequirements?.length &&
+      dto.dietaryRequirements.every((diet) =>
+        stay.dietaryOptions.includes(diet),
+      )
+    ) {
+      score += 20;
+    }
+
+    if (
+      dto.accommodationPreference &&
+      dto.accommodationPreference !== 'no-preference' &&
+      stay.propertyType
+        .toLowerCase()
+        .includes(dto.accommodationPreference.toLowerCase())
+    ) {
+      score += 15;
+    }
+
+    return score;
   }
 
   private async buildExperienceCandidates(
@@ -189,37 +236,81 @@ export class ItineraryGroundingService {
       ),
     );
 
-    return results.flatMap((result) => {
-      if (result.status !== 'fulfilled') return [];
+    return results
+      .flatMap((result) => {
+        if (result.status !== 'fulfilled') return [];
 
-      const experience = result.value;
-      if (experience.seatsAvailable < dto.travelers) return [];
+        const experience = result.value;
+        if (experience.seatsAvailable < dto.travelers) return [];
 
-      return [
-        {
-          experienceId: experience.id,
-          listingId: experience.listingId ?? null,
-          title: experience.title,
-          description: String(experience.description ?? '').slice(0, 600),
-          category: experience.category,
-          location: [experience.city, experience.state]
-            .filter(Boolean)
-            .join(', '),
-          latitude:
-            experience.latitude == null
-              ? null
-              : Number(experience.latitude),
-          longitude:
-            experience.longitude == null
-              ? null
-              : Number(experience.longitude),
-          startsAt: experience.startsAt.toISOString(),
-          endsAt: experience.endsAt.toISOString(),
-          priceMinor: experience.priceMinor,
-          currency: experience.currency,
-          seatsAvailable: experience.seatsAvailable,
-        },
-      ];
-    });
+        return [
+          {
+            experienceId: experience.id,
+            listingId: experience.listingId ?? null,
+            title: experience.title,
+            description: String(experience.description ?? '').slice(0, 600),
+            category: experience.category,
+            location: [experience.city, experience.state]
+              .filter(Boolean)
+              .join(', '),
+            latitude:
+              experience.latitude == null
+                ? null
+                : Number(experience.latitude),
+            longitude:
+              experience.longitude == null
+                ? null
+                : Number(experience.longitude),
+            startsAt: experience.startsAt.toISOString(),
+            endsAt: experience.endsAt.toISOString(),
+            priceMinor: experience.priceMinor,
+            currency: experience.currency,
+            seatsAvailable: experience.seatsAvailable,
+          },
+        ];
+      })
+      .sort(
+        (a, b) =>
+          this.scoreExperience(b, dto) - this.scoreExperience(a, dto),
+      )
+      .slice(0, 8);
+  }
+
+  private scoreExperience(
+    experience: GroundedExperienceCandidate,
+    dto: GenerateItineraryDto,
+  ): number {
+    let score = 0;
+
+    if (dto.interests?.length) {
+      const category = experience.category.toLowerCase();
+      const title = experience.title.toLowerCase();
+      const description = experience.description.toLowerCase();
+
+      const matches = dto.interests.filter((interest) => {
+        const normalizedInterest = interest.toLowerCase();
+
+        return (
+          category.includes(normalizedInterest) ||
+          title.includes(normalizedInterest) ||
+          description.includes(normalizedInterest)
+        );
+      });
+
+      score += matches.length * 15;
+    }
+
+    if (
+      dto.budgetMinor !== undefined &&
+      experience.priceMinor <= dto.budgetMinor
+    ) {
+      score += 20;
+    }
+
+    if (experience.seatsAvailable >= dto.travelers) {
+      score += 20;
+    }
+
+    return score;
   }
 }

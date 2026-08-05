@@ -154,6 +154,99 @@ describe('ItineraryGroundingService', () => {
     });
   });
 
+  it('ranks stays by preferences and returns only the top eight', async () => {
+    const rankedDto: GenerateItineraryDto = {
+      ...dto,
+      dietaryRequirements: ['vegetarian'],
+      accommodationPreference: 'villa',
+    };
+
+    const listings = Array.from({ length: 9 }, (_, index) => ({
+      ...listing,
+      id: `listing-${index + 1}`,
+      title: `Stay ${index + 1}`,
+      propertyType: index === 8 ? 'VILLA' : 'RETREAT',
+      experienceTags: index === 8 ? ['food', 'culture'] : ['nature'],
+      dietaryOptions: index === 8 ? ['vegetarian'] : [],
+    }));
+
+    getDiscoveryListings.mockResolvedValue(listings);
+    getAvailability.mockResolvedValue({
+      listingId: listing.id,
+      from: '2026-08-10',
+      to: '2026-08-12',
+      days: [
+        {
+          date: '2026-08-10',
+          state: 'AVAILABLE',
+          priceMinor: 10000,
+          isSeasonal: false,
+          isTurnover: false,
+          minNights: 1,
+        },
+      ],
+    });
+    quote.mockImplementation(({ listingId }) =>
+      Promise.resolve({
+        currency: 'INR',
+        nights: 2,
+        total: listingId === 'listing-9' ? 25000 : 900000,
+        nightlyBreakdown: [{ date: '2026-08-10', rate: 10000 }],
+      }),
+    );
+
+    const result = await service.buildContext('user-1', rankedDto);
+
+    expect(result.stays).toHaveLength(8);
+    expect(result.stays[0].listingId).toBe('listing-9');
+    expect(result.stays.map((stay) => stay.listingId)).not.toContain(
+      'listing-8',
+    );
+  });
+
+  it('ranks experiences by preferences and returns only the top eight', async () => {
+    const publicExperiences = Array.from({ length: 9 }, (_, index) => ({
+      id: `experience-${index + 1}`,
+      title: `Experience ${index + 1}`,
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      startsAt: new Date('2026-08-10T10:00:00.000Z'),
+      endsAt: new Date('2026-08-10T12:00:00.000Z'),
+    }));
+
+    listPublicExperiences.mockResolvedValue(publicExperiences);
+    getPublicExperience.mockImplementation((id: string) => {
+      const isBestMatch = id === 'experience-9';
+
+      return Promise.resolve({
+        id,
+        listingId: null,
+        title: isBestMatch ? 'Bengaluru Food Culture Walk' : id,
+        description: isBestMatch
+          ? 'Food and culture trail.'
+          : 'Outdoor activity.',
+        category: isBestMatch ? 'FOOD' : 'OUTDOOR',
+        city: 'Bengaluru',
+        state: 'Karnataka',
+        latitude: 12.97,
+        longitude: 77.59,
+        startsAt: new Date('2026-08-10T10:00:00.000Z'),
+        endsAt: new Date('2026-08-10T12:00:00.000Z'),
+        priceMinor: isBestMatch ? 1500 : 900000,
+        currency: 'INR',
+        seatsAvailable: isBestMatch ? 6 : 2,
+      });
+    });
+
+    const result = await service.buildContext('user-1', dto);
+
+    expect(result.experiences).toHaveLength(8);
+    expect(result.experiences[0].experienceId).toBe('experience-9');
+    expect(
+      result.experiences.map((experience) => experience.experienceId),
+    ).not.toContain('experience-8');
+  });
+
   it('rejects a selected listing that is unavailable', async () => {
     getPublicListingById.mockResolvedValue(listing);
 
