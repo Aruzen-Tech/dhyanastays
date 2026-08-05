@@ -42,6 +42,17 @@ now push over WebSockets instead of polling. No schema change.
   non-participants (an admin observing a guest↔host thread over the room never
   marks or leaks status).
 
+### Fixed
+- **Live connection reliability** — the socket client no longer forces
+  websocket-only transport (it silently never connected wherever the WS upgrade
+  is blocked, so messages only appeared on refresh). Now uses the default
+  polling→websocket upgrade with infinite reconnection, reads its token via the
+  shared `getToken()` (works in custom-JWT *and* Auth0 mode, not just
+  localStorage), and logs connect/error state to the console in dev. Gateway CORS
+  reflects the request origin in dev so localhost/127.0.0.1 variants and the
+  polling handshake are never blocked. Verified end-to-end (polling→upgrade→join
+  →`message:new`) against the running server.
+
 ### Dependencies
 - api: `@nestjs/websockets`, `@nestjs/platform-socket.io`, `socket.io`,
   `@nestjs/event-emitter`. web: `socket.io-client`. Explicit `IoAdapter` in

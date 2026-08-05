@@ -21,6 +21,31 @@ Turns the polled delivery-tracking layer into push. No WebSocket layer existed;
 this adds one. The REST write path is unchanged (validation, contact-block,
 persistence) — the gateway only broadcasts.
 
+### Fix: live connection reliability (post-implementation)
+
+Reported symptom: messages only appeared after a manual refresh — the socket was
+not delivering live in the browser. Root-caused and hardened the client/gateway
+connection (server broadcast path verified working end-to-end beforehand):
+
+- `apps/web/lib/socket.ts` — **removed `transports: ['websocket']`**. Websocket-only
+  never falls back, so anywhere the direct WS upgrade is blocked the socket
+  silently never connects and only the poll/refresh shows messages. Now uses the
+  default polling→websocket upgrade, `withCredentials: true`, and explicit
+  `reconnection` (infinite attempts, 1s→5s backoff). Auth now reads the token via
+  the shared **`getToken()`** (async `auth` callback) instead of
+  `tokenStore.getAccess()` directly — matches the REST client and works in Auth0
+  mode too. Dev-only console logging on `connect`/`disconnect`/`connect_error`/
+  `unauthorized` for diagnosis.
+- `apps/web/lib/api.ts` — `getToken()` is now **exported** (was module-private).
+- `apps/api/.../messaging.gateway.ts` — `corsOrigins()` **reflects the request
+  origin when `NODE_ENV !== 'production'`** (returns `true`), so localhost vs
+  127.0.0.1 and the XHR polling handshake are never CORS-blocked in dev; prod
+  still restricts to `ALLOWED_ORIGINS`.
+- Verified end-to-end against the running server with a browser-shaped client
+  (default transports + `Origin: http://localhost:3000` + async auth):
+  `connected via polling → upgraded to websocket → join ack ok → REST 201 →
+  message:new received`.
+
 ### Dependencies
 
 - api: `@nestjs/websockets`, `@nestjs/platform-socket.io`, `socket.io@^4.8`,

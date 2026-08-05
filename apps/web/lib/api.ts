@@ -105,7 +105,7 @@ export function setTokenGetter(fn: () => Promise<string | null>) {
   _tokenGetter = fn;
 }
 
-async function getToken(): Promise<string | null> {
+export async function getToken(): Promise<string | null> {
   if (_tokenGetter) {
     return _tokenGetter();
   }
