@@ -19,7 +19,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 ## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
 
 Commits `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
-`4988793`, `01acbff`, `2259529`.
+`4988793`, `01acbff`, `2259529`, `f929640`, `8517911`.
 Migration `0037_itinerary_preferences`.
 
 ### Added
@@ -44,6 +44,11 @@ Migration `0037_itinerary_preferences`.
   reused by itinerary display, refinement, ranking, and future regeneration.
 - `SuggestItineraryDto` and `GenerateItineraryDto` now inherit their common trip
   fields from `ItineraryPreferencesDto`.
+- **Grounded itinerary generation** — AI itinerary generation now verifies
+  candidate stays using real-time availability and pricing before they are sent
+  to the language model. Experiences are also filtered by destination, travel
+  window, and seat availability so generated itineraries are based on
+  bookable, validated inventory.
 
 ### Fixed
 - **Generated itinerary structure is strictly validated** for summary, exact day

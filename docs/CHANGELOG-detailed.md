@@ -16,7 +16,7 @@ history remains fully detailed in the root `CHANGELOG.md`.
 ## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
 
 **Commits:** `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
-`4988793`, `01acbff`, `2259529` ·
+`4988793`, `01acbff`, `2259529`, `f929640`, `8517911` ·
 **Migration:** `0037_itinerary_preferences`
 
 This pass establishes a backend-grounded AI itinerary flow, strengthens generated
@@ -139,6 +139,29 @@ shared request model required for richer trip preferences.
 - **`apps/api/src/itinerary/itinerary.service.spec.ts`** — added a focused
   generation test verifying that the expanded preferences are passed to the
   grounding service and persisted in the itinerary record.
+
+### Grounded itinerary generation
+
+The itinerary grounding pipeline now validates inventory before constructing AI
+prompts, ensuring recommendations are based on live platform data rather than
+unverified listings.
+
+#### Stay grounding
+
+- Retrieves candidate listings from discovery or a selected listing.
+- Verifies full-stay availability for the requested travel dates.
+- Generates live pricing quotes for each available stay.
+- Excludes unavailable properties before prompt construction.
+
+#### Experience grounding
+
+- Filters public experiences by destination.
+- Restricts experiences to the user's travel window.
+- Verifies seat availability for the requested traveler count.
+- Supplies only validated experiences to the itinerary generation prompt.
+
+This significantly improves itinerary reliability by ensuring the language model
+receives only inventory that is currently available and can be booked.
 
 ### Verification
 
