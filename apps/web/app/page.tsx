@@ -11,6 +11,16 @@ import {
 import type { LatLngBounds } from 'leaflet';
 import dynamic from 'next/dynamic';
 import ListingCard from '../components/ListingCard';
+import DiscoverHero from '../components/discover/DiscoverHero';
+import DiscoverSpotlight from '../components/discover/DiscoverSpotlight';
+import DiscoverAiPlanner from '../components/discover/DiscoverAiPlanner';
+import DiscoverCategories from '../components/discover/DiscoverCategories';
+import DiscoverServices from '../components/discover/DiscoverServices';
+import DiscoverDestinations from '../components/discover/DiscoverDestinations';
+import DiscoverTestimonials from '../components/discover/DiscoverTestimonials';
+import DiscoverSeedBallMission from '../components/discover/DiscoverSeedBallMission';
+import DiscoverJournal from '../components/discover/DiscoverJournal';
+import DiscoverCta from '../components/discover/DiscoverCta';
 import { listingsApi } from '../lib/api';
 import {
   normalizeDiscoveryTagUrlState,
@@ -852,103 +862,11 @@ export default function HomePage() {
 
   return (
     <>
-      {/* Hero */}
-      <section className="relative bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500 text-white overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-10 left-10 w-64 h-64 rounded-full bg-white blur-3xl" />
-          <div className="absolute bottom-0 right-20 w-96 h-96 rounded-full bg-gold-500 blur-3xl" />
-        </div>
-        <div className="container-page relative py-20 md:py-28 text-center">
-          <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur rounded-full px-4 py-1.5 text-sm font-medium mb-6">
-            <span>✨</span>
-            <span>Curated wellness retreats across India</span>
-          </div>
-          <h1 className="text-4xl md:text-6xl font-bold leading-tight mb-4">
-            Find your perfect
-            <br />
-            <span className="text-gold-400">sanctuary</span>
-          </h1>
-          <p className="text-brand-100 text-lg md:text-xl max-w-xl mx-auto mb-10">
-            Handpicked stays for mindful travellers — from Himalayan retreats to coastal hideaways.
-          </p>
-          <div className="max-w-lg mx-auto">
-            <div ref={searchBoxRef} className="relative">
-              <span className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-lg text-gray-400">
-                {searching ? '⏳' : '🔍'}
-              </span>
-
-              <input
-                type="text"
-                placeholder="Search by city, state, or keyword..."
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  setShowSuggestions(true);
-                  setActiveSuggestionIndex(-1);
-                }}
-                onFocus={() => {
-                  setShowSuggestions(true);
-                  setActiveSuggestionIndex(-1);
-                }}
-                autoComplete="off"
-                aria-label="Search stays"
-                role="combobox"
-                aria-autocomplete="list"
-                aria-controls={suggestionsRendered ? 'search-suggestions' : undefined}
-                aria-expanded={suggestionsRendered}
-                aria-activedescendant={activeSuggestionId}
-                onKeyDown={handleSearchKeyDown}
-                className="w-full rounded-2xl border-0 py-4 pl-11 pr-4 text-base text-gray-900 shadow-lg
-                           focus:outline-none focus:ring-2 focus:ring-gold-500/50"
-              />
-
-              {suggestionsRendered && (
-                <div
-                  id="search-suggestions"
-                  role="listbox"
-                  className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-xl"
-                >
-                  <div className="py-2">
-                    {searchSuggestions.map((suggestion, index) => (
-                      <button
-                        id={`search-suggestion-${index}`}
-                        key={`${suggestion.type}-${suggestion.value}`}
-                        type="button"
-                        role="option"
-                        aria-selected={activeSuggestionIndex === index}
-                        onMouseEnter={() => setActiveSuggestionIndex(index)}
-                        onClick={() => selectSearchSuggestion(suggestion)}
-                        className={`flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors focus:outline-none ${
-                          activeSuggestionIndex === index
-                            ? 'bg-brand-50'
-                            : 'hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate font-medium text-gray-900">
-                            {suggestion.label}
-                          </p>
-
-                          {suggestion.secondary && (
-                            <p className="truncate text-sm text-gray-500">
-                              {suggestion.secondary}
-                            </p>
-                          )}
-                        </div>
-
-                        <span className="flex-shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700">
-                          {suggestion.type}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
+      <DiscoverHero />
+      <DiscoverSpotlight />
+      <DiscoverAiPlanner />
+      <DiscoverCategories />
+      <DiscoverServices />
       {/* Listings */}
       <section className="container-page py-12">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1457,6 +1375,12 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <DiscoverDestinations />
+      <DiscoverTestimonials />
+      <DiscoverSeedBallMission />
+      <DiscoverJournal />
+      <DiscoverCta />
     </>
   );
 }

@@ -644,6 +644,16 @@
   .text-fixed-black { color: #000000 !important; }
   .bg-fixed-white   { background-color: #ffffff !important; }
   .bg-fixed-black   { background-color: #000000 !important; }
+
+  /* Hide the scrollbar on horizontal chip/card rails (touch/keyboard scroll
+     still works) — used by the Explore Stays category carousel. */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Print: strip app chrome so invoices etc. print clean (Save as PDF). */

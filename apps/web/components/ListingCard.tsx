@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { formatINR } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { formatINR, reviewsApi } from '../lib/api';
 import type { Listing } from '../lib/types';
 import WishlistButton from './WishlistButton';
 
@@ -61,6 +62,22 @@ function ListingPlaceholder({ id, title }: { id: string; title: string }) {
   );
 }
 
+/** 'boutique-hotel' → 'Boutique Hotel' — display formatting only. */
+function formatPropertyType(value: string): string {
+  return value
+    .split('-')
+    .map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1) : word))
+    .join(' ');
+}
+
+function IconStar({ className }: { className?: string }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" className={className} aria-hidden="true">
+      <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z" />
+    </svg>
+  );
+}
+
 interface Props {
   listing: Listing;
 }
@@ -69,6 +86,30 @@ export default function ListingCard({ listing }: Props) {
   const rateRule = listing.rateRules?.[0];
   const nightlyRate = rateRule?.baseNightlyRate ?? 0;
   const maxGuests = rateRule?.maxGuests;
+  const imageUrl = listing.media?.[0]?.url;
+  // First 3 real tags attached to this listing (any category) — the closest
+  // existing analogue to the reference's feature badges. No "featured"/
+  // "curated" concept exists in the data model, so this shows whatever real
+  // tags the listing actually has rather than inventing labels.
+  const featureTags = (listing.tags ?? []).slice(0, 3);
+
+  // No rating field exists on the listings feed itself — reuses the same
+  // public per-listing reviews endpoint the listing detail page already
+  // calls (GET /listings/:id/reviews), rather than adding a new one.
+  const [rating, setRating] = useState<{ avgRating: number; count: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    reviewsApi
+      .getListingReviews(listing.id)
+      .then((data) => {
+        if (!cancelled) setRating(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [listing.id]);
+  const hasRating = !!rating && rating.count > 0;
 
   return (
     <article className="card-hover group relative h-full overflow-hidden animate-fade-in focus-within:ring-2 focus-within:ring-brand-700/30 focus-within:ring-inset">
@@ -79,57 +120,92 @@ export default function ListingCard({ listing }: Props) {
         {/* Image / placeholder */}
         <div className="relative h-52 overflow-hidden rounded-t-2xl">
           <div className="w-full h-full group-hover:scale-105 transition-transform duration-500 ease-out">
-            <ListingPlaceholder id={listing.id} title={listing.title} />
+            {imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={imageUrl} alt={listing.title} className="w-full h-full object-cover" />
+            ) : (
+              <ListingPlaceholder id={listing.id} title={listing.title} />
+            )}
           </div>
           {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/5 to-black/15" />
 
-          {/* Location pill */}
-          <div className="absolute bottom-3 left-3">
-            <span
-              className="text-xs font-medium px-2.5 py-1 rounded-full"
-              style={{
-                background: 'rgba(0,0,0,0.5)',
-                backdropFilter: 'blur(8px)',
-                WebkitBackdropFilter: 'blur(8px)',
-                color: '#ffffff',
-                border: '1px solid rgba(255,255,255,0.15)',
-              }}
-            >
-              <span aria-hidden="true">📍</span>{' '}
-              {listing.city}, {listing.state}
-            </span>
+          {/* Top-left badges — property type + rating, only when the data exists */}
+          <div className="absolute top-3 left-3 right-12 flex items-center gap-1.5 flex-wrap">
+            {listing.propertyType && (
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white/90 backdrop-blur-sm text-gray-900">
+                {formatPropertyType(listing.propertyType)}
+              </span>
+            )}
+            {hasRating && (
+              <span className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-white/90 backdrop-blur-sm text-gray-900">
+                <IconStar className="text-orange-500" />
+                {rating!.avgRating.toFixed(1)}
+              </span>
+            )}
+          </div>
+
+          {/* Price */}
+          <div className="absolute bottom-3 right-3 text-right">
+            {nightlyRate > 0 ? (
+              <span className="text-white font-bold text-lg" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}>
+                {formatINR(nightlyRate)}
+                <span className="text-white/85 font-normal text-xs"> / night</span>
+              </span>
+            ) : (
+              <span className="text-white/90 text-sm" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}>
+                Price on request
+              </span>
+            )}
           </div>
         </div>
 
         {/* Content */}
         <div className="p-4 flex flex-col flex-1">
-          <h3
-            className="font-semibold text-gray-900 text-base leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors"
-            style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
-          >
-            {listing.title}
-          </h3>
-          <p className="text-gray-500 text-sm mt-1 line-clamp-2 flex-1">
-            {listing.description}
-          </p>
-
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-            {nightlyRate > 0 ? (
-              <span className="text-brand-700 font-bold text-base">
-                {formatINR(nightlyRate)}
-                <span className="text-gray-400 font-normal text-xs"> / night</span>
-              </span>
-            ) : (
-              <span className="text-gray-400 text-sm">Price on request</span>
-            )}
-            {maxGuests && (
-              <span className="text-gray-400 text-xs">
-                <span aria-hidden="true">👥</span>{' '}
-                Up to {maxGuests}
+          <div className="flex items-start justify-between gap-2">
+            <h3
+              className="font-semibold text-gray-900 text-base leading-snug line-clamp-2 group-hover:text-brand-700 transition-colors"
+              style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+            >
+              {listing.title}
+            </h3>
+            {hasRating && (
+              <span className="shrink-0 flex items-center gap-1 text-xs font-medium text-gray-900 mt-0.5">
+                <IconStar className="text-orange-500" />
+                {rating!.avgRating.toFixed(1)}
+                <span className="text-gray-400">({rating!.count})</span>
               </span>
             )}
           </div>
+
+          <p className="text-gray-500 text-xs mt-1.5">
+            <span aria-hidden="true">📍</span> {listing.city}, {listing.state}
+          </p>
+
+          <p className="text-gray-500 text-sm mt-2 line-clamp-2 flex-1">
+            {listing.description}
+          </p>
+
+          {featureTags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {featureTags.map((listingTag) => (
+                <span
+                  key={listingTag.tag.id}
+                  className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-brand-50 text-brand-700"
+                >
+                  {listingTag.tag.name}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {maxGuests && (
+            <div className="flex items-center justify-end mt-3 pt-3 border-t border-gray-100">
+              <span className="text-gray-400 text-xs">
+                <span aria-hidden="true">👥</span> Up to {maxGuests}
+              </span>
+            </div>
+          )}
         </div>
       </Link>
 
