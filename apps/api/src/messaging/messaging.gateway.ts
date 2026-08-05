@@ -23,8 +23,11 @@ const room = (conversationId: string) => `conversation:${conversationId}`;
 
 /** CORS origins for the socket.io handshake — mirrors the HTTP allow-list. */
 function corsOrigins(): string[] | boolean {
+  // In dev, reflect the request origin so localhost/127.0.0.1 variants and the
+  // polling handshake are never blocked. Production restricts to ALLOWED_ORIGINS.
+  if ((process.env.NODE_ENV ?? 'development') !== 'production') return true;
   const raw = process.env.ALLOWED_ORIGINS?.trim();
-  if (!raw) return true; // dev: reflect the request origin
+  if (!raw) return true;
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
