@@ -16,6 +16,35 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-06 — AI Trip Planner backend implementation completed
+
+### Added
+- Completed the AI Trip Planner backend workflow.
+- Added itinerary suggestion endpoint.
+- Added full itinerary generation endpoint.
+- Added itinerary refinement chat endpoint.
+- Added itinerary usage tracking endpoint.
+- Added itinerary finalization and deletion endpoints.
+
+### Improved
+- Added Anthropic integration with retry handling.
+- Added development stub responses when the Anthropic API key is unavailable.
+- Added JSON parsing and normalization for AI responses.
+- Added validation for generated itinerary structure.
+- Added Redis-backed itinerary generation locking.
+- Added monthly usage and token accounting.
+- Added conversation history support for itinerary refinement.
+- Added grounding integration before itinerary generation.
+
+### Security
+- Added ownership validation for itineraries.
+- Added feature gating.
+- Added endpoint throttling.
+- Added request validation across itinerary DTOs.
+
+### Notes
+- Live Anthropic integration testing is pending until the production API key is configured.
+
 ## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
 
 Commits `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,

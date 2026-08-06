@@ -1566,6 +1566,7 @@ model Itinerary {
   specialRequests         String?
   /** Stable concept key selected from itinerary suggestions. */
   themeHint               String?
+  idempotencyKey         String?             @unique
   status                  ItineraryStatus     @default(DRAFT)
   summary         String?
   days            Json?               // [{ day: 1, date, title, sessions: [{ time, title, description, category }] }]
