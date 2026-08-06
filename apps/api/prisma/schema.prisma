@@ -1409,6 +1409,9 @@ model Experience {
   currency         String                 @default("INR")
   status           ExperienceStatus       @default(PENDING_APPROVAL)
   imageUrl         String?
+  gallery          String[]               @default([])
+  video            String?
+  included         String[]               @default([])
   reviewedBy       String?
   reviewNotes      String?
   reviewedAt       DateTime?

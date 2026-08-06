@@ -43,15 +43,29 @@ export class ExperienceService {
   async listHostExperiences(userId: string) {
     const host = await this.prisma.host.findUnique({ where: { userId } });
     if (!host) throw new ForbiddenException('Host profile not found');
-    return this.prisma.experience.findMany({
+    const experiences = await this.prisma.experience.findMany({
       where: { hostId: host.id },
       orderBy: { startsAt: 'desc' },
       include: {
         _count: {
           select: { bookings: { where: { status: { in: this.activeBookingStatuses } } } },
         },
+        // _count.bookings above counts booking *rows*, not seats — a single
+        // booking can hold several seats, so it understates how full an
+        // experience is whenever seats > 1. bookedSeats (added below) is the
+        // correct seats-sold figure, computed the same way
+        // listPublicExperiences() already does for seatsAvailable. _count is
+        // left untouched for backward compatibility with any existing caller.
+        bookings: {
+          where: { status: { in: this.activeBookingStatuses } },
+          select: { seats: true },
+        },
       },
     });
+    return experiences.map(({ bookings, ...experience }) => ({
+      ...experience,
+      bookedSeats: bookings.reduce((sum, b) => sum + b.seats, 0),
+    }));
   }
 
   async createHostExperience(userId: string, dto: CreateExperienceDto) {
@@ -89,6 +103,9 @@ export class ExperienceService {
         capacity: dto.capacity,
         priceMinor: dto.priceMinor,
         imageUrl: dto.imageUrl ?? null,
+        gallery: dto.gallery ?? [],
+        video: dto.video ?? null,
+        included: dto.included ?? [],
         status: ExperienceStatus.PENDING_APPROVAL,
       },
     });
@@ -126,6 +143,9 @@ export class ExperienceService {
       ...(dto.capacity !== undefined && { capacity: dto.capacity }),
       ...(dto.priceMinor !== undefined && { priceMinor: dto.priceMinor }),
       ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
+      ...(dto.gallery !== undefined && { gallery: dto.gallery }),
+      ...(dto.video !== undefined && { video: dto.video }),
+      ...(dto.included !== undefined && { included: dto.included }),
       // Edits to approved experience require re-review
       ...(experience.status === ExperienceStatus.APPROVED && {
         status: ExperienceStatus.PENDING_APPROVAL,
@@ -171,6 +191,14 @@ export class ExperienceService {
     return updated;
   }
 
+  // Host-scoped single-record fetch — unlike getPublicExperience(), not
+  // filtered to APPROVED, so a host can load their own experience while it's
+  // still PENDING_APPROVAL, REJECTED, or CLOSED. Reuses the same ownership
+  // helper updateHostExperience()/closeHostExperience() already rely on.
+  async getHostExperienceById(userId: string, id: string) {
+    return this.getOwnedHostExperience(userId, id);
+  }
+
   async getHostExperienceBookings(userId: string, id: string) {
     await this.getOwnedHostExperience(userId, id);
     return this.prisma.experienceBooking.findMany({
@@ -195,24 +223,44 @@ export class ExperienceService {
     if (params.upcoming !== false) {
       where.startsAt = { gte: new Date() };
     }
-    return this.prisma.experience.findMany({
+    const experiences = await this.prisma.experience.findMany({
       where,
       orderBy: { startsAt: 'asc' },
       take: 100,
       include: {
-        host: { select: { user: { select: { fullName: true } } } },
+        host: { select: { user: { select: { fullName: true, avatarUrl: true } } } },
         _count: {
           select: { bookings: { where: { status: { in: this.activeBookingStatuses } } } },
         },
+        // seatsAvailable needs the SUM of seats across active bookings, not a
+        // row count — _count above can't be reused for it (one booking can
+        // hold several seats). Fetched batched here (one query, no N+1) the
+        // same way getPublicExperience() already computes it via
+        // countSeatsSold(), just without a second round-trip per row.
+        bookings: {
+          where: { status: { in: this.activeBookingStatuses } },
+          select: { seats: true },
+        },
       },
     });
+    // Same frontend-friendly aliases as getPublicExperience(), reused via the
+    // shared private helper rather than duplicated — filtering, ordering,
+    // and the take:100 cap above are unchanged.
+    return experiences.map(({ bookings, ...experience }) => ({
+      ...experience,
+      ...this.toPublicFieldAliases(experience),
+      seatsAvailable: Math.max(
+        0,
+        experience.capacity - bookings.reduce((sum, b) => sum + b.seats, 0),
+      ),
+    }));
   }
 
   async getPublicExperience(id: string) {
     const experience = await this.prisma.experience.findFirst({
       where: { id, status: ExperienceStatus.APPROVED },
       include: {
-        host: { select: { user: { select: { fullName: true } } } },
+        host: { select: { user: { select: { fullName: true, avatarUrl: true } } } },
         listing: { select: { id: true, title: true, city: true, state: true } },
       },
     });
@@ -221,6 +269,11 @@ export class ExperienceService {
     return {
       ...experience,
       seatsAvailable: Math.max(0, experience.capacity - seatsSold),
+      // Frontend-friendly aliases for the Experience Details page — additive
+      // only; every existing field above (title, priceMinor, imageUrl, city,
+      // state, capacity, startsAt, endsAt, ...) is left in the response
+      // unchanged for any other consumer that already depends on it.
+      ...this.toPublicFieldAliases(experience),
     };
   }
 
@@ -376,6 +429,100 @@ export class ExperienceService {
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  /**
+   * Additive frontend-friendly field aliases for the Experience Details and
+   * Listing pages (name, price, image, groupSize, location, duration, host)
+   * — layered on top of the existing response, never replacing the original
+   * fields (title, priceMinor, imageUrl, capacity, city, state, startsAt,
+   * endsAt, host stay as-is for any other consumer). gallery/video/included
+   * are passed through unchanged since they're already stored under
+   * frontend-matching names.
+   *
+   * Wired into both getPublicExperience() and listPublicExperiences() so the
+   * two endpoints return the same field shape.
+   *
+   * Assumptions made in the absence of an explicit spec (flag for review):
+   *  - `price` is priceMinor / 100 (rupees) — confirmed against the live
+   *    Experience Details page, which currently does this same conversion
+   *    client-side via formatINR() before this mapping existed.
+   *  - `location` is `"${city}, ${state}"`.
+   *  - `duration` is a human-readable string computed from startsAt/endsAt
+   *    (see formatExperienceDuration).
+   *  - `host.name` is the host user's fullName; `host.avatar` is the host
+   *    user's avatarUrl (may be null — no fallback image exists yet).
+   *  - `host.role` has no backing field anywhere in the schema (Host has no
+   *    bio/title/role column) — a fixed display label is used as a
+   *    placeholder rather than adding a schema field for this sprint. Revisit
+   *    if hosts need a real, editable role/bio.
+   *  - `rating` and `reviewCount` are always `0` — there is no review model
+   *    linked to Experience anywhere in the schema (the existing `Review`
+   *    model is tied to stay `listingId`/`bookingId` only, not
+   *    `Experience`/`ExperienceBooking`), so there is no real data to
+   *    aggregate. Returning fabricated non-zero numbers would violate the
+   *    "no fake data" requirement for this sprint; `0`/`0` is the honest
+   *    representation of "no reviews recorded yet". Revisit once an
+   *    experience-review model exists — this is the single place to wire
+   *    a real aggregate in.
+   */
+  private toPublicFieldAliases(experience: {
+    title: string;
+    priceMinor: number;
+    imageUrl: string | null;
+    capacity: number;
+    city: string;
+    state: string;
+    startsAt: Date;
+    endsAt: Date;
+    gallery: string[];
+    video: string | null;
+    included: string[];
+    host?: { user: { fullName: string; avatarUrl: string | null } } | null;
+  }) {
+    return {
+      name: experience.title,
+      // No experience-review model exists anywhere in the schema today, so
+      // there is nothing to aggregate — 0/0 is factual, not a placeholder.
+      rating: 0,
+      reviewCount: 0,
+      // Rupees, not paise — unlike priceMinor (left untouched above for any
+      // consumer still reading it raw), `price` is the display-ready amount
+      // this frontend field name implies. Verified against the live
+      // Experience Details page, which currently divides priceMinor by 100
+      // itself before display (apps/web/lib/api.ts formatINR()).
+      price: experience.priceMinor / 100,
+      image: experience.imageUrl,
+      groupSize: experience.capacity,
+      location: `${experience.city}, ${experience.state}`,
+      duration: this.formatExperienceDuration(experience.startsAt, experience.endsAt),
+      gallery: experience.gallery,
+      video: experience.video,
+      included: experience.included,
+      host: experience.host
+        ? {
+            name: experience.host.user.fullName,
+            role: 'Experience Host',
+            avatar: experience.host.user.avatarUrl,
+          }
+        : null,
+    };
+  }
+
+  /** Human-readable duration from an experience's startsAt/endsAt window. */
+  private formatExperienceDuration(startsAt: Date, endsAt: Date): string {
+    const totalMinutes = Math.max(
+      0,
+      Math.round((endsAt.getTime() - startsAt.getTime()) / 60_000),
+    );
+    if (totalMinutes < 60) return `${totalMinutes} min`;
+    if (totalMinutes < 24 * 60) {
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+    }
+    const days = Math.round(totalMinutes / (24 * 60));
+    return `${days} day${days === 1 ? '' : 's'}`;
+  }
 
   private async getOwnedHostExperience(userId: string, id: string) {
     const host = await this.prisma.host.findUnique({ where: { userId } });
