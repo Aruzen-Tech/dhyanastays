@@ -13,7 +13,7 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "node",
-    "ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "5.0",
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node", "jest"]
