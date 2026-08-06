@@ -16,6 +16,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-05 — Experience module: media fields + booking hardening (merge)
+
+Merged `feature/experience-module`. No changelog entry existed on the branch;
+recorded here on merge.
+
+### Added
+- **Experience media/detail fields** (migration `0037_experience_media_fields`,
+  additive + idempotent): `gallery String[]`, `video String?`, `included
+  String[]` on `Experience`, surfaced through create/update DTOs and the host
+  experience controller — powers the frontend Experience Details page.
+
+### Fixed / Changed
+- **Booking integrity** — capacity race conditions prevented; booking
+  cancellation now returns the experience relation; backend aligned with the
+  latest frontend contract. 514-line `experience.service.spec.ts` added.
+
+### Migration note
+- Three `0037_*` migrations now coexist (`_experience_media_fields`,
+  `_itinerary_preferences`, `_message_delivery_status`) from parallel branches.
+  All additive + idempotent; `prisma migrate deploy` applies each by its unique
+  folder name. Verified: prisma generate, api tsc clean, **385 API tests pass**.
+
+---
+
 ## 2026-08-04 — Realtime chat (socket.io) — truly instant messaging
 
 Builds on the delivery-tracking work: messages, delivered/read ticks and typing
