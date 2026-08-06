@@ -33,6 +33,20 @@ export class ExperienceService {
     ExperienceBookingStatus.COMPLETED,
   ];
 
+  // Shared nested-experience shape for guest-facing booking responses —
+  // listGuestBookings() and cancelGuestBooking() must return the same shape
+  // so a guest's booking list stays consistent before and after cancelling.
+  private readonly guestExperienceSummarySelect = {
+    id: true,
+    title: true,
+    category: true,
+    city: true,
+    state: true,
+    startsAt: true,
+    endsAt: true,
+    imageUrl: true,
+  } as const;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
@@ -345,12 +359,7 @@ export class ExperienceService {
       where: { guestId: userId },
       orderBy: { createdAt: 'desc' },
       include: {
-        experience: {
-          select: {
-            id: true, title: true, category: true, city: true, state: true,
-            startsAt: true, endsAt: true, imageUrl: true,
-          },
-        },
+        experience: { select: this.guestExperienceSummarySelect },
       },
     });
   }
@@ -358,7 +367,7 @@ export class ExperienceService {
   async cancelGuestBooking(userId: string, bookingId: string) {
     const booking = await this.prisma.experienceBooking.findUnique({
       where: { id: bookingId },
-      include: { experience: true },
+      include: { experience: { select: this.guestExperienceSummarySelect } },
     });
     if (!booking || booking.guestId !== userId) {
       throw new NotFoundException('Booking not found');
@@ -378,6 +387,7 @@ export class ExperienceService {
         status: ExperienceBookingStatus.CANCELLED,
         cancelledAt: new Date(),
       },
+      include: { experience: { select: this.guestExperienceSummarySelect } },
     });
     await this.writeAudit(userId, 'EXPERIENCE_CANCEL', 'experience_booking', bookingId, {});
     return updated;
