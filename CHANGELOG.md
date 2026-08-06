@@ -147,6 +147,53 @@ through the booking state machine, so guards + `statusHistory` are enforced.
 
 ---
 
+## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
+
+Commits `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
+`4988793`, `01acbff`, `2259529`, `f929640`, `8517911`.
+Migration `0037_itinerary_preferences`.
+
+### Added
+- **Verified internal inventory grounding** for generated itineraries. The planner
+  now searches approved Dhyana Stays listings and experiences, verifies stay
+  availability, obtains trusted backend pricing, checks experience dates and
+  remaining seats, and exposes only verified candidates to the AI prompt.
+- **Shared itinerary preference request model** with optional travel style, trip
+  pace, dietary requirements, accessibility needs, accommodation preference,
+  transport preference, activity intensity, and special requests.
+- **Persistent itinerary preferences** — migration `0037_itinerary_preferences`
+  adds travel style, pace, dietary requirements, accessibility needs,
+  accommodation preference, transport preference, activity intensity, and
+  special requests to generated itinerary records.
+
+### Changed
+- **Trip concepts and development stubs are destination-agnostic** rather than
+  being restricted to wellness and retreat themes.
+- **Budget semantics are consistently per person**, and the web suggestion flow
+  now sends the stable suggestion key instead of the display title.
+- Generated itineraries now save all validated trip preferences so they can be
+  reused by itinerary display, refinement, ranking, and future regeneration.
+- `SuggestItineraryDto` and `GenerateItineraryDto` now inherit their common trip
+  fields from `ItineraryPreferencesDto`.
+- **Grounded itinerary generation** — AI itinerary generation now verifies
+  candidate stays using real-time availability and pricing before they are sent
+  to the language model. Experiences are also filtered by destination, travel
+  window, and seat availability so generated itineraries are based on
+  bookable, validated inventory.
+
+### Fixed
+- **Generated itinerary structure is strictly validated** for summary, exact day
+  count, sequential trip dates, non-empty sessions, `HH:MM` times, chronological
+  ordering, and supported session categories.
+- **Past trip start dates are rejected**, in addition to invalid, reversed, and
+  over-21-day date ranges.
+- **Chat refinement is hardened** by rejecting finalized-itinerary changes and
+  using the latest user request in the development response flow.
+
+### Verification
+- API build passes.
+- API test suite: **21 suites / 329 tests passing**.
+
 ## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
 
 ### Added

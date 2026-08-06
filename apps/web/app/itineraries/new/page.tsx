@@ -234,7 +234,7 @@ export default function NewItineraryPage() {
               <button
                 key={s.key}
                 type="button"
-                onClick={() => handleGenerate(s.title)}
+                onClick={() => handleGenerate(s.key)}
                 disabled={generating}
                 className="card p-5 w-full text-left hover:border-brand-700 hover:shadow-md transition disabled:opacity-50 disabled:cursor-wait"
               >
