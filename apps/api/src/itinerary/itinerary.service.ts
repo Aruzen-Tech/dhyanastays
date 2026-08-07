@@ -1317,12 +1317,9 @@ export class ItineraryService {
     tokensOutput: number;
   } | null> {
     if (!this.apiKey) {
-      this.logger.warn('================ DEBUG ================');
-      this.logger.warn(`NODE_ENV: ${this.config.get('NODE_ENV')}`);
-      this.logger.warn(`isProduction: ${this.isProduction}`);
-      this.logger.warn(`apiKey exists: ${!!this.apiKey}`);
-      this.logger.warn('Returning dev stub');
-      this.logger.warn('=======================================');
+      this.logger.debug(
+        'Using development itinerary stub because Anthropic is unavailable.',
+      );
 
       if (this.isProduction) {
         throw new ServiceUnavailableException('AI provider not configured');

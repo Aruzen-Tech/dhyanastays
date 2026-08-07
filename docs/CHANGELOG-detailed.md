@@ -19,6 +19,11 @@ generation backward compatible for existing callers.
 
 ### AI Trip Planner
 
+### Logging
+
+- Removed verbose development-only debug logs.
+- Replaced them with a single structured debug message when using the local itinerary stub.
+
 ### Generation Telemetry
 
 - Added generation duration logging.

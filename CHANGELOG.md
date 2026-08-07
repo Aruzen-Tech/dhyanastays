@@ -35,6 +35,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ## 2026-08-06 — AI Trip Planner backend implementation completed
 
+### Changed
+- Replaced verbose development debug logging with structured debug logging for the AI Trip Planner.
+
 ### Added
 - Completed the AI Trip Planner backend workflow.
 - Added itinerary suggestion endpoint.
