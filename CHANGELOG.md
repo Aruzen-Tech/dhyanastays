@@ -19,6 +19,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 ### Added
 - Added deterministic backend activity allocation before AI itinerary generation.
 - Added backend route optimization for itinerary activities based on geographic proximity.
+- Added validation for AI-generated itinerary responses before persistence.
 
 ### Changed
 - Refactored AI itinerary prompt generation into reusable helper methods.

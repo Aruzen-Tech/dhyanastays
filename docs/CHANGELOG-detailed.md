@@ -19,6 +19,15 @@ generation backward compatible for existing callers.
 
 ### AI Trip Planner
 
+#### AI Response Validation
+
+- Added structural validation for generated itineraries.
+- Ensures expected day count.
+- Validates sequential day numbering.
+- Validates session structure.
+- Validates time format.
+- Rejects malformed AI responses before storing them.
+
 #### Prompt Generation
 
 - Extracted verified inventory serialization.

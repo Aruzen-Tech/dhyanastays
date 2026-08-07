@@ -1229,6 +1229,57 @@ export class ItineraryService {
     };
   }
 
+  private validateGeneratedPlan(
+    plan: ItineraryPlan,
+    expectedDays: number,
+  ): void {
+    const invalidPlan = () => {
+      throw new BadRequestException(
+        'AI generated an invalid itinerary.',
+      );
+    };
+
+    if (
+      !plan.summary ||
+      !plan.summary.trim() ||
+      plan.days.length !== expectedDays
+    ) {
+      invalidPlan();
+    }
+
+    const seenDays = new Set<number>();
+
+    for (let index = 0; index < plan.days.length; index += 1) {
+      const day = plan.days[index];
+
+      if (
+        day.day !== index + 1 ||
+        seenDays.has(day.day) ||
+        day.sessions.length === 0
+      ) {
+        invalidPlan();
+      }
+
+      seenDays.add(day.day);
+
+      for (const session of day.sessions) {
+        if (
+          !session.time ||
+          !session.title.trim() ||
+          !session.description.trim() ||
+          !session.category.trim() ||
+          !this.isValidTime(session.time)
+        ) {
+          invalidPlan();
+        }
+      }
+    }
+  }
+
+  private isValidTime(time: string): boolean {
+    return /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
+  }
+
   // ── LLM call (with retry, prompt caching, no stub fallback in prod) ────────
 
   /**
@@ -1389,6 +1440,11 @@ export class ItineraryService {
       );
       return null;
     }
+
+    this.validateGeneratedPlan(
+      normalizedPlan,
+      days,
+    );
 
     return {
       plan: normalizedPlan,
