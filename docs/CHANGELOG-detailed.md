@@ -11,6 +11,63 @@ history remains fully detailed in the root `CHANGELOG.md`.
 > **Convention:** every change is recorded in both files — a one-line-per-item
 > entry in the root `CHANGELOG.md`, and a full breakdown here.
 
+## 2026-08-07 — Itinerary planning context and locking cleanup
+
+This release refines the AI itinerary planner by making backend activity
+allocation deterministic, centralizing generation locking, and keeping prompt
+generation backward compatible for existing callers.
+
+### AI Trip Planner
+
+### Logging
+
+- Removed verbose development-only debug logs.
+- Replaced them with a single structured debug message when using the local itinerary stub.
+
+### Generation Telemetry
+
+- Added generation duration logging.
+- Added token usage logging.
+- Added verified inventory counts.
+- Added retry logging.
+- Added AI validation failure logging.
+
+#### AI Response Validation
+
+- Added structural validation for generated itineraries.
+- Ensures expected day count.
+- Validates sequential day numbering.
+- Validates session structure.
+- Validates time format.
+- Rejects malformed AI responses before storing them.
+
+#### Prompt Generation
+
+- Extracted verified inventory serialization.
+- Extracted allocated experience serialization.
+- Reduced complexity of `buildPlanPrompt()`.
+- Preserved AI prompt behavior.
+
+#### Route Optimization
+
+- Added geographic route optimization for allocated activities.
+- Ordered activities within each day using Haversine distance from the selected stay.
+- Preserved deterministic planner behavior without introducing external routing or mapping services.
+
+#### Fixed
+- Refactored itinerary generation locking to use a single locking implementation.
+- Restored Redis → in-process fallback behavior.
+- Eliminated duplicated locking logic.
+
+#### Added
+- Added deterministic activity allocation of verified experiences across itinerary days.
+- Updated AI prompt generation to consume backend activity allocation.
+- Preserved existing API contracts and itinerary response schema.
+- Maintained backward compatibility by allowing prompt generation to derive activity allocation when not explicitly provided.
+
+### Verification
+- Changes were validated against `apps/api/src/itinerary/itinerary.service.ts` with no compile errors reported.
+
 ---
 
 ## 2026-08-04 — Realtime chat over socket.io
