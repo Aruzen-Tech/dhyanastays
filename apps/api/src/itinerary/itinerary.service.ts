@@ -281,6 +281,8 @@ export class ItineraryService {
         dto,
       );
 
+      const generationStartedAt = Date.now();
+
       const result = await this.callLLMForPlan(dto, days, groundingContext);
       if (!result) {
         throw new ServiceUnavailableException(
@@ -322,6 +324,23 @@ export class ItineraryService {
         chatMessages: 0,
         tokensInput: result.tokensInput,
         tokensOutput: result.tokensOutput,
+      });
+
+      const generationDurationMs =
+        Date.now() - generationStartedAt;
+
+      this.logger.log({
+        event: 'itinerary_generation_completed',
+        userId,
+        itineraryId: created.id,
+        destination: dto.destination,
+        travelers: dto.travelers,
+        days,
+        durationMs: generationDurationMs,
+        tokensInput: result.tokensInput,
+        tokensOutput: result.tokensOutput,
+        verifiedStays: groundingContext.stays.length,
+        verifiedExperiences: groundingContext.experiences.length,
       });
 
       return created;
@@ -1419,12 +1438,21 @@ export class ItineraryService {
       ),
       maxTokens: 4096,
     });
-    if (!result) return null;
+    if (!result) {
+      this.logger.warn({
+        event: 'itinerary_generation_failed',
+        reason: 'invalid_ai_response',
+      });
+      return null;
+    }
 
     const parsed = this.safeParse<ItineraryPlan>(result.text);
 
     if (!parsed) {
-      this.logger.error('LLM returned invalid JSON for plan');
+      this.logger.warn({
+        event: 'itinerary_generation_failed',
+        reason: 'invalid_json',
+      });
       return null;
     }
 
@@ -1435,16 +1463,25 @@ export class ItineraryService {
     );
 
     if (!normalizedPlan) {
-      this.logger.error(
-        'LLM returned a structurally invalid itinerary plan',
-      );
+      this.logger.warn({
+        event: 'itinerary_generation_failed',
+        reason: 'normalization_failure',
+      });
       return null;
     }
 
-    this.validateGeneratedPlan(
-      normalizedPlan,
-      days,
-    );
+    try {
+      this.validateGeneratedPlan(
+        normalizedPlan,
+        days,
+      );
+    } catch {
+      this.logger.warn({
+        event: 'itinerary_generation_failed',
+        reason: 'validation_failure',
+      });
+      return null;
+    }
 
     return {
       plan: normalizedPlan,
@@ -1461,6 +1498,10 @@ export class ItineraryService {
     tokensInput: number;
     tokensOutput: number;
   } | null> {
+    this.logger.warn({
+      event: 'retrying_itinerary_generation',
+    });
+
     return this.callAnthropic({
       system,
       conversation,

@@ -17,6 +17,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 ## 2026-08-07 — Itinerary planning context and locking cleanup
 
 ### Added
+- Added structured telemetry for AI itinerary generation.
+
+### Added
 - Added deterministic backend activity allocation before AI itinerary generation.
 - Added backend route optimization for itinerary activities based on geographic proximity.
 - Added validation for AI-generated itinerary responses before persistence.

@@ -19,6 +19,14 @@ generation backward compatible for existing callers.
 
 ### AI Trip Planner
 
+### Generation Telemetry
+
+- Added generation duration logging.
+- Added token usage logging.
+- Added verified inventory counts.
+- Added retry logging.
+- Added AI validation failure logging.
+
 #### AI Response Validation
 
 - Added structural validation for generated itineraries.
