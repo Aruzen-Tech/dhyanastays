@@ -67,8 +67,12 @@ export default function GuestConversationPage() {
     setSending(true);
     try {
       const msg = await guestMessagingApi.sendMessage(id, body);
+      // Dedup by id: the socket broadcast may have already appended this message
+      // (the push can win the race against this REST response).
       setConversation((prev) =>
-        prev ? { ...prev, messages: [...prev.messages, msg] } : prev,
+        prev && !prev.messages.some((x) => x.id === msg.id)
+          ? { ...prev, messages: [...prev.messages, msg] }
+          : prev,
       );
     } finally {
       // Let the error propagate to MessageThread so it can show the reason

@@ -1422,6 +1422,9 @@ model Experience {
   currency         String                 @default("INR")
   status           ExperienceStatus       @default(PENDING_APPROVAL)
   imageUrl         String?
+  gallery          String[]               @default([])
+  video            String?
+  included         String[]               @default([])
   reviewedBy       String?
   reviewNotes      String?
   reviewedAt       DateTime?
@@ -1566,12 +1569,20 @@ model Itinerary {
   destination     String
   startsAt        DateTime
   endsAt          DateTime
-  travelers       Int                 @default(2)
-  interests       String[]            @default([])
-  budgetMinor     Int?
-  /** Optional theme/concept the user picked from suggestions, e.g. "Detox & Yoga". */
-  themeHint       String?
-  status          ItineraryStatus     @default(DRAFT)
+  travelers               Int                 @default(2)
+  interests               String[]            @default([])
+  budgetMinor             Int?
+  travelStyle             String?
+  pace                    String?
+  dietaryRequirements     String[]            @default([])
+  accessibilityNeeds      String?
+  accommodationPreference String?
+  transportPreference     String?
+  activityIntensity       String?
+  specialRequests         String?
+  /** Stable concept key selected from itinerary suggestions. */
+  themeHint               String?
+  status                  ItineraryStatus     @default(DRAFT)
   summary         String?
   days            Json?               // [{ day: 1, date, title, sessions: [{ time, title, description, category }] }]
   model           String?
