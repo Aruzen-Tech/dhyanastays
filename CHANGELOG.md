@@ -14,6 +14,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 > Security / Infrastructure / Migration), and a full breakdown in the detailed file.
 > Cite the migration and/or commit.
 
+## 2026-08-07 — Itinerary planning context and locking cleanup
+
+### Added
+- Added deterministic backend activity allocation before AI itinerary generation.
+
+### Fixed
+- Unified itinerary generation locking implementation and restored Redis fallback behavior.
+- Kept prompt generation backward compatible by allowing activity allocation to be derived when not explicitly provided.
+
 ---
 
 ## 2026-08-06 — AI Trip Planner backend implementation completed

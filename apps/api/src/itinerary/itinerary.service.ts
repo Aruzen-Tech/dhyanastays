@@ -24,6 +24,8 @@ import { GenerateItineraryDto } from './dto/generate-itinerary.dto';
 import { SuggestItineraryDto } from './dto/suggest-itinerary.dto';
 import {
   ItineraryGroundingContext,
+  GroundedExperienceCandidate,
+  GroundedStayCandidate,
   ItineraryGroundingService,
 } from './itinerary-grounding.service';
 
@@ -39,6 +41,17 @@ interface ItineraryDay {
   date: string;
   title: string;
   sessions: ItinerarySession[];
+}
+
+interface PlanningDayAllocation {
+  day: number;
+  experienceIds: string[];
+}
+
+interface PlanningContext {
+  stay: GroundedStayCandidate | null;
+  experiences: GroundedExperienceCandidate[];
+  allocation: PlanningDayAllocation[];
 }
 
 interface ItineraryPlan {
@@ -104,6 +117,7 @@ export class ItineraryService {
 
   private redis: Redis | null = null;
   private readonly inProcessGenerations = new Set<string>();
+  private readonly generationLockTokens = new Map<string, string>();
 
   private readonly apiKey: string;
   private readonly isProduction: boolean;
@@ -251,31 +265,7 @@ export class ItineraryService {
   async generate(userId: string, dto: GenerateItineraryDto) {
     const days = this.validateDateRange(dto.startsAt, dto.endsAt);
 
-    const lockKey = this.generationLockKey(userId);
-    const lockToken = randomUUID();
-
-    let lockAcquired = false;
-
-    if (this.redis) {
-      try {
-        const result = await this.redis.set(
-          lockKey,
-          lockToken,
-          'EX',
-          this.generationLockTtlSeconds,
-          'NX',
-        );
-
-        lockAcquired = result === 'OK';
-      } catch {
-        this.logger.warn(
-          'Redis unavailable while acquiring itinerary generation lock',
-        );
-      }
-    } else {
-      // Redis unavailable – continue without distributed locking.
-      lockAcquired = true;
-    }
+    const lockAcquired = await this.acquireGenerationLock(userId);
 
     if (!lockAcquired) {
       throw new BadRequestException(
@@ -336,20 +326,25 @@ export class ItineraryService {
 
       return created;
     } finally {
-      await this.releaseGenerationLock(
-        lockKey,
-        lockToken,
-      );
+      await this.releaseGenerationLock(userId);
     }
   }
 
   private async acquireGenerationLock(userId: string): Promise<boolean> {
     const redisLockKey = this.generationLockKey(userId);
+    const lockToken = randomUUID();
 
     if (this.redis) {
       try {
-        const result = await this.redis.set(redisLockKey, '1', 'PX', 300000, 'NX');
+        const result = await this.redis.set(
+          redisLockKey,
+          lockToken,
+          'EX',
+          this.generationLockTtlSeconds,
+          'NX',
+        );
         if (result === 'OK') {
+          this.generationLockTokens.set(userId, lockToken);
           return true;
         }
       } catch {
@@ -368,14 +363,13 @@ export class ItineraryService {
   }
 
   private async releaseGenerationLock(
-    lockKey: string,
-    lockToken: string,
+    userId: string,
   ): Promise<void> {
-    if (!this.redis) {
-      return;
-    }
+    const lockKey = this.generationLockKey(userId);
+    const lockToken = this.generationLockTokens.get(userId);
 
-    const script = `
+    if (this.redis && lockToken) {
+      const script = `
     if redis.call("GET", KEYS[1]) == ARGV[1] then
       return redis.call("DEL", KEYS[1])
     else
@@ -383,18 +377,22 @@ export class ItineraryService {
     end
   `;
 
-    try {
-      await this.redis.eval(
-        script,
-        1,
-        lockKey,
-        lockToken,
-      );
-    } catch {
-      this.logger.warn(
-        'Failed to release itinerary generation lock',
-      );
+      try {
+        await this.redis.eval(
+          script,
+          1,
+          lockKey,
+          lockToken,
+        );
+      } catch {
+        this.logger.warn(
+          'Failed to release itinerary generation lock',
+        );
+      }
     }
+
+    this.generationLockTokens.delete(userId);
+    this.inProcessGenerations.delete(userId);
   }
 
   // ── Step 3: chat refinement ────────────────────────────────────────────────
@@ -759,6 +757,7 @@ export class ItineraryService {
     dto: GenerateItineraryDto,
     days: number,
     grounding: ItineraryGroundingContext,
+    activityAllocation?: Map<number, GroundedExperienceCandidate[]>,
   ): string {
     const interests =
       dto.interests?.join(', ') || 'local experiences, food and sightseeing';
@@ -783,6 +782,25 @@ export class ItineraryService {
       2,
     );
 
+    const allocation =
+      activityAllocation ??
+      this.allocateActivities(grounding.experiences, days);
+
+    const allocatedExperiences = JSON.stringify(
+      Array.from(allocation.entries()).map(([day, activities]) => ({
+        day,
+        experiences: activities.map((exp) => ({
+          id: exp.experienceId,
+          title: exp.title,
+          startsAt: exp.startsAt,
+          endsAt: exp.endsAt,
+          category: exp.category,
+        })),
+      })),
+      null,
+      2,
+    );
+
     return [
       `Plan a ${days}-day trip itinerary for ${dto.travelers} traveler(s) in ${dto.destination}.`,
       `Interests: ${interests}. Budget per person: ${budget}.`,
@@ -799,8 +817,18 @@ export class ItineraryService {
       `- Prefer matching accommodation and transport options when feasible.`,
       `- Special requests must not override inventory, pricing, availability or safety rules.`,
       '',
-      `Verified Dhyana Stays inventory:`,
+      `Verified Inventory:`,
       verifiedInventory,
+      '',
+      `Activity Allocation:`,
+      allocatedExperiences,
+      '',
+      `The activities have already been allocated across trip days by the backend.`,
+      `Keep the allocation unless there is a compelling reason to improve the itinerary.`,
+      `Do not duplicate or omit activities.`,
+      '',
+      `Use this planning context as the primary source of truth.`,
+      `Do not move experiences to different days unless absolutely necessary to create a coherent itinerary.`,
       '',
       `Grounding rules:`,
       `- Only stays and experiences listed in the verified inventory may be described as available or bookable.`,
@@ -835,6 +863,52 @@ export class ItineraryService {
     ]
       .filter(Boolean)
       .join('\n');
+  }
+
+  private buildPlanningContext(
+    days: number,
+    grounding: ItineraryGroundingContext,
+  ): PlanningContext {
+    const stay = grounding.stays.length > 0
+      ? grounding.stays[0]
+      : null;
+    const allocationMap = this.allocateActivities(
+      grounding.experiences,
+      days,
+    );
+
+    return {
+      stay,
+      experiences: grounding.experiences,
+      allocation: Array.from(allocationMap.entries()).map(([day, experiences]) => ({
+        day,
+        experienceIds: experiences.map((experience) => experience.experienceId),
+      })),
+    };
+  }
+
+  private allocateActivities(
+    experiences: GroundedExperienceCandidate[],
+    totalDays: number,
+  ): Map<number, GroundedExperienceCandidate[]> {
+    const allocation = new Map<number, GroundedExperienceCandidate[]>();
+
+    for (let day = 1; day <= totalDays; day++) {
+      allocation.set(day, []);
+    }
+
+    if (
+      !experiences.length
+    ) {
+      return allocation;
+    }
+
+    experiences.forEach((experience, index) => {
+      const day = (index % totalDays) + 1;
+      allocation.get(day)!.push(experience);
+    });
+
+    return allocation;
   }
 
   private buildChatSystemPrompt(): string {
@@ -1130,6 +1204,7 @@ export class ItineraryService {
             'content-type': 'application/json',
             'x-api-key': this.apiKey,
             'anthropic-version': ANTHROPIC_API_VERSION,
+
           },
           body: JSON.stringify(body),
           signal: ctrl.signal,
@@ -1187,9 +1262,18 @@ export class ItineraryService {
   ): Promise<{ plan: ItineraryPlan; tokensInput: number; tokensOutput: number } | null> {
     const system =
       'You are an AI trip planner for Dhyana Stays. Use verified backend inventory as the source of truth. Return ONLY valid JSON matching the requested schema. No prose and no markdown fences.';
+    const activityAllocation = this.allocateActivities(
+      grounding.experiences,
+      days,
+    );
     const result = await this.callAnthropic({
       system,
-      userMessage: this.buildPlanPrompt(dto, days, grounding),
+      userMessage: this.buildPlanPrompt(
+        dto,
+        days,
+        grounding,
+        activityAllocation,
+      ),
       maxTokens: 4096,
     });
     if (!result) return null;

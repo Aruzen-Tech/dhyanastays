@@ -11,6 +11,28 @@ history remains fully detailed in the root `CHANGELOG.md`.
 > **Convention:** every change is recorded in both files — a one-line-per-item
 > entry in the root `CHANGELOG.md`, and a full breakdown here.
 
+## 2026-08-07 — Itinerary planning context and locking cleanup
+
+This release refines the AI itinerary planner by making backend activity
+allocation deterministic, centralizing generation locking, and keeping prompt
+generation backward compatible for existing callers.
+
+### AI Trip Planner
+
+#### Fixed
+- Refactored itinerary generation locking to use a single locking implementation.
+- Restored Redis → in-process fallback behavior.
+- Eliminated duplicated locking logic.
+
+#### Added
+- Added deterministic activity allocation of verified experiences across itinerary days.
+- Updated AI prompt generation to consume backend activity allocation.
+- Preserved existing API contracts and itinerary response schema.
+- Maintained backward compatibility by allowing prompt generation to derive activity allocation when not explicitly provided.
+
+### Verification
+- Changes were validated against `apps/api/src/itinerary/itinerary.service.ts` with no compile errors reported.
+
 ---
 
 ## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
