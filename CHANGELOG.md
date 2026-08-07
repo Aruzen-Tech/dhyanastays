@@ -18,6 +18,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ### Added
 - Added deterministic backend activity allocation before AI itinerary generation.
+- Added backend route optimization for itinerary activities based on geographic proximity.
 
 ### Fixed
 - Unified itinerary generation locking implementation and restored Redis fallback behavior.

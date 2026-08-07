@@ -789,13 +789,25 @@ export class ItineraryService {
     const allocatedExperiences = JSON.stringify(
       Array.from(allocation.entries()).map(([day, activities]) => ({
         day,
-        experiences: activities.map((exp) => ({
-          id: exp.experienceId,
-          title: exp.title,
-          startsAt: exp.startsAt,
-          endsAt: exp.endsAt,
-          category: exp.category,
-        })),
+        experiences: (() => {
+          const stay =
+            grounding.stays.length > 0 ? grounding.stays[0] : null;
+
+          const optimizedActivities = this.optimizeRoute(
+            activities,
+            stay,
+          );
+
+          return optimizedActivities.map((exp) => ({
+            id: exp.experienceId,
+            title: exp.title,
+            startsAt: exp.startsAt,
+            endsAt: exp.endsAt,
+            category: exp.category,
+            latitude: exp.latitude,
+            longitude: exp.longitude,
+          }));
+        })(),
       })),
       null,
       2,
@@ -909,6 +921,69 @@ export class ItineraryService {
     });
 
     return allocation;
+  }
+
+  private optimizeRoute(
+    activities: GroundedExperienceCandidate[],
+    stay: GroundedStayCandidate | null,
+  ): GroundedExperienceCandidate[] {
+    if (
+      activities.length <= 1 ||
+      stay?.latitude == null ||
+      stay?.longitude == null
+    ) {
+      return activities;
+    }
+
+    const origin = {
+      latitude: stay.latitude,
+      longitude: stay.longitude,
+    };
+
+    return [...activities].sort((a, b) => {
+      const distanceA = this.calculateDistance(
+        origin.latitude,
+        origin.longitude,
+        a.latitude,
+        a.longitude,
+      );
+
+      const distanceB = this.calculateDistance(
+        origin.latitude,
+        origin.longitude,
+        b.latitude,
+        b.longitude,
+      );
+
+      return distanceA - distanceB;
+    });
+  }
+
+  private calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number | null,
+    lon2: number | null,
+  ): number {
+    if (lat2 == null || lon2 == null) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+    const R = 6371;
+
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) *
+        Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   private buildChatSystemPrompt(): string {

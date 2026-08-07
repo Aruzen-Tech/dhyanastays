@@ -19,6 +19,12 @@ generation backward compatible for existing callers.
 
 ### AI Trip Planner
 
+#### Route Optimization
+
+- Added geographic route optimization for allocated activities.
+- Ordered activities within each day using Haversine distance from the selected stay.
+- Preserved deterministic planner behavior without introducing external routing or mapping services.
+
 #### Fixed
 - Refactored itinerary generation locking to use a single locking implementation.
 - Restored Redis → in-process fallback behavior.
