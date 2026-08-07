@@ -19,6 +19,13 @@ generation backward compatible for existing callers.
 
 ### AI Trip Planner
 
+#### Prompt Generation
+
+- Extracted verified inventory serialization.
+- Extracted allocated experience serialization.
+- Reduced complexity of `buildPlanPrompt()`.
+- Preserved AI prompt behavior.
+
 #### Route Optimization
 
 - Added geographic route optimization for allocated activities.

@@ -773,44 +773,16 @@ export class ItineraryService {
       ? `Preferred trip theme: ${dto.themeHint}.`
       : '';
 
-    const verifiedInventory = JSON.stringify(
-      {
-        stays: grounding.stays,
-        experiences: grounding.experiences,
-      },
-      null,
-      2,
-    );
-
     const allocation =
       activityAllocation ??
       this.allocateActivities(grounding.experiences, days);
 
-    const allocatedExperiences = JSON.stringify(
-      Array.from(allocation.entries()).map(([day, activities]) => ({
-        day,
-        experiences: (() => {
-          const stay =
-            grounding.stays.length > 0 ? grounding.stays[0] : null;
+    const verifiedInventory =
+      this.buildVerifiedInventory(grounding);
 
-          const optimizedActivities = this.optimizeRoute(
-            activities,
-            stay,
-          );
-
-          return optimizedActivities.map((exp) => ({
-            id: exp.experienceId,
-            title: exp.title,
-            startsAt: exp.startsAt,
-            endsAt: exp.endsAt,
-            category: exp.category,
-            latitude: exp.latitude,
-            longitude: exp.longitude,
-          }));
-        })(),
-      })),
-      null,
-      2,
+    const allocatedExperiences = this.buildAllocatedExperiences(
+      grounding,
+      allocation,
     );
 
     return [
@@ -875,6 +847,51 @@ export class ItineraryService {
     ]
       .filter(Boolean)
       .join('\n');
+  }
+
+  private buildVerifiedInventory(
+    grounding: ItineraryGroundingContext,
+  ): string {
+    return JSON.stringify(
+      {
+        stays: grounding.stays,
+        experiences: grounding.experiences,
+      },
+      null,
+      2,
+    );
+  }
+
+  private buildAllocatedExperiences(
+    grounding: ItineraryGroundingContext,
+    allocation: Map<number, GroundedExperienceCandidate[]>,
+  ): string {
+    return JSON.stringify(
+      Array.from(allocation.entries()).map(([day, activities]) => ({
+        day,
+        experiences: (() => {
+          const stay =
+            grounding.stays.length > 0 ? grounding.stays[0] : null;
+
+          const optimizedActivities = this.optimizeRoute(
+            activities,
+            stay,
+          );
+
+          return optimizedActivities.map((exp) => ({
+            id: exp.experienceId,
+            title: exp.title,
+            startsAt: exp.startsAt,
+            endsAt: exp.endsAt,
+            category: exp.category,
+            latitude: exp.latitude,
+            longitude: exp.longitude,
+          }));
+        })(),
+      })),
+      null,
+      2,
+    );
   }
 
   private buildPlanningContext(
