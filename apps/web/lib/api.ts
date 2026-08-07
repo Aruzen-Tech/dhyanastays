@@ -105,7 +105,7 @@ export function setTokenGetter(fn: () => Promise<string | null>) {
   _tokenGetter = fn;
 }
 
-async function getToken(): Promise<string | null> {
+export async function getToken(): Promise<string | null> {
   if (_tokenGetter) {
     return _tokenGetter();
   }
@@ -546,6 +546,17 @@ export const bookingsApi = {
       method: 'POST',
       body: JSON.stringify({ method }),
     }),
+
+  /** Host/admin: manually confirm a pending booking (payment taken offline). */
+  confirmManual: (id: string, method = 'MANUAL') =>
+    request<Booking>(`/bookings/${id}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ method }),
+    }),
+
+  /** Host/admin: manually transition a guest to CHECKED_IN (no QR scan). */
+  markCheckedIn: (id: string) =>
+    request<Booking>(`/bookings/${id}/mark-checked-in`, { method: 'POST' }),
 
   cancel: (id: string, reason: string) =>
     request<Booking>(`/bookings/${id}/cancel`, {

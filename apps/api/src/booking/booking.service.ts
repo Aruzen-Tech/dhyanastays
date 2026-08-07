@@ -355,6 +355,173 @@ export class BookingService {
     return updated;
   }
 
+  // ─── Manual lifecycle ops (host / admin) ────────────────────────────────────
+  // Let staff drive a booking through its cycle by hand — confirm a stuck
+  // payment, check a guest in without a QR scan, complete the stay. Every
+  // transition still routes through the state machine, so guards + statusHistory
+  // are enforced exactly as the automated paths.
+
+  /**
+   * Authorize a host (owns the listing) or admin to manage a booking.
+   * Returns the booking with its listing's hostId.
+   */
+  private async assertHostOrAdmin(
+    actorId: string,
+    role: string,
+    bookingId: string,
+  ) {
+    const booking = await this.prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: { listing: { select: { hostId: true, host: { select: { userId: true } } } } },
+    });
+    if (!booking) throw new NotFoundException('Booking not found');
+    if (role === 'ADMIN') return booking;
+    // Authorize the listing's host by owner userId (not the role string, which
+    // the JWT strategy defaults to GUEST when the claim is absent).
+    if (booking.listing?.host?.userId === actorId) return booking;
+    throw new ForbiddenException('Not your booking');
+  }
+
+  /**
+   * Operator override: confirm a PAYMENT_PENDING booking whose payment was
+   * taken/verified offline. Overlap-checked under SERIALIZABLE isolation, records
+   * an offline Payment, and transitions → CONFIRMED_PAID. No payout line — like
+   * pay-on-arrival, the money didn't flow through the platform, so the fee is
+   * settled out of band.
+   */
+  async manualConfirm(
+    actorId: string,
+    role: string,
+    bookingId: string,
+    method = 'MANUAL',
+  ) {
+    const booking = await this.assertHostOrAdmin(actorId, role, bookingId);
+    if (['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT', 'BALANCE_DUE'].includes(booking.status)) {
+      return booking; // already confirmed — idempotent
+    }
+    if (booking.status !== 'PAYMENT_PENDING') {
+      throw new ConflictException(`Cannot confirm booking in status ${booking.status}`);
+    }
+    const snapshot = booking.priceSnapshot as unknown as PriceSnapshot;
+
+    const updated = await withSerializableRetry(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      this.prisma as any,
+      async (tx: TxClient) => {
+        await tx.$executeRaw`SELECT id FROM "Listing" WHERE id = ${booking.listingId} FOR UPDATE`;
+        const conflicts = await tx.$queryRaw<{ id: string }[]>`
+          SELECT id FROM "Booking"
+          WHERE "listingId" = ${booking.listingId}
+            AND id <> ${bookingId}
+            AND status IN ('CONFIRMED_DEPOSIT','CONFIRMED_PAID','BALANCE_DUE','CHECKED_IN')
+            AND tsrange("startsAt","endsAt",'[)') && tsrange(
+                  (${booking.startsAt}::timestamptz AT TIME ZONE 'UTC'),
+                  (${booking.endsAt}::timestamptz AT TIME ZONE 'UTC'),
+                  '[)')
+        `;
+        if (conflicts.length > 0) {
+          throw new ConflictException('Dates conflict with another confirmed booking');
+        }
+        await tx.payment.create({
+          data: {
+            bookingId,
+            amount: snapshot.total,
+            type: booking.plan,
+            status: 'CAPTURED',
+            gateway: 'offline',
+            idempotencyKey: `manual-${bookingId}`,
+          },
+        });
+        const u = await this.stateMachine.transition(
+          tx,
+          booking as BookingLike,
+          'MANUAL_CONFIRMED',
+          { actorId, metadata: { method, confirmedBy: role.toLowerCase() } },
+        );
+        if (!booking.cancellationPolicySnapshot) {
+          await tx.booking.update({
+            where: { id: bookingId },
+            data: { cancellationPolicySnapshot: PricingService.buildPolicySnapshot() as never },
+          });
+        }
+        await this.ledgerService.record({
+          type: 'PAYMENT_CAPTURED',
+          amount: snapshot.total,
+          bookingId,
+          metadata: { offline: true, manual: true, method },
+          tx,
+        });
+        return u;
+      },
+    );
+
+    await this.auditService.log(actorId, 'BOOKING_MANUAL_CONFIRM', 'booking', bookingId, {
+      method,
+      role,
+      amountPaise: snapshot.total,
+    });
+    void this.sendBookingConfirmedNotificationPublic(bookingId);
+    return updated;
+  }
+
+  /**
+   * Manual check-in (no QR scan) by host/admin. CONFIRMED_* → CHECKED_IN and
+   * re-anchors the payout clock to now, mirroring the QR path.
+   */
+  async manualCheckIn(actorId: string, role: string, bookingId: string) {
+    const booking = await this.assertHostOrAdmin(actorId, role, bookingId);
+    if (booking.status === 'CHECKED_IN') return booking; // idempotent
+    if (!['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'].includes(booking.status)) {
+      throw new ConflictException(`Cannot check in a booking in status ${booking.status}`);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updated = await (this.prisma as any).$transaction(async (tx: TxClient) => {
+      const u = await this.stateMachine.transition(
+        tx,
+        booking as BookingLike,
+        'CHECKED_IN',
+        { actorId, metadata: { evidence: 'manual', by: role.toLowerCase() } },
+      );
+      const eligibleAt = new Date(Date.now() + 24 * 3600 * 1000);
+      await tx.payoutLine.updateMany({
+        where: { bookingId, status: 'NOT_ELIGIBLE' },
+        data: { eligibleAt },
+      });
+      return u;
+    });
+    await this.auditService.log(actorId, 'BOOKING_CHECKED_IN', 'booking', bookingId, {
+      evidence: 'manual',
+      role,
+    });
+    return updated;
+  }
+
+  /**
+   * Manual completion by host/admin. Accepts CHECKED_IN as well as the
+   * CONFIRMED_* states (a checked-in stay can be completed by hand, which the
+   * admin-only completeBooking couldn't do).
+   */
+  async manualComplete(actorId: string, role: string, bookingId: string) {
+    const booking = await this.assertHostOrAdmin(actorId, role, bookingId);
+    if (booking.status === 'COMPLETED') return booking; // idempotent
+    if (!['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT', 'CHECKED_IN'].includes(booking.status)) {
+      throw new ConflictException(`Cannot complete a booking in status ${booking.status}`);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updated = await (this.prisma as any).$transaction(async (tx: TxClient) => {
+      const fresh = await tx.booking.findUnique({ where: { id: bookingId } });
+      return this.stateMachine.transition(tx, fresh as BookingLike, 'STAY_COMPLETED', {
+        actorId,
+        metadata: { previousStatus: booking.status, by: role.toLowerCase() },
+      });
+    });
+    await this.auditService.log(actorId, 'BOOKING_COMPLETE', 'booking', bookingId, {
+      previousStatus: booking.status,
+      role,
+    });
+    return updated;
+  }
+
   async getMyBookings(guestId: string) {
     return this.prisma.booking.findMany({
       where: { guestId },
@@ -408,17 +575,9 @@ export class BookingService {
 
     if (requesterRole === 'ADMIN') return booking;
     if (booking.guestId === requesterId) return booking;
-
-    // Allow the host who owns the listing to view the booking
-    if (requesterRole === 'HOST') {
-      const host = await this.prisma.host.findUnique({ where: { userId: requesterId } });
-      if (host) {
-        const listing = await this.prisma.listing.findFirst({
-          where: { id: booking.listingId, hostId: host.id },
-        });
-        if (listing) return booking;
-      }
-    }
+    // The listing's host may view it — match on the owner's userId (robust to
+    // role-claim quirks; the JWT strategy defaults an absent role to GUEST).
+    if (booking.listing?.host?.userId === requesterId) return booking;
 
     throw new ForbiddenException('Access denied');
   }
@@ -1030,11 +1189,17 @@ export class BookingService {
   ) {
     const booking = await this.prisma.booking.findUnique({
       where: { id: bookingId },
-      include: { payments: true },
+      include: {
+        payments: true,
+        listing: { select: { hostId: true, host: { select: { userId: true } } } },
+      },
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
-    if (requesterRole !== 'ADMIN' && booking.guestId !== requesterId) {
+    // Admin (any), the booking's guest, or the listing's host may cancel. Match
+    // the host on owner userId (not the role string, which defaults to GUEST).
+    const isHostOwner = booking.listing?.host?.userId === requesterId;
+    if (requesterRole !== 'ADMIN' && booking.guestId !== requesterId && !isHostOwner) {
       throw new ForbiddenException('Access denied');
     }
 
@@ -1050,9 +1215,10 @@ export class BookingService {
       );
     }
 
-    // Distinguish guest vs admin so the state machine records the right event.
+    // Distinguish guest vs operator (admin/host) so the state machine records
+    // the right event and refund treatment.
     const cancelEvent: BookingEvent =
-      requesterRole === 'ADMIN' ? 'ADMIN_CANCELLED' : 'GUEST_CANCELLED';
+      requesterRole === 'ADMIN' || isHostOwner ? 'ADMIN_CANCELLED' : 'GUEST_CANCELLED';
     const result = await this.cancelBookingInternal(
       bookingId,
       requesterId,
@@ -1368,7 +1534,7 @@ export class BookingService {
     });
     if (!booking) throw new NotFoundException('Booking not found');
 
-    if (!['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT'].includes(booking.status)) {
+    if (!['CONFIRMED_PAID', 'CONFIRMED_DEPOSIT', 'CHECKED_IN'].includes(booking.status)) {
       throw new BadRequestException(
         `Cannot complete booking in status: ${booking.status}`,
       );

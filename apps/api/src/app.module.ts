@@ -1,5 +1,6 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
@@ -150,6 +151,9 @@ export class AppModule {
             },
           ],
         }),
+
+        // In-process event bus (decouples MessagingService → realtime gateway)
+        EventEmitterModule.forRoot(),
 
         // Structured logging
         LoggerModule,

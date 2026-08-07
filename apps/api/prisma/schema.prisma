@@ -671,6 +671,13 @@ enum ConversationStatus {
   CLOSED
 }
 
+// Per-message delivery lifecycle (WhatsApp-style): sent → delivered → read.
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+}
+
 model Conversation {
   id                 String             @id @default(cuid())
   type               String             // GUEST_HOST, HOST_ADMIN
@@ -704,16 +711,22 @@ model Conversation {
 }
 
 model Message {
-  id              String       @id @default(cuid())
+  id              String        @id @default(cuid())
   conversationId  String
   senderId        String
   senderRole      UserRole
   body            String
-  isRead          Boolean      @default(false)
-  isSystem        Boolean      @default(false)
-  createdAt       DateTime     @default(now())
-  conversation    Conversation @relation(fields: [conversationId], references: [id])
-  sender          User         @relation(fields: [senderId], references: [id])
+  isRead          Boolean       @default(false)
+  isSystem        Boolean       @default(false)
+  // Delivery tracking. `deliveredAt` is set when the recipient's client first
+  // fetches the message; `readAt` when they open the thread. `isRead` is kept in
+  // sync with status=READ for existing unread-count queries.
+  status          MessageStatus @default(SENT)
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  createdAt       DateTime      @default(now())
+  conversation    Conversation  @relation(fields: [conversationId], references: [id])
+  sender          User          @relation(fields: [senderId], references: [id])
 
   @@index([conversationId, createdAt])
 }
@@ -1409,6 +1422,9 @@ model Experience {
   currency         String                 @default("INR")
   status           ExperienceStatus       @default(PENDING_APPROVAL)
   imageUrl         String?
+  gallery          String[]               @default([])
+  video            String?
+  included         String[]               @default([])
   reviewedBy       String?
   reviewNotes      String?
   reviewedAt       DateTime?

@@ -32,6 +32,8 @@ export type BookingEvent =
   | 'PAYMENT_CONFIRMED_DEPOSIT'
   // Reserve now, pay the full amount at the property (no online capture).
   | 'PAY_ON_ARRIVAL_RESERVED'
+  // Operator (host/admin) manually confirms a pending booking (offline payment).
+  | 'MANUAL_CONFIRMED'
   | 'PAY_LATER_FIRST_CAPTURED'
   | 'PAY_LATER_INSTALMENT_CAPTURED'
   | 'PAY_LATER_FINAL_CAPTURED'
@@ -154,6 +156,13 @@ export const TRANSITIONS: readonly Transition[] = [
     from: ['PAYMENT_PENDING'],
     to: 'CONFIRMED_DEPOSIT',
     guard: (b) => b.plan === 'PAY_ON_ARRIVAL',
+  },
+  // Operator override: host/admin manually confirms a pending booking (payment
+  // taken/verified offline). Any plan → CONFIRMED_PAID (treated as fully settled).
+  {
+    event: 'MANUAL_CONFIRMED',
+    from: ['PAYMENT_PENDING'],
+    to: 'CONFIRMED_PAID',
   },
 
   // ── Pay-Later subsequent instalments ────────────────────────────────────

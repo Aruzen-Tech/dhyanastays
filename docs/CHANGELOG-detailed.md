@@ -70,6 +70,247 @@ generation backward compatible for existing callers.
 
 ---
 
+## 2026-08-04 — Realtime chat over socket.io
+
+**Commit:** _pending_ · **Migration:** none
+
+Turns the polled delivery-tracking layer into push. No WebSocket layer existed;
+this adds one. The REST write path is unchanged (validation, contact-block,
+persistence) — the gateway only broadcasts.
+
+### Fix: live connection reliability (post-implementation)
+
+Reported symptom: messages only appeared after a manual refresh — the socket was
+not delivering live in the browser. Root-caused and hardened the client/gateway
+connection (server broadcast path verified working end-to-end beforehand):
+
+- `apps/web/lib/socket.ts` — **removed `transports: ['websocket']`**. Websocket-only
+  never falls back, so anywhere the direct WS upgrade is blocked the socket
+  silently never connects and only the poll/refresh shows messages. Now uses the
+  default polling→websocket upgrade, `withCredentials: true`, and explicit
+  `reconnection` (infinite attempts, 1s→5s backoff). Auth now reads the token via
+  the shared **`getToken()`** (async `auth` callback) instead of
+  `tokenStore.getAccess()` directly — matches the REST client and works in Auth0
+  mode too. Dev-only console logging on `connect`/`disconnect`/`connect_error`/
+  `unauthorized` for diagnosis.
+- `apps/web/lib/api.ts` — `getToken()` is now **exported** (was module-private).
+- `apps/api/.../messaging.gateway.ts` — `corsOrigins()` **reflects the request
+  origin when `NODE_ENV !== 'production'`** (returns `true`), so localhost vs
+  127.0.0.1 and the XHR polling handshake are never CORS-blocked in dev; prod
+  still restricts to `ALLOWED_ORIGINS`.
+- Verified end-to-end against the running server with a browser-shaped client
+  (default transports + `Origin: http://localhost:3000` + async auth):
+  `connected via polling → upgraded to websocket → join ack ok → REST 201 →
+  message:new received`.
+
+### Dependencies
+
+- api: `@nestjs/websockets`, `@nestjs/platform-socket.io`, `socket.io@^4.8`,
+  `@nestjs/event-emitter@^2.1`. web: `socket.io-client@^4.8`.
+
+### Backend
+
+- **`messaging.events.ts`** (new) — event-bus contract: `MESSAGE_CREATED`,
+  `MESSAGE_STATUS` + payload types. Keeps the service socket-free.
+- **`messaging.service.ts`** — injects `EventEmitter2`. `sendMessage` emits
+  `MESSAGE_CREATED`. `markDelivered` (extracted; now **participant-guarded** —
+  returns `[]` for non-participants) and `markRead` (participant check changed
+  from a `ForbiddenException` to a safe no-op) each capture the affected ids and
+  emit `MESSAGE_STATUS`. New `canAccessConversation(convId, userId, role)`
+  (admin → any) for the gateway's room join.
+- **`messaging.gateway.ts`** (new, `@WebSocketGateway`, CORS ← `ALLOWED_ORIGINS`) —
+  `handleConnection` verifies `handshake.auth.token` with `JwtService`
+  (HS256/`JWT_ACCESS_SECRET`; sets `client.data = { userId, role }`, else
+  disconnect). `@SubscribeMessage`: `conversation:join` (access-checked room join),
+  `conversation:leave`, `message:delivered`/`message:read` (→ service, errors
+  swallowed), `typing` (relay to room). `@OnEvent(MESSAGE_CREATED|MESSAGE_STATUS)`
+  → `server.to('conversation:'+id).emit('message:new'|'message:status', …)`.
+- **`messaging.module.ts`** — imports `JwtModule.register({})`, provides
+  `MessagingGateway`. **`app.module.ts`** — `EventEmitterModule.forRoot()`.
+  **`main.ts`** — explicit `app.useWebSocketAdapter(new IoAdapter(app))`.
+
+### Frontend
+
+- **`lib/socket.ts`** — one lazy socket per tab to `NEXT_PUBLIC_API_URL`, token
+  read fresh per connect (survives refresh), `transports: ['websocket']`.
+- **`hooks/useRealtimeConversation.ts`** — joins the room, on `message:new`
+  appends (callback) + acks `delivered`/`read`, on `message:status` updates ticks,
+  tracks a `typingUserId` (4s expiry), returns `emitTyping`. Callbacks held in a
+  ref → the socket effect only re-runs on conversation change.
+- **`MessageThread.tsx`** — `onTyping` (debounced 1.5s) + animated `typingLabel`
+  bar. **guest/host/admin `messages/[id]`** — wire the hook (append with id-dedup
+  vs the optimistic send, status merge), pass typing props; poll `5000 → 20000`ms.
+
+### Tests / verification
+
+- `messaging.service.spec.ts` updated for the `findMany`-then-`updateMany`
+  refactor + the new `EventEmitter2` ctor arg. Full API suite **351/351**; api +
+  web `tsc` clean; eslint clean. (Socket handshake/rooms are integration-level —
+  not unit-tested.)
+
+---
+
+## 2026-08-02 — Messaging: delivery tracking + contact-number blocking
+
+**Commit:** _pending_ · **Migration:** `0037_message_delivery_status` (applied to dev DB)
+
+The participant matrix (guest↔host = `GUEST_HOST`, host↔admin = `HOST_ADMIN`)
+already existed and every direct thread funnels through one
+`MessagingService.sendMessage`, so both features drop in at a single point.
+
+### Schema
+
+- `enum MessageStatus { SENT DELIVERED READ }`; `Message` += `status
+  @default(SENT)`, `deliveredAt DateTime?`, `readAt DateTime?`. Migration is
+  idempotent (guarded `CREATE TYPE`, `ADD COLUMN IF NOT EXISTS`) and backfills
+  existing `isRead=true` rows to `READ` with `readAt/deliveredAt = createdAt`.
+
+### Delivery lifecycle (polled, no WebSocket layer exists)
+
+- **SENT** on create.
+- **DELIVERED** — `getConversationById(convId, viewerId)` flips the counterparty's
+  still-`SENT` messages to `DELIVERED` (+`deliveredAt`) and patches the returned
+  payload in place (no re-fetch). Admin's read-only `adminGetConversationById`
+  does not mark delivery.
+- **READ** — `markRead` sets `status=READ`, `readAt`, `isRead=true` for the
+  counterparty's non-`READ` messages (leaves `deliveredAt` intact).
+- `getConversations` list preview `select` gains `status`.
+- Web: `MessageThread` renders `StatusTicks` (✓ / ✓✓ / ✓✓-blue) on own,
+  non-system messages; open-thread poll `15000 → 5000` ms in the guest/host/admin
+  `messages/[id]` pages (each already calls `markRead` per poll).
+
+### Contact-number blocking
+
+- **`contact-filter.ts`** — `containsContactNumber(text)`: expands spelled digits
+  and `double/triple N`, collapses separators _between digits only_ (so
+  `98765 43210`, `+91-98765-43210`, `9 8 7 6 5…` merge but `45000 and 12000`
+  doesn't), then blocks a run of **≥10 digits**, or a **≥7-digit** run next to a
+  contact keyword (phone/mobile/whatsapp/tel/call/contact/…). Pincodes, flat
+  numbers, prices, dates stay allowed. `CONTACT_BLOCK_MESSAGE` export.
+- `sendMessage` runs it before create; on a hit → audit `MESSAGE_BLOCKED_CONTACT`
+  then throw `BadRequestException(CONTACT_BLOCK_MESSAGE)`. System welcome messages
+  (`isSystem`, written via `message.create`) bypass it.
+- Web: `MessageThread` catches the send rejection, shows it inline, and **restores
+  the draft**; the three thread pages drop their swallowing `catch`. The concierge
+  chat already surfaced send errors.
+
+### Tests
+
+- `contact-filter.spec.ts` (26: 14 blocked incl. obfuscation, 12 allowed) +
+  `messaging.service.spec.ts` (3: block-throws-and-skips-create, delivered-on-
+  fetch, read-on-markRead). Full API suite **351/351**; api + web `tsc` clean;
+  eslint clean.
+
+---
+
+## 2026-07-30 — Fix: host "Access denied" on their own bookings
+
+**Commit:** _pending_ · **Migration:** none
+
+`getBookingById`, `assertHostOrAdmin` (manual-lifecycle helper) and
+`cancelBooking` authorized a host by `requesterRole === 'HOST'` then a
+`host.findUnique(userId) → listing.hostId` match. But `JwtStrategy.validate`
+defaults a missing/namespaced role claim to `'GUEST'` (line 90), so a real host
+with a role-less token fell through to `throw ForbiddenException('Access denied')`.
+
+- All three now authorize the owning host via `booking.listing.host.userId ===
+  requesterId`. `getBookingById` already `include`d `listing.host.userId`;
+  `assertHostOrAdmin` and `cancelBooking` widened their `select` to add it. This
+  drops the extra `host.findUnique` + `listing.findFirst`/compare (one query
+  instead of three) and is independent of the role string. Admin still by role.
+- Note: the action routes (`/complete`, `/confirm`, `/mark-checked-in`) still
+  carry `@Roles(HOST, ADMIN)`; a correctly-issued host token passes the guard and
+  is then authorized by userId. The reported "Access denied" was the guard-less
+  `GET /bookings/:id` (getBookingById) path.
+- Tests: `booking.service.spec.ts` manual-lifecycle fixtures now carry
+  `listing.host.userId`; ownership asserted by userId (non-owner `intruder` →
+  forbidden). Full API suite **322/322**; tsc + eslint clean.
+
+---
+
+## 2026-07-27 — Manual booking lifecycle for host + admin
+
+**Commit:** _pending_ · **Migration:** none
+
+Before: admin could complete (L2) + cancel; host could only collect a
+pay-on-arrival payment. No manual check-in existed (QR scan only), host couldn't
+complete/cancel, and a stuck `PAYMENT_PENDING` booking had no operator override.
+
+- **`state-machine.ts`** — new event `MANUAL_CONFIRMED`
+  (`PAYMENT_PENDING → CONFIRMED_PAID`, no plan guard).
+- **`booking.service.ts`**:
+  - `assertHostOrAdmin(actorId, role, bookingId)` — admin any; host must own the
+    listing (`host.userId → listing.hostId`); else `ForbiddenException`.
+  - `manualConfirm(actor, role, id, method='MANUAL')` — idempotent if already
+    confirmed; else `PAYMENT_PENDING`-only. `withSerializableRetry`: `FOR UPDATE`
+    the listing → `tsrange` overlap check → offline `Payment` (idempotencyKey
+    `manual-<id>`) → `MANUAL_CONFIRMED` → freeze cancellation snapshot →
+    `PAYMENT_CAPTURED` ledger. No payout line. Fires
+    `sendBookingConfirmedNotificationPublic`.
+  - `manualCheckIn(actor, role, id)` — `CONFIRMED_PAID|DEPOSIT → CHECKED_IN` via
+    the SM, `payoutLine.updateMany` re-anchors `eligibleAt` to now+24h (mirrors
+    the QR path). Idempotent when already `CHECKED_IN`.
+  - `manualComplete(actor, role, id)` — accepts `CONFIRMED_*` **and**
+    `CHECKED_IN` → `STAY_COMPLETED`. Idempotent when `COMPLETED`.
+  - `completeBooking` guard widened to include `CHECKED_IN` (so the auto-complete
+    cron can finish checked-in stays too).
+  - `cancelBooking` — authorizes the listing's host in addition to guest/admin;
+    host/admin cancels emit `ADMIN_CANCELLED`, guest emits `GUEST_CANCELLED`.
+- **`booking.controller.ts`** — `@Roles(HOST, ADMIN)`:
+  `POST :id/confirm` → manualConfirm; `POST :id/mark-checked-in` → manualCheckIn
+  (distinct path from guest-assistance's `:id/check-in`, which only writes
+  `checkInData`); `POST :id/complete` broadened from `@AdminLevelGuard(L2)` to
+  host+admin → manualComplete. `:id/cancel` unchanged (service now allows host).
+- **Web** — `bookingsApi.confirmManual`, `bookingsApi.markCheckedIn`
+  (`checkIn`/`complete`/`cancel` already existed). Host + admin bookings tables:
+  status-aware Confirm / Check-in / Complete / Cancel buttons (admin keeps its
+  confirm-modal pattern; check-in is a direct action).
+- **Tests** — `state-machine.spec.ts` +2 (`MANUAL_CONFIRMED`; `CHECKED_IN →
+  COMPLETED`). `booking.service.spec.ts` +5 (manual ownership/status guards +
+  `manualCheckIn` happy path + `manualComplete` on `CHECKED_IN`); mock's event
+  map gains `MANUAL_CONFIRMED`/`CHECKED_IN`. Full API suite **322/322**; api +
+  web `tsc` clean; eslint clean.
+
+---
+
+## 2026-07-27 — Auto-run migrations on deploy + `.env` repair
+
+**Commit:** _pending_ · **Migration:** none
+
+Root cause of the recurring prod `column ... does not exist` 500: Render's free
+tier doesn't run migrations on deploy, so the live DB lagged the deployed code.
+Compounded by a schema detail — `datasource.directUrl = env("DIRECT_URL")` means
+`prisma migrate` connects via **`DIRECT_URL`**, so every manual
+`$env:DATABASE_URL` override silently kept hitting the local DB.
+
+- **`apps/api/docker-entrypoint.sh`** (new) — `sh` script: `set -e` →
+  `npx --no-install prisma migrate deploy` (FATAL) → `npx --no-install prisma db
+  execute --file prisma/post-migrate/01_booking_gist_index.sql` (non-fatal,
+  `|| echo …`) → `exec node dist/main.js`. Idempotent; safe on every free-tier
+  cold start. Uses the container's `DIRECT_URL` (Render internal connString, no
+  SSL needed).
+- **`apps/api/Dockerfile`** — runtime stage now `COPY`s the entrypoint and
+  `CMD ["sh", "docker-entrypoint.sh"]` (was `["node","dist/main.js"]`). `sh …`
+  avoids depending on the file's exec bit (Windows checkout). The deps stage
+  installs devDeps (no `--prod`), so the `prisma` CLI + engines are present in
+  the runtime image; the app already runs Prisma there, so engines are proven.
+- **`apps/api/.env`** — `DATABASE_URL` and `DIRECT_URL` had been overwritten with
+  the production Render URL + a stray `" --file "prisma\…\migration.sql"`
+  fragment (from a mis-paste). Restored both to
+  `postgresql://dhyana:dhyana@localhost:5432/dhyana_stays` (per `.env.example` /
+  `docker-compose.yml`).
+- **`render.yaml`** — header note rewritten: migrations are applied by the
+  entrypoint; `preDeployCommand` is the alternative on a paid plan.
+- **`docs/DEPLOYMENT.md §5`** — rewritten: migrations automatic; documented the
+  `DIRECT_URL`-vs-`DATABASE_URL` gotcha and the `db execute --url` bypass; seed
+  stays a one-time manual step (client reads `DATABASE_URL`).
+
+Effect: committing + deploying this applies migration `0036` (and any future
+ones) on the next container start — no more hand-run migrations, and the current
+`/api/listings` 500 clears the moment the new container boots.
+
+---
+
 ## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
 
 **Commits:** `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
@@ -224,6 +465,8 @@ receives only inventory that is currently available and can be booked.
 
 - `pnpm --filter @dhyana/api build` — passed.
 - `pnpm --filter @dhyana/api test` — **21 suites / 329 tests passed**.
+
+---
 
 ## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
 

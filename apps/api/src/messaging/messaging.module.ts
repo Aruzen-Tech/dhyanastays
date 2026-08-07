@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 import { MessagingService } from './messaging.service';
+import { MessagingGateway } from './messaging.gateway';
 import { GuestMessagingController } from './guest-messaging.controller';
 import { HostMessagingController } from './host-messaging.controller';
 import { AdminMessagingController } from './admin-messaging.controller';
@@ -13,7 +15,7 @@ import { AdminModule } from '../admin/admin.module';
 import { HostSettingsModule } from '../host-settings/host-settings.module';
 
 @Module({
-  imports: [NotificationModule, AdminModule, HostSettingsModule],
+  imports: [NotificationModule, AdminModule, HostSettingsModule, JwtModule.register({})],
   controllers: [
     GuestMessagingController,
     HostMessagingController,
@@ -23,7 +25,7 @@ import { HostSettingsModule } from '../host-settings/host-settings.module';
     AdminConciergeController,
     HostQuickReplyController,
   ],
-  providers: [MessagingService, HostQuickReplyService],
+  providers: [MessagingService, HostQuickReplyService, MessagingGateway],
   exports: [MessagingService],
 })
 export class MessagingModule {}
