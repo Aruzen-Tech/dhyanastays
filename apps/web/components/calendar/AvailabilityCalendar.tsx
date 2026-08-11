@@ -208,10 +208,10 @@ export default function AvailabilityCalendar({
       border = 'border border-gray-200';
       style.backgroundImage = HATCH('rgba(120,120,120,0.28)');
     } else if (day.state === 'HELD') {
-      bg = 'bg-amber-50';
-      text = 'text-amber-700';
-      border = 'border border-amber-200';
-      style.backgroundImage = HATCH('rgba(217,119,6,0.20)');
+      bg = 'bg-warning/10';
+      text = 'text-warning';
+      border = 'border border-warning/20';
+      style.backgroundImage = HATCH('rgba(var(--warning),0.20)');
       if (day.heldUntil) badge = mmss(new Date(day.heldUntil).getTime() - nowMs);
     } else if (isAvail && heatmap && priceRange && priceRange.max > priceRange.min) {
       const t =
@@ -232,9 +232,9 @@ export default function AvailabilityCalendar({
       }
     } else if (!isPast && inRange) {
       if (previewInvalid) {
-        bg = 'bg-red-50';
-        text = 'text-red-500';
-        border = 'border border-red-200';
+        bg = 'bg-error/10';
+        text = 'text-error';
+        border = 'border border-error/20';
         style = {};
       } else {
         bg = 'bg-brand-100';
@@ -293,7 +293,7 @@ export default function AvailabilityCalendar({
           </span>
         )}
         {badge && (
-          <span className="mt-0.5 text-[8px] leading-none font-bold text-amber-700 tabular-nums">
+          <span className="mt-0.5 text-[8px] leading-none font-bold text-warning tabular-nums">
             {badge}
           </span>
         )}
@@ -408,7 +408,7 @@ export default function AvailabilityCalendar({
           </p>
         )}
         {inProgress && hoverEnd && !rangeValid && (
-          <p className="text-xs text-red-500">
+          <p className="text-xs text-error">
             That range crosses an unavailable night or is under the {minNightsHint}-night
             minimum.
           </p>

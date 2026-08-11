@@ -4,7 +4,8 @@ import './globals.css';
 import { AuthProvider } from '../context/AuthContext';
 import { ThemeProvider } from '../context/ThemeContext';
 import { FeatureProvider } from '../context/FeatureContext';
-import Navbar from '../components/Navbar';
+import Navbar from '../components/navbar/Navbar';
+import Footer from '../components/footer/Footer';
 
 export const metadata: Metadata = {
   title: {
@@ -34,8 +35,6 @@ export const metadata: Metadata = {
 /** Injected before React hydrates — prevents flash of wrong theme */
 const FOUC_SCRIPT = `(function(){try{var t=localStorage.getItem('ds-theme');var d=window.matchMedia('(prefers-color-scheme:dark)').matches;if(t==='dark'||(t===null&&d))document.documentElement.classList.add('dark');}catch(e){}})();`;
 
-const COPYRIGHT_YEAR = 2026;
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
@@ -58,24 +57,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Navbar />
             <main className="flex-1 animate-fade-in">{children}</main>
 
-            <footer className="border-t border-gray-200 bg-white mt-16">
-              <div className="container-page py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-xl">🏡</span>
-                  <span className="font-semibold text-brand-700 tracking-tight"
-                    style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
-                    Dhyana Stays
-                  </span>
-                </div>
-                <p className="text-gray-500 text-sm">
-                  © {COPYRIGHT_YEAR} Dhyana Stays. Curated wellness retreats across India.
-                </p>
-                <div className="flex gap-4 text-sm text-gray-400">
-                  <span>INR · India</span>
-                  <span>English</span>
-                </div>
-              </div>
-            </footer>
+            <Footer />
             </FeatureProvider>
           </AuthProvider>
         </ThemeProvider>

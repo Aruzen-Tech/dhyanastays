@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
+import BrandMark from '../../../components/BrandMark';
 
 export default function LoginPage() {
   const { login, loginWithAuth0, isAuth0Mode } = useAuth();
@@ -21,7 +22,9 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           <div className="card p-8">
             <div className="text-center mb-8">
-              <div className="text-4xl mb-3">🏡</div>
+              <div className="mb-3 flex justify-center">
+                <BrandMark size={40} />
+              </div>
               <h1 className="text-2xl font-bold text-gray-900">Welcome back</h1>
               <p className="text-gray-500 text-sm mt-1">Sign in to your Dhyana Stays account</p>
             </div>
@@ -76,7 +79,9 @@ export default function LoginPage() {
         <div className="card p-8">
           {/* Header */}
           <div className="text-center mb-8">
-            <div className="text-4xl mb-3">🏡</div>
+            <div className="mb-3 flex justify-center">
+              <BrandMark size={40} />
+            </div>
             <h1 className="text-2xl font-bold text-gray-900">Welcome back</h1>
             <p className="text-gray-500 text-sm mt-1">Sign in to your Dhyana Stays account</p>
           </div>

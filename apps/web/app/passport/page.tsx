@@ -46,7 +46,7 @@ function StampMedallion({ stamp }: { stamp: PassportStamp }) {
         </div>
       </div>
 
-      <h3 className="font-semibold text-gray-900 text-sm leading-snug line-clamp-1" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
+      <h3 className="font-semibold text-gray-900 text-sm leading-snug line-clamp-1">
         {stamp.propertyName}
       </h3>
       <p className="text-gray-500 text-xs mt-0.5">{stamp.city}</p>
@@ -113,7 +113,7 @@ export default function PassportPage() {
           <p className="eyebrow" style={{ color: 'rgba(255,255,255,0.7)' }}>
             Dhyana Stays
           </p>
-          <h1 className="text-3xl mt-1" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
+          <h1 className="text-3xl mt-1">
             Your Stay Passport
           </h1>
           <p className="text-white/80 text-sm mt-2 max-w-lg">
@@ -139,7 +139,7 @@ export default function PassportPage() {
         <section className="card p-6">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h2 className="font-semibold text-gray-900" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
+              <h2 className="font-semibold text-gray-900">
                 {circuit.name}
               </h2>
               <p className="text-gray-500 text-sm">{circuit.description}</p>

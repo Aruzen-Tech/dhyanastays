@@ -101,18 +101,18 @@ export default function GuestNotificationBell() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute top-0 right-0 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
+          <span className="absolute top-0 right-0 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-error rounded-full">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
 
       {showDropdown && (
-        <div className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto bg-white rounded-xl shadow-lg border border-gray-200 z-50">
+        <div className="glass-card absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto z-50">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <h3 className="font-semibold text-gray-900">Notifications</h3>
             {unreadCount > 0 && (
-              <button onClick={handleMarkAllRead} className="text-sm text-blue-600 hover:text-blue-800 transition-colors">
+              <button onClick={handleMarkAllRead} className="text-sm text-brand-700 hover:text-brand-800 transition-colors">
                 Mark all read
               </button>
             )}
@@ -120,7 +120,7 @@ export default function GuestNotificationBell() {
 
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+              <div className="spinner w-6 h-6 text-brand-700" />
             </div>
           ) : notifications.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-gray-500">
@@ -133,7 +133,7 @@ export default function GuestNotificationBell() {
                   key={notification.id}
                   onClick={() => { if (!notification.isRead) handleMarkRead(notification.id); }}
                   className={`flex items-start gap-3 px-4 py-3 border-b border-gray-50 cursor-pointer hover:bg-gray-50 transition-colors ${
-                    !notification.isRead ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                    !notification.isRead ? 'bg-brand-50 border-l-4 border-l-brand-700' : ''
                   }`}
                 >
                   <div className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-brand-100 text-brand-700">
