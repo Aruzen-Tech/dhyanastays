@@ -302,6 +302,7 @@ export default function Navbar() {
                 <div className="fixed inset-0 z-40" onClick={() => setAdminMenuOpen(false)} />
                 <div className="absolute top-full right-0 mt-2 w-52 rounded-2xl py-2 z-50 glass-card animate-scale-in">
                   {[
+                    ...(isEnabled('crm') ? [{ href: '/admin/crm', label: '🧩 CRM' }] : []),
                     { href: '/admin/control-panel',     label: '🎛 Control Panel' },
                     { href: '/admin/sos',               label: '🆘 SOS Console' },
                     { href: '/admin/concierge',         label: 'Concierge Chats' },

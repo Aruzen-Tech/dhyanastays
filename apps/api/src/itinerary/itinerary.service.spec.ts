@@ -16,6 +16,36 @@ describe('ItineraryService suggestions', () => {
 
   let service: ItineraryService;
 
+  // Freeze "now" to before this spec's hardcoded trip dates so they never rot
+  // into the past (which trips validateDateRange's past-date guard). Fake ONLY
+  // Date — real timers are left intact, so the service's setTimeout paths are
+  // unaffected.
+  beforeAll(() => {
+    jest.useFakeTimers({
+      doNotFake: [
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
+    jest.setSystemTime(new Date('2026-07-15T00:00:00.000Z'));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
 

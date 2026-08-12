@@ -17,6 +17,48 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-11 — Admin CRM (Phase 1: foundation + 360° profiles)
+
+First slice of the advanced admin CRM. Unified contacts (guests **and** hosts)
+overlaid on `User` — no duplicate contact table. Dark-launched behind the new
+`crm` feature flag (default **off**).
+
+### Added
+
+- **Migration `0038_crm_foundation`** (idempotent) — `CrmContactProfile` (1:1
+  overlay: owner, source, doNotContact, leadScore), `CrmTag` + `CrmContactTag`
+  (customer-level tags, distinct from the listing-only `Tag`), `CrmNote`,
+  `CrmActivity` (+ `CrmActivityType` enum).
+- **`crm` backend module** (`apps/api/src/crm/`) — contacts search/filter/paginate
+  with per-row bookings + lifetime value (sum of `CAPTURED` payments); 360°
+  profile with computed KPIs; a **merged activity timeline** (CRM events +
+  events derived live from bookings/messages/issues/reviews); tag assign/remove;
+  notes CRUD. All routes gated `@AdminLevelGuard(L2)` + `@FeatureGate('crm')`.
+- **Admin UI** — `/admin/crm` (contacts table: search, type/tag filters,
+  bookings + LTV columns) and `/admin/crm/[id]` (360° profile: KPI tiles, merged
+  timeline, tag chips, notes). CRM entry added to the admin nav, flag-gated.
+- **`crm` feature flag** in the registry (category `CRM`, admin audience).
+
+### Verification
+
+- `prisma validate` + `generate`; api & web `tsc --noEmit` clean; api `lint` clean.
+- New `crm.service.spec.ts` — **6 tests** (LTV math, timeline merge/order, KPIs,
+  profile upsert). Full api suite green — **393 tests, 25 suites**.
+
+### Fixed
+
+- **`itinerary.service.spec.ts` date rot** — the spec hardcoded 2026‑08‑10 trip
+  dates that became "past" over time, tripping `validateDateRange`. Froze the
+  clock (`jest.setSystemTime`, faking **only** `Date` so real timers are
+  untouched) instead of bumping literals, so it can't rot again.
+
+### Migration note
+
+- Apply with `prisma migrate deploy` (adds the 5 CRM tables + enum). Additive;
+  existing rows untouched.
+
+---
+
 ## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
 
 Commits `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
