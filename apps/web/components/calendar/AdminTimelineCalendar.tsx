@@ -28,11 +28,11 @@ function monthLabel(month: string): string {
 }
 
 const STATUS_BAR: Record<string, string> = {
-  CONFIRMED_PAID: 'bg-green-500',
-  CHECKED_IN: 'bg-green-600',
+  CONFIRMED_PAID: 'bg-success/80',
+  CHECKED_IN: 'bg-success',
   COMPLETED: 'bg-brand-600',
-  CONFIRMED_DEPOSIT: 'bg-blue-500',
-  BALANCE_DUE: 'bg-amber-500',
+  CONFIRMED_DEPOSIT: 'bg-info',
+  BALANCE_DUE: 'bg-warning',
   PAYMENT_PENDING: 'bg-gray-400',
 };
 
@@ -127,10 +127,10 @@ export default function AdminTimelineCalendar({ className = '' }: { className?: 
     const nowMs = Date.now();
     const startMs = new Date(b.startsAt).getTime();
     if (b.status === 'BALANCE_DUE' && startMs > nowMs && startMs - nowMs < 48 * HOUR) {
-      return { color: 'bg-red-500', label: 'Balance due, check-in < 48h' };
+      return { color: 'bg-error', label: 'Balance due, check-in < 48h' };
     }
     if (b.status === 'CHECKED_IN' && nowMs - startMs < 24 * HOUR) {
-      return { color: 'bg-amber-400', label: 'Checked in, payout not yet eligible' };
+      return { color: 'bg-warning', label: 'Checked in, payout not yet eligible' };
     }
     return null;
   }
@@ -170,9 +170,9 @@ export default function AdminTimelineCalendar({ className = '' }: { className?: 
       {todayCol >= 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
           {[
-            { title: 'Arrivals today', items: rail.arrivals, tone: 'text-green-700' },
-            { title: 'Departures today', items: rail.departures, tone: 'text-blue-700' },
-            { title: 'Turnovers today', items: rail.turnovers, tone: 'text-amber-700' },
+            { title: 'Arrivals today', items: rail.arrivals, tone: 'text-success' },
+            { title: 'Departures today', items: rail.departures, tone: 'text-info' },
+            { title: 'Turnovers today', items: rail.turnovers, tone: 'text-warning' },
           ].map((col) => (
             <div key={col.title} className="card p-3">
               <p className={`text-xs font-semibold mb-1.5 ${col.tone}`}>
@@ -277,11 +277,11 @@ export default function AdminTimelineCalendar({ className = '' }: { className?: 
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3 mt-3 text-[10px] text-gray-500">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-500" /> Paid / checked-in</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-500" /> Deposit</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-500" /> Balance due</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-success" /> Paid / checked-in</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-info" /> Deposit</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-warning" /> Balance due</span>
         <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-gray-400" /> Pending</span>
-        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-500 ring-1 ring-white" /> Anomaly</span>
+        <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-error ring-1 ring-white" /> Anomaly</span>
       </div>
     </div>
   );

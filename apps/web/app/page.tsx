@@ -4,6 +4,7 @@ import {
   type KeyboardEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -11,12 +12,23 @@ import {
 import type { LatLngBounds } from 'leaflet';
 import dynamic from 'next/dynamic';
 import ListingCard from '../components/ListingCard';
+import ExploreHero from '../components/explore-stays/ExploreHero';
+import ExploreHeader from '../components/explore-stays/ExploreHeader';
+import FilterPanel from '../components/explore-stays/FilterPanel';
+import StayToolbar from '../components/explore-stays/StayToolbar';
+import ActiveFilterChips from '../components/explore-stays/ActiveFilterChips';
+import StayEditorialGrid from '../components/explore-stays/StayEditorialGrid';
+import Pagination from '../components/explore-stays/Pagination';
+import SkeletonGrid from '../components/explore-stays/SkeletonGrid';
+import EmptyState from '../components/explore-stays/EmptyState';
+import ErrorState from '../components/explore-stays/ErrorState';
 import { listingsApi } from '../lib/api';
 import {
   normalizeDiscoveryTagUrlState,
   normalizeDiscoveryUrlState,
   parseDiscoveryTagCandidates,
 } from '../lib/discovery-url-state';
+import { EXPLORE_CONTAINER_CLASS } from '../lib/exploreLayout';
 import type { DiscoverySort, Listing, Tag } from '../lib/types';
 import {
   DIETARY_OPTIONS,
@@ -43,6 +55,14 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 type ViewMode = 'grid' | 'map' | 'split';
+
+// The public /listings API has no page/limit/total contract (confirmed by
+// reading lib/api.ts and the backend's PublicListingController — it always
+// returns the full matching array), so there's no existing page size to
+// reuse. 9 is a new, purely presentational choice: it divides evenly into
+// StayEditorialGrid's 3-column desktop layout (exactly 3 full rows) with no
+// dangling partial row.
+const RESULTS_PAGE_SIZE = 9;
 
 type SearchSuggestion = {
   label: string;
@@ -127,18 +147,34 @@ export default function HomePage() {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  // Client-side pagination over `results` — see RESULTS_PAGE_SIZE above for
+  // why this isn't wired to the API. Grid-view-only (map/split keep showing
+  // every result in view, unpaginated — see visibleMapListings below, which
+  // is untouched by this and still derives from the full `results` array).
+  const [currentPage, setCurrentPage] = useState(1);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedListingId, setSelectedListingId] = useState<string | null>(
     null,
   );
 
   const listingCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const resultsSectionRef = useRef<HTMLElement>(null);
+  // `showFilters` (below) still drives the existing URL-restoration logic
+  // further down (applyUrlState) — left untouched. `filtersOpen` is the new,
+  // purely presentational flag for the on-demand FilterPanel (opened via the
+  // toolbar's "Filters" button at every breakpoint — no more permanently
+  // visible rail).
   const [showFilters, setShowFilters] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Lets the restyled error state re-run the exact same initial fetch below
+  // (no new endpoint/logic — just a dependency bump on the existing effect).
+  const [retryTick, setRetryTick] = useState(0);
   const [urlStateReady, setUrlStateReady] = useState(false);
   const restoringUrlStateRef = useRef(false);
   const pendingUrlTagCandidatesRef = useRef<string[]>([]);
 
   // Filter state
+  const [filterMinPrice, setFilterMinPrice] = useState('');
   const [filterMaxPrice, setFilterMaxPrice] = useState('');
   const [filterGuests, setFilterGuests] = useState('');
   const [filterState, setFilterState] = useState('');
@@ -181,6 +217,7 @@ export default function HomePage() {
     setSearch(normalizedUrlState.q);
     setFilterState(normalizedUrlState.state);
     setFilterGuests(normalizedUrlState.guests);
+    setFilterMinPrice(normalizedUrlState.minPrice);
     setFilterMaxPrice(normalizedUrlState.maxPrice);
     setFilterTags(activeTagIds);
     setFilterExperienceTags(normalizedUrlState.experiences);
@@ -191,6 +228,7 @@ export default function HomePage() {
     const hasUrlFilters =
       Boolean(normalizedUrlState.state) ||
       Boolean(normalizedUrlState.guests) ||
+      Boolean(normalizedUrlState.minPrice) ||
       Boolean(normalizedUrlState.maxPrice) ||
       activeTagIds.length > 0 ||
       normalizedUrlState.experiences.length > 0 ||
@@ -266,6 +304,7 @@ export default function HomePage() {
     setOrDelete('q', debouncedSearch);
     setOrDelete('state', filterState);
     setOrDelete('guests', filterGuests);
+    setOrDelete('minPrice', filterMinPrice);
     setOrDelete('maxPrice', filterMaxPrice);
     setOrDelete('propertyType', filterPropertyType);
     setOrDelete('sort', filterSort);
@@ -324,6 +363,7 @@ export default function HomePage() {
     viewMode,
     filterState,
     filterGuests,
+    filterMinPrice,
     filterMaxPrice,
     filterTags,
     filterExperienceTags,
@@ -350,6 +390,28 @@ export default function HomePage() {
 
     return mapListings.filter((listing) => resultIds.has(listing.id));
   }, [mapListings, results]);
+
+  // Pagination is a pure view over `results` — every existing search/filter
+  // effect already fully recomputes `results` on its own; this only resets
+  // which page of that (possibly new) set is showing, same as any standard
+  // "new result set → back to page 1" pagination behavior.
+  const totalPages = Math.max(1, Math.ceil(results.length / RESULTS_PAGE_SIZE));
+  const paginatedResults = useMemo(
+    () => results.slice((currentPage - 1) * RESULTS_PAGE_SIZE, currentPage * RESULTS_PAGE_SIZE),
+    [results, currentPage],
+  );
+
+  // useLayoutEffect (not useEffect): resolves before paint, so switching to
+  // a new result set while parked on, say, page 3 never briefly renders
+  // "page 3 sliced from the new results" before snapping to page 1.
+  useLayoutEffect(() => {
+    setCurrentPage(1);
+  }, [results]);
+
+  const handlePageChange = useCallback((page: number) => {
+    setCurrentPage(page);
+    resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   useEffect(() => {
     if (!selectedListingId) return;
@@ -389,7 +451,8 @@ export default function HomePage() {
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
-    if (filterMaxPrice) n++;
+    // One price bucket sets both min and max at once — count as one filter.
+    if (filterMinPrice || filterMaxPrice) n++;
     if (filterGuests) n++;
     if (filterState) n++;
     n += filterTags.length;
@@ -399,6 +462,7 @@ export default function HomePage() {
     if (filterSort) n++;
     return n;
   }, [
+    filterMinPrice,
     filterMaxPrice,
     filterGuests,
     filterState,
@@ -413,6 +477,66 @@ export default function HomePage() {
     () => [...new Set(allListings.map((l) => l.state).filter(Boolean))].sort(),
     [allListings],
   );
+
+  // Filter option vocabularies — derived from the currently-loaded listing
+  // catalog, not the static PROPERTY_TYPES/EXPERIENCE_TAGS/DIETARY_OPTIONS
+  // vocabularies (those stay in lib/types.ts purely for URL-param shape
+  // validation; see applyUrlState below). Only values actually present on at
+  // least one listing render as filter options.
+  const availablePropertyTypes = useMemo(
+    () =>
+      [
+        ...new Set(
+          allListings
+            .map((l) => l.propertyType)
+            .filter((pt): pt is string => Boolean(pt)),
+        ),
+      ].sort(),
+    [allListings],
+  );
+  const availableExperienceTags = useMemo(
+    () =>
+      [...new Set(allListings.flatMap((l) => l.experienceTags ?? []).filter(Boolean))].sort(),
+    [allListings],
+  );
+  const availableDietaryOptions = useMemo(
+    () =>
+      [...new Set(allListings.flatMap((l) => l.dietaryOptions ?? []).filter(Boolean))].sort(),
+    [allListings],
+  );
+
+  // 3 preset price buckets ("Under X" / "X – Y" / "Above Y") — X and Y are
+  // terciles of the real min/max nightly rate in the current catalog,
+  // rounded to the nearest ₹500. Not hardcoded; recomputes if the catalog
+  // changes. Falls back to a placeholder pair before listings load.
+  const priceBuckets = useMemo(() => {
+    const rupeeRates = allListings
+      .map((l) => (l.rateRules?.[0]?.baseNightlyRate ?? 0) / 100)
+      .filter((rate) => rate > 0);
+    const round500 = (n: number) => Math.round(n / 500) * 500;
+    let low = 5000;
+    let high = 10000;
+    if (rupeeRates.length > 0) {
+      const min = Math.min(...rupeeRates);
+      const max = Math.max(...rupeeRates);
+      if (max === min) {
+        const mid = round500(max);
+        low = Math.max(500, mid - 500);
+        high = mid + 500;
+      } else {
+        const span = max - min;
+        low = round500(min + span / 3);
+        high = round500(min + (span * 2) / 3);
+        if (high <= low) high = low + 500;
+      }
+    }
+    const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+    return [
+      { label: `Under ${fmt(low)}`, min: '', max: String(low) },
+      { label: `${fmt(low)} – ${fmt(high)}`, min: String(low), max: String(high) },
+      { label: `Above ${fmt(high)}`, min: String(high), max: '' },
+    ];
+  }, [allListings]);
 
   const searchSuggestions = useMemo<SearchSuggestion[]>(() => {
     const query = search.trim().toLowerCase();
@@ -533,17 +657,27 @@ export default function HomePage() {
     }
   };
 
+  // Amenity vocabulary — only tags actually attached to at least one current
+  // listing, not the full tag catalog (allTags is the full catalog; it stays
+  // in use for tag-ID URL validation via validTagIds, a separate concern).
   const tagsByCategory = useMemo(() => {
+    const seen = new Set<string>();
     const map: Record<string, Tag[]> = {};
-    allTags.forEach((t) => {
-      if (!map[t.category]) map[t.category] = [];
-      map[t.category].push(t);
+    allListings.forEach((listing) => {
+      listing.tags?.forEach((lt) => {
+        if (seen.has(lt.tag.id)) return;
+        seen.add(lt.tag.id);
+        (map[lt.tag.category] ??= []).push(lt.tag);
+      });
     });
     return map;
-  }, [allTags]);
+  }, [allListings]);
 
-  // Initial load
+  // Initial load — `retryTick` lets the restyled error state's "Try again"
+  // button re-run this exact same fetch; the request itself is unchanged.
   useEffect(() => {
+    setLoading(true);
+    setError('');
     listingsApi.getPublic()
       .then((listings) => {
         setAllListings(listings);
@@ -562,7 +696,7 @@ export default function HomePage() {
         setAllTags([]);
         setTagMetadataStatus('failed');
       });
-  }, []);
+  }, [retryTick]);
 
   useEffect(() => {
     if (tagMetadataStatus !== 'ready') {
@@ -638,6 +772,10 @@ export default function HomePage() {
       const g = parseInt(filterGuests, 10);
       out = out.filter((l) => (l.rateRules?.[0]?.maxGuests ?? 0) >= g);
     }
+    if (filterMinPrice) {
+      const minPaise = parseFloat(filterMinPrice) * 100;
+      out = out.filter((l) => (l.rateRules?.[0]?.baseNightlyRate ?? 0) >= minPaise);
+    }
     if (filterMaxPrice) {
       const maxPaise = parseFloat(filterMaxPrice) * 100;
       out = out.filter((l) => (l.rateRules?.[0]?.baseNightlyRate ?? Infinity) <= maxPaise);
@@ -650,7 +788,7 @@ export default function HomePage() {
       );
     }
     return out;
-  }, [filterState, filterGuests, filterMaxPrice, filterTags]);
+  }, [filterState, filterGuests, filterMinPrice, filterMaxPrice, filterTags]);
 
   const handleMapBoundsChange = useCallback(
     async (bounds: LatLngBounds) => {
@@ -779,16 +917,32 @@ export default function HomePage() {
     void runSearch(debouncedSearch);
   }, [debouncedSearch, runSearch]);
 
+  // Hero "Search" button — runs the exact existing search immediately
+  // (bypassing the debounce) instead of waiting for it, then scrolls to the
+  // results. Not a second search path: it calls the same runSearch used by
+  // the effect above.
+  const handleHeroSubmit = useCallback(() => {
+    void runSearch(search);
+    // Deferred to the next frame: calling scrollIntoView synchronously here
+    // races with the same-tick setSearching(true) re-render this triggers
+    // (which swaps the grid for SkeletonGrid) — Chromium silently drops the
+    // scroll when it lands in the same tick as that reflow. rAF sidesteps it.
+    window.requestAnimationFrame(() => {
+      resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [runSearch, search]);
+
   // Re-apply filters when filter values change without new search
   useEffect(() => {
     if (!debouncedSearch.trim() && !hasDiscoveryFacets) {
       setResults(applyFilters(allListings));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterState, filterGuests, filterMaxPrice, filterTags, allListings, hasDiscoveryFacets]);
+  }, [filterState, filterGuests, filterMinPrice, filterMaxPrice, filterTags, allListings, hasDiscoveryFacets]);
 
   const clearFilters = () => {
     pendingUrlTagCandidatesRef.current = [];
+    setFilterMinPrice('');
     setFilterMaxPrice('');
     setFilterGuests('');
     setFilterState('');
@@ -852,580 +1006,279 @@ export default function HomePage() {
 
   return (
     <>
-      {/* Hero */}
-      <section className="relative bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500 text-white overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-10 left-10 w-64 h-64 rounded-full bg-white blur-3xl" />
-          <div className="absolute bottom-0 right-20 w-96 h-96 rounded-full bg-gold-500 blur-3xl" />
-        </div>
-        <div className="container-page relative py-20 md:py-28 text-center">
-          <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur rounded-full px-4 py-1.5 text-sm font-medium mb-6">
-            <span>✨</span>
-            <span>Curated wellness retreats across India</span>
-          </div>
-          <h1 className="text-4xl md:text-6xl font-bold leading-tight mb-4">
-            Find your perfect
-            <br />
-            <span className="text-gold-400">sanctuary</span>
-          </h1>
-          <p className="text-brand-100 text-lg md:text-xl max-w-xl mx-auto mb-10">
-            Handpicked stays for mindful travellers — from Himalayan retreats to coastal hideaways.
-          </p>
-          <div className="max-w-lg mx-auto">
-            <div ref={searchBoxRef} className="relative">
-              <span className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-lg text-gray-400">
-                {searching ? '⏳' : '🔍'}
-              </span>
+      <ExploreHero
+        search={search}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setShowSuggestions(true);
+          setActiveSuggestionIndex(-1);
+        }}
+        onSearchFocus={() => {
+          setShowSuggestions(true);
+          setActiveSuggestionIndex(-1);
+        }}
+        searchBoxRef={searchBoxRef}
+        searching={searching}
+        searchSuggestions={searchSuggestions}
+        suggestionsRendered={suggestionsRendered}
+        activeSuggestionIndex={activeSuggestionIndex}
+        activeSuggestionId={activeSuggestionId}
+        onSuggestionHover={setActiveSuggestionIndex}
+        onSuggestionSelect={selectSearchSuggestion}
+        onSearchKeyDown={handleSearchKeyDown}
+        onSubmit={handleHeroSubmit}
+        stayCount={allListings.length}
+        featuredListings={allListings}
+      />
 
-              <input
-                type="text"
-                placeholder="Search by city, state, or keyword..."
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  setShowSuggestions(true);
-                  setActiveSuggestionIndex(-1);
-                }}
-                onFocus={() => {
-                  setShowSuggestions(true);
-                  setActiveSuggestionIndex(-1);
-                }}
-                autoComplete="off"
-                aria-label="Search stays"
-                role="combobox"
-                aria-autocomplete="list"
-                aria-controls={suggestionsRendered ? 'search-suggestions' : undefined}
-                aria-expanded={suggestionsRendered}
-                aria-activedescendant={activeSuggestionId}
-                onKeyDown={handleSearchKeyDown}
-                className="w-full rounded-2xl border-0 py-4 pl-11 pr-4 text-base text-gray-900 shadow-lg
-                           focus:outline-none focus:ring-2 focus:ring-gold-500/50"
+      {/* Listings — shares EXPLORE_CONTAINER_CLASS with ExploreHero above, so
+          the hero and the listing grid always line up at the same left/right
+          edges by construction, not by two independently-tuned values that
+          could drift apart. Deliberately narrower than the site-wide
+          `container-page` (max-w-7xl) used elsewhere in the app — scoped to
+          just the Explore page, which keeps every other page's shared
+          container untouched. */}
+      <section ref={resultsSectionRef} className={`${EXPLORE_CONTAINER_CLASS} py-12`}>
+        <ExploreHeader
+          search={search}
+          visibleResultsText={visibleResultsStatusText}
+          srResultsText={resultsStatusText}
+          showClearAll={!!(search || activeFilterCount > 0)}
+          onClearAll={() => { setSearch(''); clearFilters(); }}
+          focusRingClassName={discoveryFocusRingClassName}
+        />
+
+        <div className="min-w-0">
+          <StayToolbar
+            filterSort={filterSort}
+            setFilterSort={setFilterSort}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            activeFilterCount={activeFilterCount}
+            onOpenFilters={() => setFiltersOpen(true)}
+            focusRingClassName={discoveryFocusRingClassName}
+          />
+
+            <ActiveFilterChips
+              filterState={filterState}
+              setFilterState={setFilterState}
+              filterGuests={filterGuests}
+              setFilterGuests={setFilterGuests}
+              filterMinPrice={filterMinPrice}
+              setFilterMinPrice={setFilterMinPrice}
+              filterMaxPrice={filterMaxPrice}
+              setFilterMaxPrice={setFilterMaxPrice}
+              filterPropertyType={filterPropertyType}
+              setFilterPropertyType={setFilterPropertyType}
+              filterSort={filterSort}
+              setFilterSort={setFilterSort}
+              filterExperienceTags={filterExperienceTags}
+              toggleExperience={toggleExperience}
+              filterDietary={filterDietary}
+              toggleDietary={toggleDietary}
+              filterTags={filterTags}
+              toggleTag={toggleTag}
+              allTags={allTags}
+              formatFacet={formatFacet}
+            />
+
+            {error && (
+              <ErrorState message={error} onRetry={() => setRetryTick((t) => t + 1)} />
+            )}
+
+            {(loading || searching) && !error && <SkeletonGrid />}
+
+            {!loading && !searching && !error && results.length === 0 && (
+              <EmptyState
+                hasActiveSearchOrFilters={!!(search || activeFilterCount > 0)}
+                onClearAll={() => { setSearch(''); clearFilters(); }}
               />
+            )}
 
-              {suggestionsRendered && (
-                <div
-                  id="search-suggestions"
-                  role="listbox"
-                  className="absolute inset-x-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-xl"
-                >
-                  <div className="py-2">
-                    {searchSuggestions.map((suggestion, index) => (
-                      <button
-                        id={`search-suggestion-${index}`}
-                        key={`${suggestion.type}-${suggestion.value}`}
-                        type="button"
-                        role="option"
-                        aria-selected={activeSuggestionIndex === index}
-                        onMouseEnter={() => setActiveSuggestionIndex(index)}
-                        onClick={() => selectSearchSuggestion(suggestion)}
-                        className={`flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition-colors focus:outline-none ${
-                          activeSuggestionIndex === index
-                            ? 'bg-brand-50'
-                            : 'hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate font-medium text-gray-900">
-                            {suggestion.label}
-                          </p>
+            {!loading && !searching && !error && results.length > 0 && (
+              <>
+                {/* Grid view — paginated client-side (see RESULTS_PAGE_SIZE);
+                    map/split below intentionally keep using the full,
+                    unpaginated `results`/`visibleMapListings`. */}
+                {viewMode === 'grid' && (
+                  <>
+                    <StayEditorialGrid listings={paginatedResults} />
+                    <Pagination
+                      currentPage={currentPage}
+                      totalPages={totalPages}
+                      onPageChange={handlePageChange}
+                      focusRingClassName={discoveryFocusRingClassName}
+                    />
+                  </>
+                )}
 
-                          {suggestion.secondary && (
-                            <p className="truncate text-sm text-gray-500">
-                              {suggestion.secondary}
-                            </p>
-                          )}
-                        </div>
+                {/* Map view */}
+                {viewMode === 'map' && (
+                  <div
+                    className="relative rounded-3xl overflow-hidden"
+                    role="region"
+                    aria-label="Map of available stays"
+                    aria-busy={mapLoading}
+                    aria-describedby={mapViewDescriptionId}
+                  >
+                    <p id={mapViewDescriptionId} className="sr-only">
+                      {mapViewDescription}
+                    </p>
+                    <ListingMap
+                      listings={visibleMapListings}
+                      height="clamp(380px, 65vh, 600px)"
+                      selectedId={selectedListingId}
+                      onListingSelect={handleListingSelect}
+                      onBoundsChange={handleMapBoundsChange}
+                    />
 
-                        <span className="flex-shrink-0 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700">
-                          {suggestion.type}
-                        </span>
-                      </button>
-                    ))}
+                    <MapStatusOverlay
+                      loading={mapLoading}
+                      error={mapError}
+                      empty={showMapEmptyState}
+                    />
                   </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
+                )}
 
-      {/* Listings */}
-      <section className="container-page py-12">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">
-              {search ? `Results for "${search}"` : 'All Stays'}
-            </h2>
-            <p
-              className="text-gray-500 text-sm mt-0.5"
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              <span aria-hidden="true">{visibleResultsStatusText}</span>
-              <span className="sr-only">{resultsStatusText}</span>
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {(search || activeFilterCount > 0) && (
-              <button
-                onClick={() => { setSearch(''); clearFilters(); }}
-                className={`btn-ghost text-sm ${discoveryFocusRingClassName}`}
-              >
-                Clear all
-              </button>
-            )}
-
-            {/* Filter toggle */}
-            <button
-              onClick={() => setShowFilters((v) => !v)}
-              aria-expanded={showFilters}
-              aria-controls={showFilters ? 'discovery-filters' : undefined}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${showFilters || activeFilterCount > 0
-                ? 'bg-brand-700 text-white border-brand-700'
-                : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
-                } ${discoveryFocusRingClassName}`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-              </svg>
-              Filters
-              {activeFilterCount > 0 && (
-                <>
-                  <span
-                    aria-hidden="true"
-                    className="bg-white text-brand-700 rounded-full w-4 h-4 text-xs flex items-center justify-center font-bold leading-none"
-                  >
-                    {activeFilterCount}
-                  </span>
-                  <span className="sr-only">
-                    {activeFilterCount} active {activeFilterCount === 1 ? 'filter' : 'filters'}
-                  </span>
-                </>
-              )}
-            </button>
-
-            {/* View mode toggle */}
-            <div
-              className="flex items-center rounded-lg bg-gray-100 p-1"
-              role="group"
-              aria-label="Listing view"
-            >
-              <button
-                onClick={() => setViewMode('grid')}
-                aria-label="Grid view"
-                aria-pressed={viewMode === 'grid'}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  } ${discoveryFocusRingClassName}`}
-                title="Grid view"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                </svg>
-              </button>
-              <button
-                onClick={() => setViewMode('map')}
-                aria-label="Map view"
-                aria-pressed={viewMode === 'map'}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'map' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                  } ${discoveryFocusRingClassName}`}
-                title="Map view"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
-                </svg>
-              </button>
-              <button
-                onClick={() => setViewMode('split')}
-                aria-label="Split view"
-                aria-pressed={viewMode === 'split'}
-                className={`hidden px-3 py-1.5 rounded-md text-sm font-medium transition-colors md:inline-flex ${
-                  viewMode === 'split'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
-                } ${discoveryFocusRingClassName}`}
-                title="Split view"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5h16M4 5v14M4 5l8 7m8-7v14m0-14l-8 7m0 0v7" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Filter panel */}
-        {showFilters && (
-          <div
-            id="discovery-filters"
-            className="bg-white border border-gray-200 rounded-xl p-5 mb-6 space-y-5"
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-              {/* State filter */}
-              <div>
-                <label htmlFor="discovery-filter-state" className="label text-xs">State</label>
-                <select
-                  id="discovery-filter-state"
-                  value={filterState}
-                  onChange={(e) => setFilterState(e.target.value)}
-                  className="input text-sm"
-                >
-                  <option value="">All states</option>
-                  {uniqueStates.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Guests filter */}
-              <div>
-                <label htmlFor="discovery-filter-guests" className="label text-xs">Minimum guests</label>
-                <input
-                  id="discovery-filter-guests"
-                  type="number"
-                  min={1}
-                  max={20}
-                  placeholder="Any"
-                  value={filterGuests}
-                  onChange={(e) => setFilterGuests(e.target.value)}
-                  className="input text-sm"
-                />
-              </div>
-
-              {/* Max price */}
-              <div>
-                <label htmlFor="discovery-filter-max-price" className="label text-xs">Max price per night (₹)</label>
-                <input
-                  id="discovery-filter-max-price"
-                  type="number"
-                  min={0}
-                  step={500}
-                  placeholder="Any"
-                  value={filterMaxPrice}
-                  onChange={(e) => setFilterMaxPrice(e.target.value)}
-                  className="input text-sm"
-                />
-              </div>
-
-              {/* Sort */}
-              <div>
-                <label htmlFor="discovery-filter-sort" className="label text-xs">Sort by</label>
-                <select
-                  id="discovery-filter-sort"
-                  value={filterSort}
-                  onChange={(e) => setFilterSort(e.target.value as DiscoverySort | '')}
-                  className="input text-sm"
-                >
-                  <option value="">Relevance</option>
-                  <option value="newest">Newest first</option>
-                  <option value="price-asc">Price: low to high</option>
-                  <option value="price-desc">Price: high to low</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Experience tag facets */}
-            <div>
-              <p className="text-xs font-medium text-gray-500 mb-2">Experience</p>
-              <div className="flex flex-wrap gap-2">
-                {EXPERIENCE_TAGS.map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => toggleExperience(tag)}
-                    aria-pressed={filterExperienceTags.includes(tag)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterExperienceTags.includes(tag)
-                      ? 'bg-brand-700 text-white border-brand-700'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                      } ${discoveryFocusRingClassName}`}
-                  >
-                    {formatFacet(tag)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Property type facet */}
-            <div>
-              <p className="text-xs font-medium text-gray-500 mb-2">Property type</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setFilterPropertyType('')}
-                  aria-pressed={!filterPropertyType}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${!filterPropertyType
-                    ? 'bg-brand-700 text-white border-brand-700'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                    } ${discoveryFocusRingClassName}`}
-                >
-                  Any
-                </button>
-                {PROPERTY_TYPES.map((pt) => (
-                  <button
-                    key={pt}
-                    onClick={() => setFilterPropertyType(pt)}
-                    aria-pressed={filterPropertyType === pt}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterPropertyType === pt
-                      ? 'bg-brand-700 text-white border-brand-700'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                      } ${discoveryFocusRingClassName}`}
-                  >
-                    {formatFacet(pt)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Dietary facets */}
-            <div>
-              <p className="text-xs font-medium text-gray-500 mb-2">Dietary options</p>
-              <div className="flex flex-wrap gap-2">
-                {DIETARY_OPTIONS.map((option) => (
-                  <button
-                    key={option}
-                    onClick={() => toggleDietary(option)}
-                    aria-pressed={filterDietary.includes(option)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterDietary.includes(option)
-                      ? 'bg-brand-700 text-white border-brand-700'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                      } ${discoveryFocusRingClassName}`}
-                  >
-                    {formatFacet(option)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Tag filters by category */}
-            {Object.keys(tagsByCategory).length > 0 && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 mb-3">Amenities &amp; Features</p>
-                <div className="space-y-3">
-                  {Object.entries(tagsByCategory).map(([category, tags]) => (
-                    <div key={category}>
-                      <p className="text-xs text-gray-400 mb-1.5 capitalize">{category}</p>
-                      <div className="flex flex-wrap gap-2">
-                        {tags.map((tag) => (
-                          <button
-                            key={tag.id}
-                            onClick={() => toggleTag(tag.id)}
-                            aria-pressed={filterTags.includes(tag.id)}
-                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filterTags.includes(tag.id)
-                              ? 'bg-brand-700 text-white border-brand-700'
-                              : 'bg-white text-gray-600 border-gray-200 hover:border-brand-400 hover:text-brand-700'
-                              } ${discoveryFocusRingClassName}`}
-                          >
-                            {tag.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activeFilterCount > 0 && (
-              <div className="flex justify-end">
-                <button
-                  onClick={clearFilters}
-                  className={`btn-ghost text-sm text-gray-500 ${discoveryFocusRingClassName}`}
-                >
-                  Clear filters
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {error && (
-          <div className="alert-error mb-6" role="alert">
-            Could not load listings: {error}
-            <span className="block text-xs mt-1 opacity-70">Make sure the API is running on port 3001.</span>
-          </div>
-        )}
-
-        {(loading || searching) && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="card animate-pulse">
-                <div className="h-52 bg-gray-200" />
-                <div className="p-4 space-y-3">
-                  <div className="h-4 bg-gray-200 rounded w-3/4" />
-                  <div className="h-3 bg-gray-200 rounded w-full" />
-                  <div className="h-3 bg-gray-200 rounded w-2/3" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!loading && !searching && !error && results.length === 0 && (
-          <div className="text-center py-20">
-            <div className="text-6xl mb-4">🏕️</div>
-            <h3 className="text-xl font-semibold text-gray-700 mb-2">
-              {search || activeFilterCount > 0 ? 'No stays match your filters' : 'No stays available yet'}
-            </h3>
-            <p className="text-gray-400 text-sm max-w-sm mx-auto">
-              {search || activeFilterCount > 0
-                ? 'Try adjusting your search or filters.'
-                : 'Check back soon — our curators are adding new retreats.'}
-            </p>
-            {(search || activeFilterCount > 0) && (
-              <button
-                onClick={() => { setSearch(''); clearFilters(); }}
-                className={`btn-primary mt-6 ${discoveryFocusRingClassName}`}
-              >
-                Browse all stays
-              </button>
-            )}
-          </div>
-        )}
-
-        {!loading && !searching && results.length > 0 && (
-          <>
-            {/* Grid view */}
-            {viewMode === 'grid' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {results.map((listing) => (
-                  <ListingCard key={listing.id} listing={listing} />
-                ))}
-              </div>
-            )}
-
-            {/* Map view */}
-            {viewMode === 'map' && (
-              <div
-                className="relative"
-                role="region"
-                aria-label="Map of available stays"
-                aria-busy={mapLoading}
-                aria-describedby={mapViewDescriptionId}
-              >
-                <p id={mapViewDescriptionId} className="sr-only">
-                  {mapViewDescription}
-                </p>
-                <ListingMap
-                  listings={visibleMapListings}
-                  height="clamp(380px, 65vh, 600px)"
-                  selectedId={selectedListingId}
-                  onListingSelect={handleListingSelect}
-                  onBoundsChange={handleMapBoundsChange}
-                />
-
-                <MapStatusOverlay
-                  loading={mapLoading}
-                  error={mapError}
-                  empty={showMapEmptyState}
-                />
-              </div>
-            )}
-
-            {/* Split view */}
-            {viewMode === 'split' && (
-              <div className="flex flex-col gap-6 lg:min-h-[600px] lg:flex-row">
-                <div
-                  className="relative w-full lg:w-1/2 lg:flex-shrink-0"
-                  role="region"
-                  aria-label="Map of available stays"
-                  aria-busy={mapLoading}
-                  aria-describedby={splitMapDescriptionId}
-                >
-                  <p id={splitMapDescriptionId} className="sr-only">
-                    {mapViewDescription}
-                  </p>
-                  <ListingMap
-                    listings={visibleMapListings}
-                    height="clamp(380px, 65vh, 600px)"
-                    selectedId={hoveredId ?? selectedListingId}
-                    onListingSelect={handleListingSelect}
-                    onBoundsChange={handleMapBoundsChange}
-                  />
-
-                  <MapStatusOverlay
-                    loading={mapLoading}
-                    error={mapError}
-                    empty={showMapEmptyState}
-                    announceState={false}
-                  />
-                </div>
-                <div
-                  className="w-full lg:max-h-[600px] lg:w-1/2 lg:overflow-y-auto lg:pr-1"
-                  role="region"
-                  aria-label="Stays in the current map area"
-                  aria-busy={mapLoading}
-                >
-                  {mapLoading && visibleMapListings.length === 0 ? (
-                    <div className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-gray-200 bg-white px-6 text-center">
-                      <div>
-                        <span className="spinner mb-3 h-5 w-5 text-brand-700" />
-                        <p className="text-sm font-medium text-gray-700">
-                          Searching this map area...
-                        </p>
-                      </div>
-                    </div>
-                  ) : mapError && visibleMapListings.length === 0 ? (
+                {/* Split view */}
+                {viewMode === 'split' && (
+                  <div className="flex flex-col gap-6 lg:min-h-[600px] lg:flex-row">
                     <div
-                      className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-red-200 bg-white px-6 text-center"
-                      role="alert"
+                      className="relative w-full lg:w-1/2 lg:flex-shrink-0 rounded-3xl overflow-hidden"
+                      role="region"
+                      aria-label="Map of available stays"
+                      aria-busy={mapLoading}
+                      aria-describedby={splitMapDescriptionId}
                     >
-                      <div>
-                        <div className="mb-3 text-3xl">⚠️</div>
-                        <p className="font-medium text-gray-900">
-                          Unable to load stays
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Move the map or try again shortly.
-                        </p>
-                      </div>
-                    </div>
-                  ) : visibleMapListings.length === 0 ? (
-                    <div
-                      className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white px-6 text-center"
-                      role="status"
-                      aria-live="polite"
-                      aria-atomic="true"
-                    >
-                      <div>
-                        <div className="mb-3 text-4xl">🗺️</div>
-                        <p className="font-medium text-gray-900">
-                          No stays in this area
-                        </p>
-                        <p className="mt-1 text-sm text-gray-500">
-                          Move or zoom the map to explore another location.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-4" aria-label={mapListingsSummary}>
-                      {visibleMapListings.map((listing) => {
-                        const isSelected = selectedListingId === listing.id;
+                      <p id={splitMapDescriptionId} className="sr-only">
+                        {mapViewDescription}
+                      </p>
+                      <ListingMap
+                        listings={visibleMapListings}
+                        height="clamp(380px, 65vh, 600px)"
+                        selectedId={hoveredId ?? selectedListingId}
+                        onListingSelect={handleListingSelect}
+                        onBoundsChange={handleMapBoundsChange}
+                      />
 
-                        return (
-                          <div
-                            key={listing.id}
-                            ref={(element) => {
-                              listingCardRefs.current[listing.id] = element;
-                            }}
-                            onMouseEnter={() => setHoveredId(listing.id)}
-                            onMouseLeave={() => setHoveredId(null)}
-                            className={`scroll-m-3 rounded-2xl transition-shadow ${
-                              isSelected
-                                ? 'ring-2 ring-brand-700 ring-offset-2'
-                                : ''
-                            }`}
-                          >
-                            <ListingCard listing={listing} />
+                      <MapStatusOverlay
+                        loading={mapLoading}
+                        error={mapError}
+                        empty={showMapEmptyState}
+                        announceState={false}
+                      />
+                    </div>
+                    <div
+                      className="w-full lg:max-h-[600px] lg:w-1/2 lg:overflow-y-auto lg:pr-1"
+                      role="region"
+                      aria-label="Stays in the current map area"
+                      aria-busy={mapLoading}
+                    >
+                      {mapLoading && visibleMapListings.length === 0 ? (
+                        <div className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-3xl border border-gray-200 bg-white px-6 text-center">
+                          <div>
+                            <span className="spinner mb-3 h-5 w-5 text-brand-700" />
+                            <p className="text-sm font-medium text-gray-700">
+                              Searching this map area...
+                            </p>
                           </div>
-                        );
-                      })}
+                        </div>
+                      ) : mapError && visibleMapListings.length === 0 ? (
+                        <div
+                          className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-3xl border border-red-200 bg-white px-6 text-center"
+                          role="alert"
+                        >
+                          <div>
+                            <div className="mb-3 text-3xl">⚠️</div>
+                            <p className="font-medium text-gray-900">
+                              Unable to load stays
+                            </p>
+                            <p className="mt-1 text-sm text-gray-500">
+                              Move the map or try again shortly.
+                            </p>
+                          </div>
+                        </div>
+                      ) : visibleMapListings.length === 0 ? (
+                        <div
+                          className="flex min-h-[360px] lg:min-h-[600px] items-center justify-center rounded-3xl border border-dashed border-gray-300 bg-white px-6 text-center"
+                          role="status"
+                          aria-live="polite"
+                          aria-atomic="true"
+                        >
+                          <div>
+                            <div className="mb-3 text-4xl">🗺️</div>
+                            <p className="font-medium text-gray-900">
+                              No stays in this area
+                            </p>
+                            <p className="mt-1 text-sm text-gray-500">
+                              Move or zoom the map to explore another location.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4" aria-label={mapListingsSummary}>
+                          {visibleMapListings.map((listing) => {
+                            const isSelected = selectedListingId === listing.id;
+
+                            return (
+                              <div
+                                key={listing.id}
+                                ref={(element) => {
+                                  listingCardRefs.current[listing.id] = element;
+                                }}
+                                onMouseEnter={() => setHoveredId(listing.id)}
+                                onMouseLeave={() => setHoveredId(null)}
+                                className={`scroll-m-3 rounded-3xl transition-shadow ${
+                                  isSelected
+                                    ? 'ring-2 ring-brand-700 ring-offset-2'
+                                    : ''
+                                }`}
+                              >
+                                <ListingCard listing={listing} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                )}
+              </>
             )}
-          </>
-        )}
+        </div>
       </section>
 
+      <FilterPanel
+        isOpen={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        resultCount={results.length}
+        priceBuckets={priceBuckets}
+        uniqueStates={uniqueStates}
+        filterState={filterState}
+        setFilterState={setFilterState}
+        filterGuests={filterGuests}
+        setFilterGuests={setFilterGuests}
+        filterMinPrice={filterMinPrice}
+        setFilterMinPrice={setFilterMinPrice}
+        filterMaxPrice={filterMaxPrice}
+        setFilterMaxPrice={setFilterMaxPrice}
+        filterPropertyType={filterPropertyType}
+        setFilterPropertyType={setFilterPropertyType}
+        availablePropertyTypes={availablePropertyTypes}
+        filterExperienceTags={filterExperienceTags}
+        toggleExperience={toggleExperience}
+        availableExperienceTags={availableExperienceTags}
+        filterDietary={filterDietary}
+        toggleDietary={toggleDietary}
+        availableDietaryOptions={availableDietaryOptions}
+        filterTags={filterTags}
+        toggleTag={toggleTag}
+        tagsByCategory={tagsByCategory}
+        activeFilterCount={activeFilterCount}
+        clearFilters={clearFilters}
+        formatFacet={formatFacet}
+        focusRingClassName={discoveryFocusRingClassName}
+      />
       {/* Features section */}
       <section className="bg-white border-t border-gray-100 py-16">
         <div className="container-page">

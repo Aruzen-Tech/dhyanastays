@@ -86,6 +86,29 @@ describe('normalizeDiscoveryUrlState', () => {
     });
   });
 
+  it('accepts and canonicalizes minPrice values in rupees', () => {
+    expect(normalize('minPrice=0').minPrice).toBe('0');
+    expect(normalize('minPrice=5000').minPrice).toBe('5000');
+    expect(normalize('minPrice=00500').canonicalParams.get('minPrice')).toBe(
+      '500',
+    );
+  });
+
+  it('rejects invalid minPrice values and removes them', () => {
+    const invalidQueries = [
+      'minPrice=-1',
+      'minPrice=1.5',
+      'minPrice=abc',
+    ];
+
+    invalidQueries.forEach((query) => {
+      const normalized = normalize(query);
+
+      expect(normalized.minPrice).toBe('');
+      expect(normalized.canonicalParams.has('minPrice')).toBe(false);
+    });
+  });
+
   it('trims q and state while preserving unicode and internal spaces', () => {
     const normalized = normalize(
       'q=%20%20mindful%20journey%20%20&state=%20%20T%C3%A4mil%20Nadu%20%20',
