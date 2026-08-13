@@ -11,7 +11,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Brand: deep evergreen mapped to CSS vars (softens to sage in dark mode)
+        // Brand: deep forest teal mapped to CSS vars (softens to mint in dark mode)
         brand: {
           50:  'rgb(var(--brand-50) / <alpha-value>)',
           100: 'rgb(var(--brand-100) / <alpha-value>)',
@@ -28,6 +28,15 @@ const config: Config = {
         surface: 'rgb(var(--surface) / <alpha-value>)',
         // Luxury accent — antique gold (brightens in dark mode)
         gold: 'rgb(var(--gold) / <alpha-value>)',
+        // Secondary accent — burnt terracotta, used sparingly (e.g. alt tags)
+        secondary: 'rgb(var(--secondary) / <alpha-value>)',
+        // Modal/dialog scrim
+        overlay: 'rgb(var(--overlay) / <alpha-value>)',
+        // Semantic status colors — reusable everywhere, same hues .badge-*/.alert-* use
+        success: 'rgb(var(--success) / <alpha-value>)',
+        warning: 'rgb(var(--warning) / <alpha-value>)',
+        error:   'rgb(var(--error) / <alpha-value>)',
+        info:    'rgb(var(--info) / <alpha-value>)',
         // Semantic whites/grays — auto-invert in dark mode
         white: 'rgb(var(--white) / <alpha-value>)',
         gray: {
@@ -59,14 +68,14 @@ const config: Config = {
         '3xl': '1.75rem',
       },
       boxShadow: {
-        // Warm forest-tinted shadows (rgba base 21,32,25) — softer than pure black
-        card:       '0 1px 4px 0 rgba(21,32,25,0.06), 0 1px 2px -1px rgba(21,32,25,0.04)',
-        'card-hover': '0 12px 40px -8px rgba(21,32,25,0.14)',
-        glass:      '0 8px 32px 0 rgba(21,32,25,0.10)',
+        // Cool neutral-tinted shadows (rgba base 17,24,39) — softer than pure black
+        card:       '0 1px 4px 0 rgba(17,24,39,0.06), 0 1px 2px -1px rgba(17,24,39,0.04)',
+        'card-hover': '0 12px 40px -8px rgba(17,24,39,0.10)',
+        glass:      '0 8px 32px 0 rgba(17,24,39,0.10)',
         'glass-dark': '0 8px 32px 0 rgba(0,0,0,0.50)',
-        glow:       '0 0 24px 0 rgba(34,77,56,0.18)',
-        'glow-dark':  '0 0 24px 0 rgba(220,233,224,0.10)',
-        'inner-sm':  'inset 0 1px 3px 0 rgba(21,32,25,0.08)',
+        glow:       '0 0 24px 0 rgba(14,59,71,0.18)',
+        'glow-dark':  '0 0 24px 0 rgba(163,222,223,0.10)',
+        'inner-sm':  'inset 0 1px 3px 0 rgba(17,24,39,0.08)',
       },
       backgroundImage: {
         'shimmer': 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)',

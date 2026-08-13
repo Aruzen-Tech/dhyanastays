@@ -3,6 +3,7 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../../../context/AuthContext';
+import BrandMark from '../../../../components/BrandMark';
 import { bookingsApi, formatDate, formatINR } from '../../../../lib/api';
 import type { Booking } from '../../../../lib/types';
 
@@ -80,7 +81,7 @@ export default function InvoicePage() {
         <div className="flex items-start justify-between mb-8">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-2xl">🏡</span>
+              <BrandMark size={28} />
               <span className="text-xl font-bold text-brand-700">Dhyana Stays</span>
             </div>
             <p className="text-xs text-gray-500 mt-1">Wellness retreats across India</p>

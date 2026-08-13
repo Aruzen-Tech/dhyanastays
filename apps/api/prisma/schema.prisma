@@ -205,6 +205,11 @@ model User {
   // ── Phase 3 §5.9 AI Itinerary ────────────────────────────────────────────
   itineraries         Itinerary[]         @relation("ItineraryOwner")
   itineraryUsage      ItineraryUsage[]    @relation("ItineraryUsageOwner")
+  // ── CRM overlay (admin) ───────────────────────────────────────────────────
+  crmProfile          CrmContactProfile?
+  crmTags             CrmContactTag[]
+  crmNotes            CrmNote[]
+  crmActivities       CrmActivity[]
 }
 
 model Host {
@@ -1582,6 +1587,7 @@ model Itinerary {
   specialRequests         String?
   /** Stable concept key selected from itinerary suggestions. */
   themeHint               String?
+  idempotencyKey         String?             @unique
   status                  ItineraryStatus     @default(DRAFT)
   summary         String?
   days            Json?               // [{ day: 1, date, title, sessions: [{ time, title, description, category }] }]
@@ -1757,4 +1763,85 @@ model CollectionAward {
   awardedAt DateTime @default(now())
 
   @@id([guestId, setId])
+}
+
+// ── CRM (admin) — Phase 1 foundation ─────────────────────────────────────────
+// Overlay on User (the contact). No duplicate contact table. Staff references
+// (ownerId/authorId/actorId) are plain ids — not relations — to avoid User bloat.
+
+/// Per-contact CRM metadata (1:1 with User). Absent = not yet enriched.
+model CrmContactProfile {
+  userId          String    @id
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ownerId         String?   // assigned staff/account owner (User id)
+  source          String?   // acquisition source (referral, campaign, organic…)
+  doNotContact    Boolean   @default(false)
+  leadScore       Int?
+  lastContactedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([ownerId])
+}
+
+/// Customer-level tag (distinct from the listing-only `Tag`).
+model CrmTag {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  color     String          @default("#64748b")
+  category  String?
+  createdAt DateTime        @default(now())
+  contacts  CrmContactTag[]
+}
+
+model CrmContactTag {
+  userId    String
+  tagId     String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tag       CrmTag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tagId])
+  @@index([tagId])
+}
+
+/// Internal note on a contact (staff-authored).
+model CrmNote {
+  id        String   @id @default(cuid())
+  userId    String // contact
+  authorId  String // staff author (User id)
+  body      String
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// CRM-native timeline event. Booking/message/issue events are DERIVED at read
+/// time (not stored here) — this holds only CRM actions (notes, tags, outreach…).
+model CrmActivity {
+  id         String          @id @default(cuid())
+  userId     String // contact
+  type       CrmActivityType
+  summary    String
+  metadata   Json?
+  actorId    String? // staff actor (User id), null for system/derived
+  occurredAt DateTime        @default(now())
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt])
+}
+
+enum CrmActivityType {
+  NOTE
+  TAG_ADDED
+  TAG_REMOVED
+  STAGE_CHANGED
+  TASK_CREATED
+  TASK_COMPLETED
+  OUTREACH_SENT
+  CALL_LOGGED
+  CONTACT_UPDATED
 }

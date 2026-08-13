@@ -8,6 +8,8 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import Redis from 'ioredis';
 
 /** HTTP 402 Payment Required — used when monthly itinerary AI quota is exhausted. */
 class PaymentRequiredException extends HttpException {
@@ -22,6 +24,8 @@ import { GenerateItineraryDto } from './dto/generate-itinerary.dto';
 import { SuggestItineraryDto } from './dto/suggest-itinerary.dto';
 import {
   ItineraryGroundingContext,
+  GroundedExperienceCandidate,
+  GroundedStayCandidate,
   ItineraryGroundingService,
 } from './itinerary-grounding.service';
 
@@ -37,6 +41,17 @@ interface ItineraryDay {
   date: string;
   title: string;
   sessions: ItinerarySession[];
+}
+
+interface PlanningDayAllocation {
+  day: number;
+  experienceIds: string[];
+}
+
+interface PlanningContext {
+  stay: GroundedStayCandidate | null;
+  experiences: GroundedExperienceCandidate[];
+  allocation: PlanningDayAllocation[];
 }
 
 interface ItineraryPlan {
@@ -60,7 +75,7 @@ interface ChatPatch {
 }
 
 interface AnthropicResponse {
-   
+
   content?: Array<{ type?: string; text?: string }>;
   usage?: {
     input_tokens?: number;
@@ -99,9 +114,15 @@ const MAX_CHAT_HISTORY = 20;
 export class ItineraryService {
   private readonly logger = new Logger(ItineraryService.name);
   private readonly model = ANTHROPIC_MODEL;
+
+  private redis: Redis | null = null;
+  private readonly inProcessGenerations = new Set<string>();
+  private readonly generationLockTokens = new Map<string, string>();
+
   private readonly apiKey: string;
   private readonly isProduction: boolean;
   private readonly userMonthlyCapPaise: number;
+  private readonly generationLockTtlSeconds: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -114,6 +135,35 @@ export class ItineraryService {
       'ITINERARY_USER_MONTHLY_CAP_PAISE',
       5000,
     );
+    this.generationLockTtlSeconds = this.config.get<number>(
+      'ITINERARY_GENERATION_LOCK_TTL_SECONDS',
+      60,
+    );
+
+    try {
+      this.redis = new Redis({
+        host: this.config.get<string>('REDIS_HOST', 'localhost'),
+        port: this.config.get<number>('REDIS_PORT', 6379),
+
+        maxRetriesPerRequest: 0,
+        retryStrategy: () => null,
+        lazyConnect: true,
+        enableOfflineQueue: false,
+        connectTimeout: 2000,
+      });
+
+      this.redis.on('error', () => { });
+
+      void this.redis.connect().catch(() => {
+        this.logger.warn(
+          'Redis unavailable - falling back to in-process itinerary generation lock',
+        );
+      });
+    } catch {
+      this.logger.warn(
+        'Could not initialize Redis - falling back to in-process itinerary generation lock',
+      );
+    }
 
     // Defense-in-depth — Joi env validation already enforces this in prod.
     if (this.isProduction && !this.apiKey) {
@@ -214,57 +264,154 @@ export class ItineraryService {
 
   async generate(userId: string, dto: GenerateItineraryDto) {
     const days = this.validateDateRange(dto.startsAt, dto.endsAt);
-    await this.assertWithinMonthlyCap(userId);
 
-    const groundingContext = await this.groundingService.buildContext(
-      userId,
-      dto,
-    );
+    const lockAcquired = await this.acquireGenerationLock(userId);
 
-    const result = await this.callLLMForPlan(dto, days, groundingContext);
-    if (!result) {
-      throw new ServiceUnavailableException(
-        'Itinerary AI is unavailable — please try again in a minute.',
+    if (!lockAcquired) {
+      throw new BadRequestException(
+        'An itinerary is already being generated. Please wait.',
       );
     }
 
-    const created = await this.prisma.itinerary.create({
-      data: {
+    try {
+      await this.assertWithinMonthlyCap(userId);
+
+      const groundingContext = await this.groundingService.buildContext(
         userId,
-        listingId: dto.listingId ?? null,
-        destination: dto.destination,
-        startsAt: new Date(dto.startsAt),
-        endsAt: new Date(dto.endsAt),
-        travelers: dto.travelers,
-        interests: dto.interests ?? [],
-        budgetMinor: dto.budgetMinor ?? null,
-        travelStyle: dto.travelStyle ?? null,
-        pace: dto.pace ?? null,
-        dietaryRequirements: dto.dietaryRequirements ?? [],
-        accessibilityNeeds: dto.accessibilityNeeds ?? null,
-        accommodationPreference:
-          dto.accommodationPreference ?? null,
-        transportPreference: dto.transportPreference ?? null,
-        activityIntensity: dto.activityIntensity ?? null,
-        specialRequests: dto.specialRequests ?? null,
-        themeHint: dto.themeHint ?? null,
-        status: ItineraryStatus.GENERATED,
-        summary: result.plan.summary,
-        days: result.plan.days as unknown as Prisma.InputJsonValue,
-        model: this.model,
+        dto,
+      );
+
+      const generationStartedAt = Date.now();
+
+      const result = await this.callLLMForPlan(dto, days, groundingContext);
+      if (!result) {
+        throw new ServiceUnavailableException(
+          'Itinerary AI is unavailable — please try again in a minute.',
+        );
+      }
+
+      const created = await this.prisma.itinerary.create({
+        data: {
+          userId,
+          listingId: dto.listingId ?? null,
+          destination: dto.destination,
+          startsAt: new Date(dto.startsAt),
+          endsAt: new Date(dto.endsAt),
+          travelers: dto.travelers,
+          interests: dto.interests ?? [],
+          budgetMinor: dto.budgetMinor ?? null,
+          travelStyle: dto.travelStyle ?? null,
+          pace: dto.pace ?? null,
+          dietaryRequirements: dto.dietaryRequirements ?? [],
+          accessibilityNeeds: dto.accessibilityNeeds ?? null,
+          accommodationPreference:
+            dto.accommodationPreference ?? null,
+          transportPreference: dto.transportPreference ?? null,
+          activityIntensity: dto.activityIntensity ?? null,
+          specialRequests: dto.specialRequests ?? null,
+          themeHint: dto.themeHint ?? null,
+          status: ItineraryStatus.GENERATED,
+          summary: result.plan.summary,
+          days: result.plan.days as unknown as Prisma.InputJsonValue,
+          model: this.model,
+          tokensInput: result.tokensInput,
+          tokensOutput: result.tokensOutput,
+        },
+      });
+
+      await this.recordUsage(userId, {
+        generations: 1,
+        chatMessages: 0,
         tokensInput: result.tokensInput,
         tokensOutput: result.tokensOutput,
-      },
-    });
+      });
 
-    await this.recordUsage(userId, {
-      generations: 1,
-      chatMessages: 0,
-      tokensInput: result.tokensInput,
-      tokensOutput: result.tokensOutput,
-    });
+      const generationDurationMs =
+        Date.now() - generationStartedAt;
 
-    return created;
+      this.logger.log({
+        event: 'itinerary_generation_completed',
+        userId,
+        itineraryId: created.id,
+        destination: dto.destination,
+        travelers: dto.travelers,
+        days,
+        durationMs: generationDurationMs,
+        tokensInput: result.tokensInput,
+        tokensOutput: result.tokensOutput,
+        verifiedStays: groundingContext.stays.length,
+        verifiedExperiences: groundingContext.experiences.length,
+      });
+
+      return created;
+    } finally {
+      await this.releaseGenerationLock(userId);
+    }
+  }
+
+  private async acquireGenerationLock(userId: string): Promise<boolean> {
+    const redisLockKey = this.generationLockKey(userId);
+    const lockToken = randomUUID();
+
+    if (this.redis) {
+      try {
+        const result = await this.redis.set(
+          redisLockKey,
+          lockToken,
+          'EX',
+          this.generationLockTtlSeconds,
+          'NX',
+        );
+        if (result === 'OK') {
+          this.generationLockTokens.set(userId, lockToken);
+          return true;
+        }
+      } catch {
+        this.logger.warn(
+          'Redis unavailable - falling back to in-process itinerary generation lock',
+        );
+      }
+    }
+
+    if (this.inProcessGenerations.has(userId)) {
+      return false;
+    }
+
+    this.inProcessGenerations.add(userId);
+    return true;
+  }
+
+  private async releaseGenerationLock(
+    userId: string,
+  ): Promise<void> {
+    const lockKey = this.generationLockKey(userId);
+    const lockToken = this.generationLockTokens.get(userId);
+
+    if (this.redis && lockToken) {
+      const script = `
+    if redis.call("GET", KEYS[1]) == ARGV[1] then
+      return redis.call("DEL", KEYS[1])
+    else
+      return 0
+    end
+  `;
+
+      try {
+        await this.redis.eval(
+          script,
+          1,
+          lockKey,
+          lockToken,
+        );
+      } catch {
+        this.logger.warn(
+          'Failed to release itinerary generation lock',
+        );
+      }
+    }
+
+    this.generationLockTokens.delete(userId);
+    this.inProcessGenerations.delete(userId);
   }
 
   // ── Step 3: chat refinement ────────────────────────────────────────────────
@@ -304,7 +451,7 @@ export class ItineraryService {
     const system = this.buildChatSystemPrompt();
     const conversation = this.buildChatConversation(itinerary, ordered);
 
-    const result = await this.callAnthropic({
+    let result = await this.callAnthropic({
       system,
       conversation,
       maxTokens: 4096,
@@ -325,23 +472,71 @@ export class ItineraryService {
 
     // Try to extract a JSON envelope { "reply": "...", "patch": { days?, summary? } }.
     type ChatEnvelope = { reply?: string; patch?: ChatPatch };
-    const envelope = this.safeParse<ChatEnvelope>(result.text);
-    const replyText = envelope?.reply ?? result.text;
-    const patch = envelope?.patch ?? null;
+    let envelope = this.safeParse<ChatEnvelope>(result.text);
+
+    if (!envelope) {
+      this.logger.warn(
+        'Claude returned invalid JSON. Retrying once...',
+      );
+
+      result = await this.retryChatCompletion(
+        system,
+        conversation,
+      );
+
+      if (result) {
+        envelope = this.safeParse<ChatEnvelope>(result.text);
+      }
+    }
+
+    if (!envelope) {
+      const assistantMessage =
+        await this.prisma.itineraryMessage.create({
+          data: {
+            itineraryId,
+            role: 'assistant',
+            content:
+              'Sorry, I could not understand the planner response. Please try again.',
+          },
+        });
+
+      return {
+        userMessage,
+        assistantMessage,
+        updated: itinerary,
+      };
+    }
+
+    const chatResult = result as NonNullable<typeof result>;
+    const replyText = envelope.reply ?? chatResult.text;
+    const patch = envelope.patch ?? null;
 
     let appliedPatch: Prisma.InputJsonValue | undefined;
     let updated = itinerary;
     if (patch && (Array.isArray(patch.days) || typeof patch.summary === 'string')) {
       // Validate patch shape minimally before persisting.
       const safePatch: Record<string, unknown> = {};
-      if (Array.isArray(patch.days)) {
-        const sanitizedDays = this.sanitizeDays(patch.days);
-        if (sanitizedDays.length > 0 && sanitizedDays.length <= MAX_DAYS) {
-          safePatch.days = sanitizedDays;
-        }
-      }
-      if (typeof patch.summary === 'string' && patch.summary.length > 0) {
-        safePatch.summary = patch.summary.slice(0, 1000);
+      const normalizedPlan = this.normalizeGeneratedPlan(
+        {
+          summary:
+            typeof patch.summary === 'string'
+              ? patch.summary
+              : itinerary.summary ?? '',
+          days: patch.days,
+        },
+        {
+          startsAt: itinerary.startsAt.toISOString(),
+          endsAt: itinerary.endsAt.toISOString(),
+        } as GenerateItineraryDto,
+        this.daysBetween(
+          itinerary.startsAt.toISOString(),
+          itinerary.endsAt.toISOString(),
+        ),
+      );
+
+      if (normalizedPlan) {
+        safePatch.days = normalizedPlan.days;
+        safePatch.summary = normalizedPlan.summary;
       }
 
       if (Object.keys(safePatch).length > 0) {
@@ -354,8 +549,8 @@ export class ItineraryService {
             ...(safePatch.summary !== undefined && {
               summary: safePatch.summary as string,
             }),
-            tokensInput: itinerary.tokensInput + result.tokensInput,
-            tokensOutput: itinerary.tokensOutput + result.tokensOutput,
+            tokensInput: itinerary.tokensInput + chatResult.tokensInput,
+            tokensOutput: itinerary.tokensOutput + chatResult.tokensOutput,
           },
           include: { messages: { orderBy: { createdAt: 'asc' } } },
         });
@@ -369,16 +564,16 @@ export class ItineraryService {
         role: 'assistant',
         content: replyText.slice(0, 4000),
         appliedPatch,
-        tokensInput: result.tokensInput,
-        tokensOutput: result.tokensOutput,
+        tokensInput: chatResult.tokensInput,
+        tokensOutput: chatResult.tokensOutput,
       },
     });
 
     await this.recordUsage(userId, {
       generations: 0,
       chatMessages: 1,
-      tokensInput: result.tokensInput,
-      tokensOutput: result.tokensOutput,
+      tokensInput: chatResult.tokensInput,
+      tokensOutput: chatResult.tokensOutput,
     });
 
     return { userMessage, assistantMessage, updated };
@@ -404,6 +599,10 @@ export class ItineraryService {
 
   // ── Private helpers ────────────────────────────────────────────────────────
 
+  private generationLockKey(userId: string): string {
+    return `itinerary_generation:${userId}`;
+  }
+
   private async assertOwnedById(userId: string, id: string) {
     const itinerary = await this.prisma.itinerary.findUnique({
       where: { id },
@@ -426,8 +625,6 @@ export class ItineraryService {
 
     const today = new Date();
 
-    today.setUTCHours(0, 0, 0, 0);
-
     const tripStartDay = new Date(startsAt);
 
     tripStartDay.setUTCHours(0, 0, 0, 0);
@@ -448,7 +645,7 @@ export class ItineraryService {
   private daysBetween(startsAtIso: string, endsAtIso: string): number {
     return Math.ceil(
       (new Date(endsAtIso).getTime() - new Date(startsAtIso).getTime()) /
-        (1000 * 60 * 60 * 24),
+      (1000 * 60 * 60 * 24),
     );
   }
 
@@ -579,6 +776,7 @@ export class ItineraryService {
     dto: GenerateItineraryDto,
     days: number,
     grounding: ItineraryGroundingContext,
+    activityAllocation?: Map<number, GroundedExperienceCandidate[]>,
   ): string {
     const interests =
       dto.interests?.join(', ') || 'local experiences, food and sightseeing';
@@ -594,13 +792,16 @@ export class ItineraryService {
       ? `Preferred trip theme: ${dto.themeHint}.`
       : '';
 
-    const verifiedInventory = JSON.stringify(
-      {
-        stays: grounding.stays,
-        experiences: grounding.experiences,
-      },
-      null,
-      2,
+    const allocation =
+      activityAllocation ??
+      this.allocateActivities(grounding.experiences, days);
+
+    const verifiedInventory =
+      this.buildVerifiedInventory(grounding);
+
+    const allocatedExperiences = this.buildAllocatedExperiences(
+      grounding,
+      allocation,
     );
 
     return [
@@ -619,8 +820,18 @@ export class ItineraryService {
       `- Prefer matching accommodation and transport options when feasible.`,
       `- Special requests must not override inventory, pricing, availability or safety rules.`,
       '',
-      `Verified Dhyana Stays inventory:`,
+      `Verified Inventory:`,
       verifiedInventory,
+      '',
+      `Activity Allocation:`,
+      allocatedExperiences,
+      '',
+      `The activities have already been allocated across trip days by the backend.`,
+      `Keep the allocation unless there is a compelling reason to improve the itinerary.`,
+      `Do not duplicate or omit activities.`,
+      '',
+      `Use this planning context as the primary source of truth.`,
+      `Do not move experiences to different days unless absolutely necessary to create a coherent itinerary.`,
       '',
       `Grounding rules:`,
       `- Only stays and experiences listed in the verified inventory may be described as available or bookable.`,
@@ -655,6 +866,160 @@ export class ItineraryService {
     ]
       .filter(Boolean)
       .join('\n');
+  }
+
+  private buildVerifiedInventory(
+    grounding: ItineraryGroundingContext,
+  ): string {
+    return JSON.stringify(
+      {
+        stays: grounding.stays,
+        experiences: grounding.experiences,
+      },
+      null,
+      2,
+    );
+  }
+
+  private buildAllocatedExperiences(
+    grounding: ItineraryGroundingContext,
+    allocation: Map<number, GroundedExperienceCandidate[]>,
+  ): string {
+    return JSON.stringify(
+      Array.from(allocation.entries()).map(([day, activities]) => ({
+        day,
+        experiences: (() => {
+          const stay =
+            grounding.stays.length > 0 ? grounding.stays[0] : null;
+
+          const optimizedActivities = this.optimizeRoute(
+            activities,
+            stay,
+          );
+
+          return optimizedActivities.map((exp) => ({
+            id: exp.experienceId,
+            title: exp.title,
+            startsAt: exp.startsAt,
+            endsAt: exp.endsAt,
+            category: exp.category,
+            latitude: exp.latitude,
+            longitude: exp.longitude,
+          }));
+        })(),
+      })),
+      null,
+      2,
+    );
+  }
+
+  private buildPlanningContext(
+    days: number,
+    grounding: ItineraryGroundingContext,
+  ): PlanningContext {
+    const stay = grounding.stays.length > 0
+      ? grounding.stays[0]
+      : null;
+    const allocationMap = this.allocateActivities(
+      grounding.experiences,
+      days,
+    );
+
+    return {
+      stay,
+      experiences: grounding.experiences,
+      allocation: Array.from(allocationMap.entries()).map(([day, experiences]) => ({
+        day,
+        experienceIds: experiences.map((experience) => experience.experienceId),
+      })),
+    };
+  }
+
+  private allocateActivities(
+    experiences: GroundedExperienceCandidate[],
+    totalDays: number,
+  ): Map<number, GroundedExperienceCandidate[]> {
+    const allocation = new Map<number, GroundedExperienceCandidate[]>();
+
+    for (let day = 1; day <= totalDays; day++) {
+      allocation.set(day, []);
+    }
+
+    if (
+      !experiences.length
+    ) {
+      return allocation;
+    }
+
+    experiences.forEach((experience, index) => {
+      const day = (index % totalDays) + 1;
+      allocation.get(day)!.push(experience);
+    });
+
+    return allocation;
+  }
+
+  private optimizeRoute(
+    activities: GroundedExperienceCandidate[],
+    stay: GroundedStayCandidate | null,
+  ): GroundedExperienceCandidate[] {
+    if (
+      activities.length <= 1 ||
+      stay?.latitude == null ||
+      stay?.longitude == null
+    ) {
+      return activities;
+    }
+
+    const origin = {
+      latitude: stay.latitude,
+      longitude: stay.longitude,
+    };
+
+    return [...activities].sort((a, b) => {
+      const distanceA = this.calculateDistance(
+        origin.latitude,
+        origin.longitude,
+        a.latitude,
+        a.longitude,
+      );
+
+      const distanceB = this.calculateDistance(
+        origin.latitude,
+        origin.longitude,
+        b.latitude,
+        b.longitude,
+      );
+
+      return distanceA - distanceB;
+    });
+  }
+
+  private calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number | null,
+    lon2: number | null,
+  ): number {
+    if (lat2 == null || lon2 == null) {
+      return Number.MAX_SAFE_INTEGER;
+    }
+
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+    const R = 6371;
+
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) *
+        Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   private buildChatSystemPrompt(): string {
@@ -719,8 +1084,52 @@ export class ItineraryService {
       .filter((d) => d.date.length > 0 && d.title.length > 0);
   }
 
+  private validatePatchedDays(days: ItineraryDay[]): boolean {
+    if (days.length === 0 || days.length > MAX_DAYS) {
+      return false;
+    }
+
+    for (const day of days) {
+      if (!day.title.trim()) {
+        return false;
+      }
+
+      if (day.sessions.length === 0) {
+        return false;
+      }
+
+      let previousTime = '';
+
+      for (const session of day.sessions) {
+        if (!SESSION_TIME_PATTERN.test(session.time)) {
+          return false;
+        }
+
+        if (previousTime && session.time <= previousTime) {
+          return false;
+        }
+
+        if (!session.title.trim()) {
+          return false;
+        }
+
+        if (!session.description.trim()) {
+          return false;
+        }
+
+        if (!ITINERARY_CATEGORIES.has(session.category)) {
+          return false;
+        }
+
+        previousTime = session.time;
+      }
+    }
+
+    return true;
+  }
+
   private normalizeGeneratedPlan(
-    plan: ItineraryPlan,
+    plan: { summary: string; days?: ItineraryDay[] },
     dto: GenerateItineraryDto,
     expectedDayCount: number,
   ): ItineraryPlan | null {
@@ -839,6 +1248,57 @@ export class ItineraryService {
     };
   }
 
+  private validateGeneratedPlan(
+    plan: ItineraryPlan,
+    expectedDays: number,
+  ): void {
+    const invalidPlan = () => {
+      throw new BadRequestException(
+        'AI generated an invalid itinerary.',
+      );
+    };
+
+    if (
+      !plan.summary ||
+      !plan.summary.trim() ||
+      plan.days.length !== expectedDays
+    ) {
+      invalidPlan();
+    }
+
+    const seenDays = new Set<number>();
+
+    for (let index = 0; index < plan.days.length; index += 1) {
+      const day = plan.days[index];
+
+      if (
+        day.day !== index + 1 ||
+        seenDays.has(day.day) ||
+        day.sessions.length === 0
+      ) {
+        invalidPlan();
+      }
+
+      seenDays.add(day.day);
+
+      for (const session of day.sessions) {
+        if (
+          !session.time ||
+          !session.title.trim() ||
+          !session.description.trim() ||
+          !session.category.trim() ||
+          !this.isValidTime(session.time)
+        ) {
+          invalidPlan();
+        }
+      }
+    }
+  }
+
+  private isValidTime(time: string): boolean {
+    return /^([01]\d|2[0-3]):([0-5]\d)$/.test(time);
+  }
+
   // ── LLM call (with retry, prompt caching, no stub fallback in prod) ────────
 
   /**
@@ -857,11 +1317,13 @@ export class ItineraryService {
     tokensOutput: number;
   } | null> {
     if (!this.apiKey) {
+      this.logger.debug(
+        'Using development itinerary stub because Anthropic is unavailable.',
+      );
+
       if (this.isProduction) {
-        // Should never reach here — env validation throws at startup.
         throw new ServiceUnavailableException('AI provider not configured');
       }
-      this.logger.warn('ANTHROPIC_API_KEY not set — returning dev stub');
       return this.devStubResponse(opts);
     }
 
@@ -901,6 +1363,7 @@ export class ItineraryService {
             'content-type': 'application/json',
             'x-api-key': this.apiKey,
             'anthropic-version': ANTHROPIC_API_VERSION,
+
           },
           body: JSON.stringify(body),
           signal: ctrl.signal,
@@ -958,17 +1421,35 @@ export class ItineraryService {
   ): Promise<{ plan: ItineraryPlan; tokensInput: number; tokensOutput: number } | null> {
     const system =
       'You are an AI trip planner for Dhyana Stays. Use verified backend inventory as the source of truth. Return ONLY valid JSON matching the requested schema. No prose and no markdown fences.';
+    const activityAllocation = this.allocateActivities(
+      grounding.experiences,
+      days,
+    );
     const result = await this.callAnthropic({
       system,
-      userMessage: this.buildPlanPrompt(dto, days, grounding),
+      userMessage: this.buildPlanPrompt(
+        dto,
+        days,
+        grounding,
+        activityAllocation,
+      ),
       maxTokens: 4096,
     });
-    if (!result) return null;
+    if (!result) {
+      this.logger.warn({
+        event: 'itinerary_generation_failed',
+        reason: 'invalid_ai_response',
+      });
+      return null;
+    }
 
     const parsed = this.safeParse<ItineraryPlan>(result.text);
 
     if (!parsed) {
-      this.logger.error('LLM returned invalid JSON for plan');
+      this.logger.warn({
+        event: 'itinerary_generation_failed',
+        reason: 'invalid_json',
+      });
       return null;
     }
 
@@ -979,9 +1460,23 @@ export class ItineraryService {
     );
 
     if (!normalizedPlan) {
-      this.logger.error(
-        'LLM returned a structurally invalid itinerary plan',
+      this.logger.warn({
+        event: 'itinerary_generation_failed',
+        reason: 'normalization_failure',
+      });
+      return null;
+    }
+
+    try {
+      this.validateGeneratedPlan(
+        normalizedPlan,
+        days,
       );
+    } catch {
+      this.logger.warn({
+        event: 'itinerary_generation_failed',
+        reason: 'validation_failure',
+      });
       return null;
     }
 
@@ -992,15 +1487,70 @@ export class ItineraryService {
     };
   }
 
+  private async retryChatCompletion(
+    system: string,
+    conversation: Array<{ role: 'user' | 'assistant'; content: string }>,
+  ): Promise<{
+    text: string;
+    tokensInput: number;
+    tokensOutput: number;
+  } | null> {
+    this.logger.warn({
+      event: 'retrying_itinerary_generation',
+    });
+
+    return this.callAnthropic({
+      system,
+      conversation,
+      maxTokens: 4096,
+    });
+  }
+
   private safeParse<T>(raw: string): T | null {
-    const trimmed = raw
-      .trim()
-      .replace(/^```(?:json)?/i, '')
-      .replace(/```$/, '')
+    if (!raw) return null;
+
+    // Remove markdown fences if Claude returns them
+    let cleaned = raw
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
       .trim();
+
+    // First try normal parsing
     try {
-      return JSON.parse(trimmed) as T;
+      return JSON.parse(cleaned) as T;
+    } catch { }
+
+    // Claude sometimes wraps JSON with extra text.
+    // Extract the first valid JSON object.
+    const start = cleaned.indexOf('{');
+
+    if (start === -1) {
+      return null;
+    }
+
+    let depth = 0;
+    let end = -1;
+
+    for (let i = start; i < cleaned.length; i++) {
+      if (cleaned[i] === '{') depth++;
+      if (cleaned[i] === '}') depth--;
+
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+    }
+
+    if (end === -1) {
+      return null;
+    }
+
+    const json = cleaned.slice(start, end + 1);
+
+    try {
+      return JSON.parse(json) as T;
     } catch {
+      this.logger.error('Failed to parse AI JSON response');
       return null;
     }
   }

@@ -11,6 +11,120 @@ history remains fully detailed in the root `CHANGELOG.md`.
 > **Convention:** every change is recorded in both files — a one-line-per-item
 > entry in the root `CHANGELOG.md`, and a full breakdown here.
 
+## 2026-08-11 — Admin CRM (Phase 1: foundation + 360° profiles)
+
+**Commit:** _pending_ · **Migration:** `0038_crm_foundation`
+
+Phase 1 of the advanced admin CRM (plan approved). Principle: _overlay, don't
+duplicate_ — `User` is the contact; CRM tables key on `userId`, and the timeline
+merges CRM-native events with events derived live from existing tables. Outreach,
+segments, pipeline and analytics land in later phases.
+
+### Data model (migration `0038_crm_foundation`, idempotent)
+
+- `CrmContactProfile` — 1:1 overlay on `User`: `ownerId?`, `source?`,
+  `doNotContact`, `leadScore?`, `lastContactedAt?`. Staff refs (`ownerId`,
+  `authorId`, `actorId`) are plain ids, not relations, to avoid `User` bloat.
+- `CrmTag` (`name` unique, `color`, `category?`) + `CrmContactTag` join — customer
+  tags, separate from the listing-only `Tag`.
+- `CrmNote` — staff-authored notes (`pinned`).
+- `CrmActivity` (+ enum `CrmActivityType`) — CRM-native timeline events only.
+- `User` gains back-relations `crmProfile`, `crmTags`, `crmNotes`, `crmActivities`.
+
+### Backend (`apps/api/src/crm/`)
+
+- `CrmService.listContacts` — Prisma `where` from q/type/tag/owner; page via
+  `$transaction([count, findMany])`; LTV per row = sum of `CAPTURED`
+  `Payment.amount` (one `payment.findMany` over the page's ids, summed in JS);
+  bookings via `booking.groupBy(['guestId'])`.
+- `CrmService.getContact360` — parallel aggregates → KPIs (bookings, LTV, last
+  booking, reviews count/avg, open issues, messages sent).
+- `CrmService.getTimeline` — merges `CrmActivity` + derived booking/message/issue/
+  review rows (each capped), sorted desc.
+- `CrmService.updateProfile` — `crmContactProfile.upsert` + `CONTACT_UPDATED`
+  activity. Tags (`CrmTagsService`) + notes (`CrmNotesService`) log activities.
+- Controllers `CrmController` / `CrmTagsController` / `CrmNotesController`, all
+  `@Controller('admin/crm')`, gated `@AdminLevelGuard(AdminLevel.L2)` +
+  `@FeatureGate('crm')`. Registered in `app.module`.
+
+### Frontend (`apps/web/app/admin/crm/`)
+
+- `page.tsx` — contacts table (search, type + tag filters, sort, pagination,
+  bookings + LTV columns via `formatINR`).
+- `[id]/page.tsx` — 360° profile: KPI tiles, merged timeline (colour-coded by
+  kind), tag chips (assign/remove), notes (add/pin/delete), do-not-contact toggle.
+- `lib/api.ts` — `crmApi` client + types. `Navbar.tsx` — flag-gated CRM link.
+- `feature-flags.registry.ts` — `crm` flag (category `CRM`, `defaultEnabled:false`).
+
+### Verification
+
+- `prisma validate` + `generate`; `tsc --noEmit` clean (api + web); api `lint` clean.
+- `crm.service.spec.ts` — 6 tests (LTV, timeline merge, KPIs, profile upsert) pass.
+- Full api suite green: **393 tests / 25 suites**.
+- Also fixed date rot in `itinerary.service.spec.ts` (2 tests): the hardcoded
+  2026-08-10 trip dates had aged into the past, tripping `validateDateRange`.
+  Froze the clock with `jest.setSystemTime` (faking only `Date`, real timers
+  untouched) rather than bumping literals — so it won't recur.
+
+---
+
+## 2026-08-07 — Itinerary planning context and locking cleanup
+
+This release refines the AI itinerary planner by making backend activity
+allocation deterministic, centralizing generation locking, and keeping prompt
+generation backward compatible for existing callers.
+
+### AI Trip Planner
+
+### Logging
+
+- Removed verbose development-only debug logs.
+- Replaced them with a single structured debug message when using the local itinerary stub.
+
+### Generation Telemetry
+
+- Added generation duration logging.
+- Added token usage logging.
+- Added verified inventory counts.
+- Added retry logging.
+- Added AI validation failure logging.
+
+#### AI Response Validation
+
+- Added structural validation for generated itineraries.
+- Ensures expected day count.
+- Validates sequential day numbering.
+- Validates session structure.
+- Validates time format.
+- Rejects malformed AI responses before storing them.
+
+#### Prompt Generation
+
+- Extracted verified inventory serialization.
+- Extracted allocated experience serialization.
+- Reduced complexity of `buildPlanPrompt()`.
+- Preserved AI prompt behavior.
+
+#### Route Optimization
+
+- Added geographic route optimization for allocated activities.
+- Ordered activities within each day using Haversine distance from the selected stay.
+- Preserved deterministic planner behavior without introducing external routing or mapping services.
+
+#### Fixed
+- Refactored itinerary generation locking to use a single locking implementation.
+- Restored Redis → in-process fallback behavior.
+- Eliminated duplicated locking logic.
+
+#### Added
+- Added deterministic activity allocation of verified experiences across itinerary days.
+- Updated AI prompt generation to consume backend activity allocation.
+- Preserved existing API contracts and itinerary response schema.
+- Maintained backward compatibility by allowing prompt generation to derive activity allocation when not explicitly provided.
+
+### Verification
+- Changes were validated against `apps/api/src/itinerary/itinerary.service.ts` with no compile errors reported.
+
 ---
 
 ## 2026-08-04 — Realtime chat over socket.io

@@ -13,6 +13,7 @@ export type NormalizedDiscoveryUrlState = {
   q: string;
   state: string;
   guests: string;
+  minPrice: string;
   maxPrice: string;
   experiences: string[];
   propertyType: string;
@@ -189,6 +190,9 @@ export function normalizeDiscoveryUrlState(
     min: 1,
     max: 20,
   });
+  const minPrice = normalizeCanonicalInteger(inputParams.get('minPrice'), {
+    min: 0,
+  });
   const maxPrice = normalizeCanonicalInteger(inputParams.get('maxPrice'), {
     min: 0,
   });
@@ -218,6 +222,7 @@ export function normalizeDiscoveryUrlState(
   setSingleParam(canonicalParams, 'q', q);
   setSingleParam(canonicalParams, 'state', state);
   setSingleParam(canonicalParams, 'guests', guests);
+  setSingleParam(canonicalParams, 'minPrice', minPrice);
   setSingleParam(canonicalParams, 'maxPrice', maxPrice);
   setSingleParam(canonicalParams, 'propertyType', propertyType);
   setSingleParam(canonicalParams, 'sort', sort);
@@ -237,6 +242,7 @@ export function normalizeDiscoveryUrlState(
     q,
     state,
     guests,
+    minPrice,
     maxPrice,
     experiences,
     propertyType,

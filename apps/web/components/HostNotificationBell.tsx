@@ -170,20 +170,20 @@ export default function HostNotificationBell() {
           />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute top-0 right-0 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
+          <span className="absolute top-0 right-0 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-error rounded-full">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
       </button>
 
       {showDropdown && (
-        <div className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto bg-white rounded-xl shadow-lg border border-gray-200 z-50">
+        <div className="glass-card absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto z-50">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <h3 className="font-semibold text-gray-900">Notifications</h3>
             {unreadCount > 0 && (
               <button
                 onClick={handleMarkAllRead}
-                className="text-sm text-blue-600 hover:text-blue-800 transition-colors"
+                className="text-sm text-brand-700 hover:text-brand-800 transition-colors"
               >
                 Mark all read
               </button>
@@ -192,7 +192,7 @@ export default function HostNotificationBell() {
 
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+              <div className="spinner w-6 h-6 text-brand-700" />
             </div>
           ) : notifications.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-gray-500">
@@ -212,7 +212,7 @@ export default function HostNotificationBell() {
                     }}
                     className={`flex items-start gap-3 px-4 py-3 border-b border-gray-50 cursor-pointer hover:bg-gray-50 transition-colors ${
                       !notification.isRead
-                        ? 'bg-blue-50 border-l-4 border-l-blue-500'
+                        ? 'bg-brand-50 border-l-4 border-l-brand-700'
                         : ''
                     }`}
                   >

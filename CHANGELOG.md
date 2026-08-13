@@ -17,173 +17,45 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
-## 2026-08-05 — Experience module: media fields + booking hardening (merge)
+## 2026-08-11 — Admin CRM (Phase 1: foundation + 360° profiles)
 
-Merged `feature/experience-module`. No changelog entry existed on the branch;
-recorded here on merge.
+First slice of the advanced admin CRM. Unified contacts (guests **and** hosts)
+overlaid on `User` — no duplicate contact table. Dark-launched behind the new
+`crm` feature flag (default **off**).
 
 ### Added
 
-- **Experience media/detail fields** (migration `0037_experience_media_fields`,
-  additive + idempotent): `gallery String[]`, `video String?`, `included
-  String[]` on `Experience`, surfaced through create/update DTOs and the host
-  experience controller — powers the frontend Experience Details page.
+- **Migration `0038_crm_foundation`** (idempotent) — `CrmContactProfile` (1:1
+  overlay: owner, source, doNotContact, leadScore), `CrmTag` + `CrmContactTag`
+  (customer-level tags, distinct from the listing-only `Tag`), `CrmNote`,
+  `CrmActivity` (+ `CrmActivityType` enum).
+- **`crm` backend module** (`apps/api/src/crm/`) — contacts search/filter/paginate
+  with per-row bookings + lifetime value (sum of `CAPTURED` payments); 360°
+  profile with computed KPIs; a **merged activity timeline** (CRM events +
+  events derived live from bookings/messages/issues/reviews); tag assign/remove;
+  notes CRUD. All routes gated `@AdminLevelGuard(L2)` + `@FeatureGate('crm')`.
+- **Admin UI** — `/admin/crm` (contacts table: search, type/tag filters,
+  bookings + LTV columns) and `/admin/crm/[id]` (360° profile: KPI tiles, merged
+  timeline, tag chips, notes). CRM entry added to the admin nav, flag-gated.
+- **`crm` feature flag** in the registry (category `CRM`, admin audience).
 
-### Fixed / Changed
+### Verification
 
-- **Booking integrity** — capacity race conditions prevented; booking
-  cancellation now returns the experience relation; backend aligned with the
-  latest frontend contract. 514-line `experience.service.spec.ts` added.
+- `prisma validate` + `generate`; api & web `tsc --noEmit` clean; api `lint` clean.
+- New `crm.service.spec.ts` — **6 tests** (LTV math, timeline merge/order, KPIs,
+  profile upsert). Full api suite green — **393 tests, 25 suites**.
+
+### Fixed
+
+- **`itinerary.service.spec.ts` date rot** — the spec hardcoded 2026‑08‑10 trip
+  dates that became "past" over time, tripping `validateDateRange`. Froze the
+  clock (`jest.setSystemTime`, faking **only** `Date` so real timers are
+  untouched) instead of bumping literals, so it can't rot again.
 
 ### Migration note
 
-- Three `0037_*` migrations now coexist (`_experience_media_fields`,
-  `_itinerary_preferences`, `_message_delivery_status`) from parallel branches.
-  All additive + idempotent; `prisma migrate deploy` applies each by its unique
-  folder name. Verified: prisma generate, api tsc clean, **385 API tests pass**.
-
----
-
-## 2026-08-04 — Realtime chat (socket.io) — truly instant messaging
-
-Builds on the delivery-tracking work: messages, delivered/read ticks and typing
-now push over WebSockets instead of polling. No schema change.
-
-### Added
-
-- **socket.io gateway** (`MessagingGateway`) — authenticates the handshake with
-  the same access JWT, joins clients to per-conversation rooms, and broadcasts
-  `message:new`, `message:status` (delivered/read) and `typing`. The durable
-  write path stays REST (validation + contact-block + persistence); the gateway
-  only pushes. Decoupled from the service via an in-process event bus
-  (`@nestjs/event-emitter`), so the service stays socket-free.
-- **Instant delivery + read** — on an incoming message the recipient's client
-  acks `delivered` then `read` over the socket; the sender's ✓ → ✓✓ → blue ✓✓
-  update immediately. **Typing indicator** ("… is typing") across guest↔host and
-  host↔admin threads.
-- Web: shared socket client (`lib/socket.ts`) + `useRealtimeConversation` hook,
-  wired into the guest/host/admin thread pages and `MessageThread`.
-
-### Changed
-
-- Thread polling relegated to a **20s reliability fallback** (was 5s) — the
-  socket handles live updates.
-- `markDelivered`/`markRead` are now **participant-guarded no-ops** for
-  non-participants (an admin observing a guest↔host thread over the room never
-  marks or leaks status).
-
-### Fixed
-
-- **Live connection reliability** — the socket client no longer forces
-  websocket-only transport (it silently never connected wherever the WS upgrade
-  is blocked, so messages only appeared on refresh). Now uses the default
-  polling→websocket upgrade with infinite reconnection, reads its token via the
-  shared `getToken()` (works in custom-JWT *and* Auth0 mode, not just
-  localStorage), and logs connect/error state to the console in dev. Gateway CORS
-  reflects the request origin in dev so localhost/127.0.0.1 variants and the
-  polling handshake are never blocked. Verified end-to-end (polling→upgrade→join
-  →`message:new`) against the running server.
-
-### Dependencies
-
-- api: `@nestjs/websockets`, `@nestjs/platform-socket.io`, `socket.io`,
-  `@nestjs/event-emitter`. web: `socket.io-client`. Explicit `IoAdapter` in
-  bootstrap; gateway CORS mirrors `ALLOWED_ORIGINS`.
-
----
-
-## 2026-08-02 — Messaging: delivery tracking + contact-number blocking
-
-Migration `0037_message_delivery_status`. Applies to every direct thread
-(guest↔host, host↔admin) — all funnel through one `sendMessage`.
-
-### Added
-
-- **Delivery status per message** — `MessageStatus` (SENT → DELIVERED → READ) with
-  `deliveredAt` / `readAt`. Messages become **DELIVERED** when the recipient opens
-  the thread (`getConversationById`) and **READ** on `markRead`. The sender sees
-  WhatsApp-style ticks (✓ sent · ✓✓ delivered · ✓✓ blue read) in `MessageThread`;
-  open threads poll every **5s** (was 15s) so status updates feel live.
-- **Contact-number blocking** — messages containing a phone / mobile / telephone /
-  contact number are rejected with *"This message type is not allowed … please try
-  a different message,"* and the attempt is audit-logged (`MESSAGE_BLOCKED_CONTACT`).
-  The detector handles obfuscation (spaced/dashed digits, `+91`, spelled-out
-  "nine eight…", "double 5") while leaving prices, dates, pincodes and flat numbers
-  alone. New `contact-filter.ts` (**26** unit cases).
-
-### Changed
-
-- `MessageThread` now surfaces the send error inline and **restores the draft** on a
-  block/failure (was silently swallowed); the three thread pages let the error
-  propagate.
-
----
-
-## 2026-07-30 — Fix: host "Access denied" on their own bookings
-
-### Fixed
-
-- Host booking authorization matched on the **`role === 'HOST'` string**, but the
-  JWT strategy defaults an absent/quirky role claim to `GUEST` — so a legitimate
-  host could be denied viewing/managing their own booking (`getBookingById` threw
-  *"Access denied"*). `getBookingById`, the manual-lifecycle `assertHostOrAdmin`,
-  and `cancelBooking` now authorize the listing's host by **owner `userId`**
-  (already loaded via `listing.host.userId`) instead of the role string — robust
-  and one fewer query. Admin still authorized by role.
-
----
-
-## 2026-07-27 — Manual booking lifecycle for host + admin
-
-Staff can now drive a booking through its whole cycle by hand from their
-dashboard — previously neither could (no manual check-in at all, host couldn't
-complete/cancel, no override for a stuck payment). Every action still routes
-through the booking state machine, so guards + `statusHistory` are enforced.
-
-### Added
-
-- **Confirm** a stuck `PAYMENT_PENDING` booking — new state-machine event
-  `MANUAL_CONFIRMED` (any plan → `CONFIRMED_PAID`); records an offline `Payment`,
-  overlap-checked under SERIALIZABLE isolation. No payout line (settled out of
-  band, like pay-on-arrival). `POST /bookings/:id/confirm`.
-- **Manual check-in** (no QR scan) — `CONFIRMED_* → CHECKED_IN`, re-anchors the
-  payout clock. `POST /bookings/:id/mark-checked-in` (distinct from the guest
-  self-check-in `/check-in`, which only records arrival details).
-- **Host complete + cancel** — `completeBooking` now accepts `CHECKED_IN` too;
-  host can complete/cancel their own listings' bookings (was admin-only).
-- **Dashboards** — host & admin bookings tables gain status-aware **Confirm /
-  Check in / Complete / Cancel** buttons.
-
-### API
-
-- `POST /bookings/:id/complete` broadened from admin-L2 to host+admin (owner-checked).
-- `POST /bookings/:id/cancel` now also authorizes the listing's host.
-
----
-
-## 2026-07-27 — Auto-run migrations on deploy (fixes recurring prod 500)
-
-### Added
-
-- **Container start-up migration hook** — `apps/api/docker-entrypoint.sh` runs
-  `prisma migrate deploy` (+ the post-migrate GiST index, non-fatal) before the
-  API serves. The Dockerfile `CMD` now points at it. Because Render's free tier
-  has no `preDeployCommand`, applying migrations at container start is what keeps
-  the deployed DB in sync — pushing a migration now applies it on the next boot,
-  so the "column does not exist" 500s stop recurring.
-
-### Fixed
-
-- **Corrupted `apps/api/.env`** — a pasted `db execute` fragment had overwritten
-  `DATABASE_URL`/`DIRECT_URL` with the *production* Render URL plus trailing
-  garbage; restored both to the local Docker Postgres URL so local dev doesn't
-  hit prod.
-
-### Docs
-
-- `render.yaml` + `docs/DEPLOYMENT.md §5` updated: migrations are automatic, and
-  documented the **`prisma migrate` uses `DIRECT_URL` (not `DATABASE_URL`)**
-  gotcha — the reason manual `$env:DATABASE_URL` overrides kept hitting localhost.
+- Apply with `prisma migrate deploy` (adds the 5 CRM tables + enum). Additive;
+  existing rows untouched.
 
 ---
 

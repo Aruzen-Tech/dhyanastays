@@ -85,7 +85,7 @@ export default function PayLaterPage() {
           order_id: result.razorpayOrderId,
           name: 'Dhyana Stays',
           description: `Pay Later instalment ${seq}`,
-          theme: { color: '#1a5c4a' },
+          theme: { color: '#0e3b47' },
           handler: () => resolve(),
           modal: { ondismiss: () => reject(new Error('Payment cancelled')) },
         });

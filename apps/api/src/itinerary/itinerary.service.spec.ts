@@ -16,6 +16,36 @@ describe('ItineraryService suggestions', () => {
 
   let service: ItineraryService;
 
+  // Freeze "now" to before this spec's hardcoded trip dates so they never rot
+  // into the past (which trips validateDateRange's past-date guard). Fake ONLY
+  // Date — real timers are left intact, so the service's setTimeout paths are
+  // unaffected.
+  beforeAll(() => {
+    jest.useFakeTimers({
+      doNotFake: [
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'cancelAnimationFrame',
+        'requestIdleCallback',
+        'cancelIdleCallback',
+        'setImmediate',
+        'clearImmediate',
+        'setInterval',
+        'clearInterval',
+        'setTimeout',
+        'clearTimeout',
+      ],
+    });
+    jest.setSystemTime(new Date('2026-07-15T00:00:00.000Z'));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
 
@@ -590,6 +620,139 @@ describe('ItineraryService suggestions', () => {
       );
 
     expect(unsupportedCategoryResult).toBeNull();
+  });
+
+  it('validates a normalized generated itinerary plan', () => {
+    const testableService = service as unknown as {
+      validateGeneratedPlan: (
+        plan: {
+          summary: string;
+          days: Array<{
+            day: number;
+            date: string;
+            title: string;
+            sessions: Array<{
+              time: string;
+              title: string;
+              description: string;
+              category: string;
+            }>;
+          }>;
+        },
+        expectedDays: number,
+      ) => void;
+    };
+
+    expect(() =>
+      testableService.validateGeneratedPlan(
+        {
+          summary: 'A balanced trip.',
+          days: [
+            {
+              day: 1,
+              date: '2026-08-10',
+              title: 'Arrival',
+              sessions: [
+                {
+                  time: '09:00',
+                  title: 'Breakfast',
+                  description: 'Begin locally.',
+                  category: 'meal',
+                },
+              ],
+            },
+            {
+              day: 2,
+              date: '2026-08-11',
+              title: 'Explore',
+              sessions: [
+                {
+                  time: '14:30',
+                  title: 'Walk',
+                  description: 'Explore nearby.',
+                  category: 'activity',
+                },
+              ],
+            },
+          ],
+        },
+        2,
+      ),
+    ).not.toThrow();
+  });
+
+  it('rejects invalid generated itinerary plans after normalization', () => {
+    const testableService = service as unknown as {
+      validateGeneratedPlan: (
+        plan: {
+          summary: string;
+          days: Array<{
+            day: number;
+            date: string;
+            title: string;
+            sessions: Array<{
+              time: string;
+              title: string;
+              description: string;
+              category: string;
+            }>;
+          }>;
+        },
+        expectedDays: number,
+      ) => void;
+    };
+
+    expect(() =>
+      testableService.validateGeneratedPlan(
+        {
+          summary: 'A trip plan.',
+          days: [
+            {
+              day: 1,
+              date: '2026-08-10',
+              title: 'First Day',
+              sessions: [
+                {
+                  time: '9:00',
+                  title: 'Activity',
+                  description: 'Details',
+                  category: 'activity',
+                },
+              ],
+            },
+          ],
+        },
+        1,
+      ),
+    ).toThrow(
+      new BadRequestException(
+        'AI generated an invalid itinerary.',
+      ),
+    );
+
+    expect(() =>
+      testableService.validateGeneratedPlan(
+        {
+          summary: 'A trip plan.',
+          days: [
+            {
+              day: 2,
+              date: '2026-08-10',
+              title: 'First Day',
+              sessions: [
+                {
+                  time: '09:00',
+                  title: 'Activity',
+                  description: 'Details',
+                  category: 'activity',
+                },
+              ],
+            },
+          ],
+        },
+        1,
+      ),
+    ).toThrow(BadRequestException);
   });
 
   it('creates the requested dates in the development plan stub', () => {

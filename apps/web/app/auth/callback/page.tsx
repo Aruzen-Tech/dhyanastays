@@ -12,6 +12,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
+import BrandMark from '../../../components/BrandMark';
 
 export default function AuthCallbackPage() {
   const { user, isLoading } = useAuth();
@@ -36,7 +37,9 @@ export default function AuthCallbackPage() {
       <div className="text-center">
         {isLoading ? (
           <>
-            <div className="text-5xl mb-4 animate-pulse">🏡</div>
+            <div className="mb-4 flex justify-center animate-pulse">
+              <BrandMark size={48} />
+            </div>
             <h2 className="text-xl font-semibold text-gray-800 mb-2">
               Setting up your account…
             </h2>
