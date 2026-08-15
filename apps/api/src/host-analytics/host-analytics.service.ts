@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -298,12 +298,32 @@ export class HostAnalyticsService {
 
   async markNotificationRead(userId: string, id: string) {
     const host = await this.prisma.host.findUnique({ where: { userId } });
-    if (!host) return null;
+    if (!host) {
+      throw new NotFoundException('Host not found');
+    }
 
-    return this.prisma.hostNotification.update({
-      where: { id },
-      data: { isRead: true },
+    const notification = await this.prisma.hostNotification.findFirst({
+      where: {
+        id,
+        hostId: host.id,
+      },
     });
+
+    if (!notification) {
+      throw new NotFoundException('Notification not found');
+    }
+
+    if (!notification.isRead) {
+      await this.prisma.hostNotification.update({
+        where: { id },
+        data: { isRead: true },
+      });
+    }
+
+    return {
+      ...notification,
+      isRead: true,
+    };
   }
 
   async markAllNotificationsRead(userId: string) {
