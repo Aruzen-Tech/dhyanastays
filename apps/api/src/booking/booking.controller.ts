@@ -84,7 +84,7 @@ export class BookingController {
   }
 
   /**
-   * Guest or Admin cancels a booking.
+   * Guest, the listing's host, or an admin cancels a booking.
    */
   @Post(':id/cancel')
   cancel(
@@ -95,13 +95,37 @@ export class BookingController {
     return this.bookingService.cancelBooking(id, user.sub, user.role, dto);
   }
 
+  // ── Manual lifecycle ops (listing's host, or admin) ────────────────────────
+
+  /** Confirm a PAYMENT_PENDING booking whose payment was taken offline. */
+  @Roles(UserRole.HOST, UserRole.ADMIN)
+  @Post(':id/confirm')
+  confirmManual(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() body: { method?: string },
+  ) {
+    return this.bookingService.manualConfirm(user.sub, user.role, id, body?.method);
+  }
+
   /**
-   * Admin marks booking as completed after checkout.
+   * Manually transition a guest to CHECKED_IN (no QR scan). Distinct from the
+   * guest self-check-in (`/check-in`, which only records arrival details).
    */
-  @AdminLevelGuard(AdminLevel.L2)
+  @Roles(UserRole.HOST, UserRole.ADMIN)
+  @Post(':id/mark-checked-in')
+  markCheckedIn(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.bookingService.manualCheckIn(user.sub, user.role, id);
+  }
+
+  /**
+   * Host (own listing) or admin marks a booking completed after checkout.
+   * Accepts CONFIRMED_* and CHECKED_IN.
+   */
+  @Roles(UserRole.HOST, UserRole.ADMIN)
   @Post(':id/complete')
   complete(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return this.bookingService.completeBooking(id, user.sub);
+    return this.bookingService.manualComplete(user.sub, user.role, id);
   }
 
   /**

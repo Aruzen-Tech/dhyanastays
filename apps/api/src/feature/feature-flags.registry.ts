@@ -16,7 +16,8 @@ export type FeatureCategory =
   | 'Safety'
   | 'Loyalty & Growth'
   | 'Messaging'
-  | 'Investor';
+  | 'Investor'
+  | 'CRM';
 
 export type FeatureAudience = 'guest' | 'host' | 'admin' | 'investor' | 'influencer';
 
@@ -169,6 +170,17 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     category: 'Loyalty & Growth',
     defaultEnabled: true,
     audience: ['influencer'],
+  },
+
+  // ── CRM ───────────────────────────────────────────────────────────────────
+  {
+    key: 'crm',
+    label: 'CRM',
+    description:
+      'Admin CRM: unified contact profiles (360°), tags, notes, segments, tasks/pipeline, outreach and analytics.',
+    category: 'CRM',
+    defaultEnabled: false, // dark launch — flip on in the control panel
+    audience: ['admin'],
   },
 ];
 

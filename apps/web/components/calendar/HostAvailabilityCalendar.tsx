@@ -31,11 +31,11 @@ const HATCH = (rgba: string) =>
   `repeating-linear-gradient(45deg, ${rgba} 0, ${rgba} 2px, transparent 2px, transparent 6px)`;
 
 const STATUS_STYLE: Record<string, { bg: string; text: string }> = {
-  CONFIRMED_PAID: { bg: 'bg-green-100', text: 'text-green-800' },
-  CHECKED_IN: { bg: 'bg-green-100', text: 'text-green-800' },
-  COMPLETED: { bg: 'bg-green-100', text: 'text-green-800' },
-  CONFIRMED_DEPOSIT: { bg: 'bg-blue-100', text: 'text-blue-800' },
-  BALANCE_DUE: { bg: 'bg-amber-100', text: 'text-amber-800' },
+  CONFIRMED_PAID: { bg: 'bg-success/10', text: 'text-success' },
+  CHECKED_IN: { bg: 'bg-success/10', text: 'text-success' },
+  COMPLETED: { bg: 'bg-success/10', text: 'text-success' },
+  CONFIRMED_DEPOSIT: { bg: 'bg-info/10', text: 'text-info' },
+  BALANCE_DUE: { bg: 'bg-warning/10', text: 'text-warning' },
   PAYMENT_PENDING: { bg: 'bg-gray-100', text: 'text-gray-600' },
 };
 
@@ -249,9 +249,9 @@ export default function HostAvailabilityCalendar({
       text = 'text-gray-500';
       style.backgroundImage = HATCH('rgba(120,120,120,0.3)');
     } else if (day.state === 'HELD') {
-      bg = 'bg-amber-50';
-      text = 'text-amber-700';
-      style.backgroundImage = HATCH('rgba(217,119,6,0.2)');
+      bg = 'bg-warning/10';
+      text = 'text-warning';
+      style.backgroundImage = HATCH('rgba(var(--warning),0.2)');
     }
 
     // Occupancy overlay: solid brand fill on booked days.

@@ -1,5 +1,6 @@
 import { DynamicModule, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { BullModule } from '@nestjs/bullmq';
@@ -35,6 +36,7 @@ import { ItineraryModule } from './itinerary/itinerary.module';
 import { FeatureModule } from './feature/feature.module';
 import { StayPassModule } from './stay-pass/stay-pass.module';
 import { HostSettingsModule } from './host-settings/host-settings.module';
+import { CrmModule } from './crm/crm.module';
 import { ThrottleTrackerInterceptor } from './common/interceptors/throttle-tracker.interceptor';
 import { LoggerModule } from './common/logger/logger.module';
 import { DlqModule } from './common/queues/dlq.module';
@@ -152,6 +154,9 @@ export class AppModule {
           ],
         }),
 
+        // In-process event bus (decouples MessagingService → realtime gateway)
+        EventEmitterModule.forRoot(),
+
         // Structured logging
         LoggerModule,
 
@@ -224,6 +229,7 @@ export class AppModule {
         // Platform control panel — feature flags (global service for FeatureGuard)
         FeatureModule,
         HostSettingsModule,
+        CrmModule,
 
         // Redis-dependent modules (BullMQ + Jobs) — only if Redis is reachable
         ...redisImports,

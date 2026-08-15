@@ -11,6 +11,518 @@ history remains fully detailed in the root `CHANGELOG.md`.
 > **Convention:** every change is recorded in both files — a one-line-per-item
 > entry in the root `CHANGELOG.md`, and a full breakdown here.
 
+## 2026-08-11 — Admin CRM (Phase 1: foundation + 360° profiles)
+
+**Commit:** _pending_ · **Migration:** `0038_crm_foundation`
+
+Phase 1 of the advanced admin CRM (plan approved). Principle: _overlay, don't
+duplicate_ — `User` is the contact; CRM tables key on `userId`, and the timeline
+merges CRM-native events with events derived live from existing tables. Outreach,
+segments, pipeline and analytics land in later phases.
+
+### Data model (migration `0038_crm_foundation`, idempotent)
+
+- `CrmContactProfile` — 1:1 overlay on `User`: `ownerId?`, `source?`,
+  `doNotContact`, `leadScore?`, `lastContactedAt?`. Staff refs (`ownerId`,
+  `authorId`, `actorId`) are plain ids, not relations, to avoid `User` bloat.
+- `CrmTag` (`name` unique, `color`, `category?`) + `CrmContactTag` join — customer
+  tags, separate from the listing-only `Tag`.
+- `CrmNote` — staff-authored notes (`pinned`).
+- `CrmActivity` (+ enum `CrmActivityType`) — CRM-native timeline events only.
+- `User` gains back-relations `crmProfile`, `crmTags`, `crmNotes`, `crmActivities`.
+
+### Backend (`apps/api/src/crm/`)
+
+- `CrmService.listContacts` — Prisma `where` from q/type/tag/owner; page via
+  `$transaction([count, findMany])`; LTV per row = sum of `CAPTURED`
+  `Payment.amount` (one `payment.findMany` over the page's ids, summed in JS);
+  bookings via `booking.groupBy(['guestId'])`.
+- `CrmService.getContact360` — parallel aggregates → KPIs (bookings, LTV, last
+  booking, reviews count/avg, open issues, messages sent).
+- `CrmService.getTimeline` — merges `CrmActivity` + derived booking/message/issue/
+  review rows (each capped), sorted desc.
+- `CrmService.updateProfile` — `crmContactProfile.upsert` + `CONTACT_UPDATED`
+  activity. Tags (`CrmTagsService`) + notes (`CrmNotesService`) log activities.
+- Controllers `CrmController` / `CrmTagsController` / `CrmNotesController`, all
+  `@Controller('admin/crm')`, gated `@AdminLevelGuard(AdminLevel.L2)` +
+  `@FeatureGate('crm')`. Registered in `app.module`.
+
+### Frontend (`apps/web/app/admin/crm/`)
+
+- `page.tsx` — contacts table (search, type + tag filters, sort, pagination,
+  bookings + LTV columns via `formatINR`).
+- `[id]/page.tsx` — 360° profile: KPI tiles, merged timeline (colour-coded by
+  kind), tag chips (assign/remove), notes (add/pin/delete), do-not-contact toggle.
+- `lib/api.ts` — `crmApi` client + types. `Navbar.tsx` — flag-gated CRM link.
+- `feature-flags.registry.ts` — `crm` flag (category `CRM`, `defaultEnabled:false`).
+
+### Verification
+
+- `prisma validate` + `generate`; `tsc --noEmit` clean (api + web); api `lint` clean.
+- `crm.service.spec.ts` — 6 tests (LTV, timeline merge, KPIs, profile upsert) pass.
+- Full api suite green: **393 tests / 25 suites**.
+- Also fixed date rot in `itinerary.service.spec.ts` (2 tests): the hardcoded
+  2026-08-10 trip dates had aged into the past, tripping `validateDateRange`.
+  Froze the clock with `jest.setSystemTime` (faking only `Date`, real timers
+  untouched) rather than bumping literals — so it won't recur.
+
+---
+
+## 2026-08-07 — Itinerary planning context and locking cleanup
+
+This release refines the AI itinerary planner by making backend activity
+allocation deterministic, centralizing generation locking, and keeping prompt
+generation backward compatible for existing callers.
+
+### AI Trip Planner
+
+### Logging
+
+- Removed verbose development-only debug logs.
+- Replaced them with a single structured debug message when using the local itinerary stub.
+
+### Generation Telemetry
+
+- Added generation duration logging.
+- Added token usage logging.
+- Added verified inventory counts.
+- Added retry logging.
+- Added AI validation failure logging.
+
+#### AI Response Validation
+
+- Added structural validation for generated itineraries.
+- Ensures expected day count.
+- Validates sequential day numbering.
+- Validates session structure.
+- Validates time format.
+- Rejects malformed AI responses before storing them.
+
+#### Prompt Generation
+
+- Extracted verified inventory serialization.
+- Extracted allocated experience serialization.
+- Reduced complexity of `buildPlanPrompt()`.
+- Preserved AI prompt behavior.
+
+#### Route Optimization
+
+- Added geographic route optimization for allocated activities.
+- Ordered activities within each day using Haversine distance from the selected stay.
+- Preserved deterministic planner behavior without introducing external routing or mapping services.
+
+#### Fixed
+- Refactored itinerary generation locking to use a single locking implementation.
+- Restored Redis → in-process fallback behavior.
+- Eliminated duplicated locking logic.
+
+#### Added
+- Added deterministic activity allocation of verified experiences across itinerary days.
+- Updated AI prompt generation to consume backend activity allocation.
+- Preserved existing API contracts and itinerary response schema.
+- Maintained backward compatibility by allowing prompt generation to derive activity allocation when not explicitly provided.
+
+### Verification
+- Changes were validated against `apps/api/src/itinerary/itinerary.service.ts` with no compile errors reported.
+
+---
+
+## 2026-08-04 — Realtime chat over socket.io
+
+**Commit:** _pending_ · **Migration:** none
+
+Turns the polled delivery-tracking layer into push. No WebSocket layer existed;
+this adds one. The REST write path is unchanged (validation, contact-block,
+persistence) — the gateway only broadcasts.
+
+### Fix: live connection reliability (post-implementation)
+
+Reported symptom: messages only appeared after a manual refresh — the socket was
+not delivering live in the browser. Root-caused and hardened the client/gateway
+connection (server broadcast path verified working end-to-end beforehand):
+
+- `apps/web/lib/socket.ts` — **removed `transports: ['websocket']`**. Websocket-only
+  never falls back, so anywhere the direct WS upgrade is blocked the socket
+  silently never connects and only the poll/refresh shows messages. Now uses the
+  default polling→websocket upgrade, `withCredentials: true`, and explicit
+  `reconnection` (infinite attempts, 1s→5s backoff). Auth now reads the token via
+  the shared **`getToken()`** (async `auth` callback) instead of
+  `tokenStore.getAccess()` directly — matches the REST client and works in Auth0
+  mode too. Dev-only console logging on `connect`/`disconnect`/`connect_error`/
+  `unauthorized` for diagnosis.
+- `apps/web/lib/api.ts` — `getToken()` is now **exported** (was module-private).
+- `apps/api/.../messaging.gateway.ts` — `corsOrigins()` **reflects the request
+  origin when `NODE_ENV !== 'production'`** (returns `true`), so localhost vs
+  127.0.0.1 and the XHR polling handshake are never CORS-blocked in dev; prod
+  still restricts to `ALLOWED_ORIGINS`.
+- Verified end-to-end against the running server with a browser-shaped client
+  (default transports + `Origin: http://localhost:3000` + async auth):
+  `connected via polling → upgraded to websocket → join ack ok → REST 201 →
+  message:new received`.
+
+### Dependencies
+
+- api: `@nestjs/websockets`, `@nestjs/platform-socket.io`, `socket.io@^4.8`,
+  `@nestjs/event-emitter@^2.1`. web: `socket.io-client@^4.8`.
+
+### Backend
+
+- **`messaging.events.ts`** (new) — event-bus contract: `MESSAGE_CREATED`,
+  `MESSAGE_STATUS` + payload types. Keeps the service socket-free.
+- **`messaging.service.ts`** — injects `EventEmitter2`. `sendMessage` emits
+  `MESSAGE_CREATED`. `markDelivered` (extracted; now **participant-guarded** —
+  returns `[]` for non-participants) and `markRead` (participant check changed
+  from a `ForbiddenException` to a safe no-op) each capture the affected ids and
+  emit `MESSAGE_STATUS`. New `canAccessConversation(convId, userId, role)`
+  (admin → any) for the gateway's room join.
+- **`messaging.gateway.ts`** (new, `@WebSocketGateway`, CORS ← `ALLOWED_ORIGINS`) —
+  `handleConnection` verifies `handshake.auth.token` with `JwtService`
+  (HS256/`JWT_ACCESS_SECRET`; sets `client.data = { userId, role }`, else
+  disconnect). `@SubscribeMessage`: `conversation:join` (access-checked room join),
+  `conversation:leave`, `message:delivered`/`message:read` (→ service, errors
+  swallowed), `typing` (relay to room). `@OnEvent(MESSAGE_CREATED|MESSAGE_STATUS)`
+  → `server.to('conversation:'+id).emit('message:new'|'message:status', …)`.
+- **`messaging.module.ts`** — imports `JwtModule.register({})`, provides
+  `MessagingGateway`. **`app.module.ts`** — `EventEmitterModule.forRoot()`.
+  **`main.ts`** — explicit `app.useWebSocketAdapter(new IoAdapter(app))`.
+
+### Frontend
+
+- **`lib/socket.ts`** — one lazy socket per tab to `NEXT_PUBLIC_API_URL`, token
+  read fresh per connect (survives refresh), `transports: ['websocket']`.
+- **`hooks/useRealtimeConversation.ts`** — joins the room, on `message:new`
+  appends (callback) + acks `delivered`/`read`, on `message:status` updates ticks,
+  tracks a `typingUserId` (4s expiry), returns `emitTyping`. Callbacks held in a
+  ref → the socket effect only re-runs on conversation change.
+- **`MessageThread.tsx`** — `onTyping` (debounced 1.5s) + animated `typingLabel`
+  bar. **guest/host/admin `messages/[id]`** — wire the hook (append with id-dedup
+  vs the optimistic send, status merge), pass typing props; poll `5000 → 20000`ms.
+
+### Tests / verification
+
+- `messaging.service.spec.ts` updated for the `findMany`-then-`updateMany`
+  refactor + the new `EventEmitter2` ctor arg. Full API suite **351/351**; api +
+  web `tsc` clean; eslint clean. (Socket handshake/rooms are integration-level —
+  not unit-tested.)
+
+---
+
+## 2026-08-02 — Messaging: delivery tracking + contact-number blocking
+
+**Commit:** _pending_ · **Migration:** `0037_message_delivery_status` (applied to dev DB)
+
+The participant matrix (guest↔host = `GUEST_HOST`, host↔admin = `HOST_ADMIN`)
+already existed and every direct thread funnels through one
+`MessagingService.sendMessage`, so both features drop in at a single point.
+
+### Schema
+
+- `enum MessageStatus { SENT DELIVERED READ }`; `Message` += `status
+  @default(SENT)`, `deliveredAt DateTime?`, `readAt DateTime?`. Migration is
+  idempotent (guarded `CREATE TYPE`, `ADD COLUMN IF NOT EXISTS`) and backfills
+  existing `isRead=true` rows to `READ` with `readAt/deliveredAt = createdAt`.
+
+### Delivery lifecycle (polled, no WebSocket layer exists)
+
+- **SENT** on create.
+- **DELIVERED** — `getConversationById(convId, viewerId)` flips the counterparty's
+  still-`SENT` messages to `DELIVERED` (+`deliveredAt`) and patches the returned
+  payload in place (no re-fetch). Admin's read-only `adminGetConversationById`
+  does not mark delivery.
+- **READ** — `markRead` sets `status=READ`, `readAt`, `isRead=true` for the
+  counterparty's non-`READ` messages (leaves `deliveredAt` intact).
+- `getConversations` list preview `select` gains `status`.
+- Web: `MessageThread` renders `StatusTicks` (✓ / ✓✓ / ✓✓-blue) on own,
+  non-system messages; open-thread poll `15000 → 5000` ms in the guest/host/admin
+  `messages/[id]` pages (each already calls `markRead` per poll).
+
+### Contact-number blocking
+
+- **`contact-filter.ts`** — `containsContactNumber(text)`: expands spelled digits
+  and `double/triple N`, collapses separators _between digits only_ (so
+  `98765 43210`, `+91-98765-43210`, `9 8 7 6 5…` merge but `45000 and 12000`
+  doesn't), then blocks a run of **≥10 digits**, or a **≥7-digit** run next to a
+  contact keyword (phone/mobile/whatsapp/tel/call/contact/…). Pincodes, flat
+  numbers, prices, dates stay allowed. `CONTACT_BLOCK_MESSAGE` export.
+- `sendMessage` runs it before create; on a hit → audit `MESSAGE_BLOCKED_CONTACT`
+  then throw `BadRequestException(CONTACT_BLOCK_MESSAGE)`. System welcome messages
+  (`isSystem`, written via `message.create`) bypass it.
+- Web: `MessageThread` catches the send rejection, shows it inline, and **restores
+  the draft**; the three thread pages drop their swallowing `catch`. The concierge
+  chat already surfaced send errors.
+
+### Tests
+
+- `contact-filter.spec.ts` (26: 14 blocked incl. obfuscation, 12 allowed) +
+  `messaging.service.spec.ts` (3: block-throws-and-skips-create, delivered-on-
+  fetch, read-on-markRead). Full API suite **351/351**; api + web `tsc` clean;
+  eslint clean.
+
+---
+
+## 2026-07-30 — Fix: host "Access denied" on their own bookings
+
+**Commit:** _pending_ · **Migration:** none
+
+`getBookingById`, `assertHostOrAdmin` (manual-lifecycle helper) and
+`cancelBooking` authorized a host by `requesterRole === 'HOST'` then a
+`host.findUnique(userId) → listing.hostId` match. But `JwtStrategy.validate`
+defaults a missing/namespaced role claim to `'GUEST'` (line 90), so a real host
+with a role-less token fell through to `throw ForbiddenException('Access denied')`.
+
+- All three now authorize the owning host via `booking.listing.host.userId ===
+  requesterId`. `getBookingById` already `include`d `listing.host.userId`;
+  `assertHostOrAdmin` and `cancelBooking` widened their `select` to add it. This
+  drops the extra `host.findUnique` + `listing.findFirst`/compare (one query
+  instead of three) and is independent of the role string. Admin still by role.
+- Note: the action routes (`/complete`, `/confirm`, `/mark-checked-in`) still
+  carry `@Roles(HOST, ADMIN)`; a correctly-issued host token passes the guard and
+  is then authorized by userId. The reported "Access denied" was the guard-less
+  `GET /bookings/:id` (getBookingById) path.
+- Tests: `booking.service.spec.ts` manual-lifecycle fixtures now carry
+  `listing.host.userId`; ownership asserted by userId (non-owner `intruder` →
+  forbidden). Full API suite **322/322**; tsc + eslint clean.
+
+---
+
+## 2026-07-27 — Manual booking lifecycle for host + admin
+
+**Commit:** _pending_ · **Migration:** none
+
+Before: admin could complete (L2) + cancel; host could only collect a
+pay-on-arrival payment. No manual check-in existed (QR scan only), host couldn't
+complete/cancel, and a stuck `PAYMENT_PENDING` booking had no operator override.
+
+- **`state-machine.ts`** — new event `MANUAL_CONFIRMED`
+  (`PAYMENT_PENDING → CONFIRMED_PAID`, no plan guard).
+- **`booking.service.ts`**:
+  - `assertHostOrAdmin(actorId, role, bookingId)` — admin any; host must own the
+    listing (`host.userId → listing.hostId`); else `ForbiddenException`.
+  - `manualConfirm(actor, role, id, method='MANUAL')` — idempotent if already
+    confirmed; else `PAYMENT_PENDING`-only. `withSerializableRetry`: `FOR UPDATE`
+    the listing → `tsrange` overlap check → offline `Payment` (idempotencyKey
+    `manual-<id>`) → `MANUAL_CONFIRMED` → freeze cancellation snapshot →
+    `PAYMENT_CAPTURED` ledger. No payout line. Fires
+    `sendBookingConfirmedNotificationPublic`.
+  - `manualCheckIn(actor, role, id)` — `CONFIRMED_PAID|DEPOSIT → CHECKED_IN` via
+    the SM, `payoutLine.updateMany` re-anchors `eligibleAt` to now+24h (mirrors
+    the QR path). Idempotent when already `CHECKED_IN`.
+  - `manualComplete(actor, role, id)` — accepts `CONFIRMED_*` **and**
+    `CHECKED_IN` → `STAY_COMPLETED`. Idempotent when `COMPLETED`.
+  - `completeBooking` guard widened to include `CHECKED_IN` (so the auto-complete
+    cron can finish checked-in stays too).
+  - `cancelBooking` — authorizes the listing's host in addition to guest/admin;
+    host/admin cancels emit `ADMIN_CANCELLED`, guest emits `GUEST_CANCELLED`.
+- **`booking.controller.ts`** — `@Roles(HOST, ADMIN)`:
+  `POST :id/confirm` → manualConfirm; `POST :id/mark-checked-in` → manualCheckIn
+  (distinct path from guest-assistance's `:id/check-in`, which only writes
+  `checkInData`); `POST :id/complete` broadened from `@AdminLevelGuard(L2)` to
+  host+admin → manualComplete. `:id/cancel` unchanged (service now allows host).
+- **Web** — `bookingsApi.confirmManual`, `bookingsApi.markCheckedIn`
+  (`checkIn`/`complete`/`cancel` already existed). Host + admin bookings tables:
+  status-aware Confirm / Check-in / Complete / Cancel buttons (admin keeps its
+  confirm-modal pattern; check-in is a direct action).
+- **Tests** — `state-machine.spec.ts` +2 (`MANUAL_CONFIRMED`; `CHECKED_IN →
+  COMPLETED`). `booking.service.spec.ts` +5 (manual ownership/status guards +
+  `manualCheckIn` happy path + `manualComplete` on `CHECKED_IN`); mock's event
+  map gains `MANUAL_CONFIRMED`/`CHECKED_IN`. Full API suite **322/322**; api +
+  web `tsc` clean; eslint clean.
+
+---
+
+## 2026-07-27 — Auto-run migrations on deploy + `.env` repair
+
+**Commit:** _pending_ · **Migration:** none
+
+Root cause of the recurring prod `column ... does not exist` 500: Render's free
+tier doesn't run migrations on deploy, so the live DB lagged the deployed code.
+Compounded by a schema detail — `datasource.directUrl = env("DIRECT_URL")` means
+`prisma migrate` connects via **`DIRECT_URL`**, so every manual
+`$env:DATABASE_URL` override silently kept hitting the local DB.
+
+- **`apps/api/docker-entrypoint.sh`** (new) — `sh` script: `set -e` →
+  `npx --no-install prisma migrate deploy` (FATAL) → `npx --no-install prisma db
+  execute --file prisma/post-migrate/01_booking_gist_index.sql` (non-fatal,
+  `|| echo …`) → `exec node dist/main.js`. Idempotent; safe on every free-tier
+  cold start. Uses the container's `DIRECT_URL` (Render internal connString, no
+  SSL needed).
+- **`apps/api/Dockerfile`** — runtime stage now `COPY`s the entrypoint and
+  `CMD ["sh", "docker-entrypoint.sh"]` (was `["node","dist/main.js"]`). `sh …`
+  avoids depending on the file's exec bit (Windows checkout). The deps stage
+  installs devDeps (no `--prod`), so the `prisma` CLI + engines are present in
+  the runtime image; the app already runs Prisma there, so engines are proven.
+- **`apps/api/.env`** — `DATABASE_URL` and `DIRECT_URL` had been overwritten with
+  the production Render URL + a stray `" --file "prisma\…\migration.sql"`
+  fragment (from a mis-paste). Restored both to
+  `postgresql://dhyana:dhyana@localhost:5432/dhyana_stays` (per `.env.example` /
+  `docker-compose.yml`).
+- **`render.yaml`** — header note rewritten: migrations are applied by the
+  entrypoint; `preDeployCommand` is the alternative on a paid plan.
+- **`docs/DEPLOYMENT.md §5`** — rewritten: migrations automatic; documented the
+  `DIRECT_URL`-vs-`DATABASE_URL` gotcha and the `db execute --url` bypass; seed
+  stays a one-time manual step (client reads `DATABASE_URL`).
+
+Effect: committing + deploying this applies migration `0036` (and any future
+ones) on the next container start — no more hand-run migrations, and the current
+`/api/listings` 500 clears the moment the new container boots.
+
+---
+
+## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
+
+**Commits:** `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
+`4988793`, `01acbff`, `2259529`, `f929640`, `8517911` ·
+**Migration:** `0037_itinerary_preferences`
+
+This pass establishes a backend-grounded AI itinerary flow, strengthens generated
+plan and date validation, removes wellness-only assumptions, and introduces the
+shared request model required for richer trip preferences.
+
+### Verified inventory grounding
+
+- **`apps/api/src/itinerary/itinerary-grounding.service.ts`** — added a dedicated
+  grounding service that composes existing listing, availability, pricing, and
+  experience services instead of allowing the model to invent bookable inventory.
+- Stay discovery is limited to approved public listings matching the requested
+  destination.
+- Candidate stays are checked across the requested trip dates and rejected when
+  the complete stay window is not available.
+- Stay prices come from the backend pricing service rather than being calculated
+  or estimated by the AI.
+- Experiences are filtered against the destination and trip window and rejected
+  when their remaining seat count cannot accommodate all travellers.
+- Explicitly selected listings are also validated before they are included in the
+  generation context.
+- **`apps/api/src/itinerary/itinerary.module.ts`** — imports the listing, pricing,
+  and experience modules and provides the grounding service.
+- **`apps/api/src/itinerary/itinerary.service.ts`** — builds a verified grounding
+  context before generation and restricts the plan prompt to backend-confirmed
+  stays and experiences.
+- **`apps/api/src/itinerary/itinerary-grounding.service.spec.ts`** — covers
+  verified inventory construction and rejection of unavailable or unsuitable
+  candidates.
+
+### Suggestion and chat hardening
+
+- **`apps/api/src/itinerary/itinerary.service.ts`** — generalized concept
+  suggestions and development responses so destinations are not forced into
+  wellness, detox, yoga, or retreat themes.
+- Suggestion requests reuse the shared trip-date validation and reject invalid,
+  reversed, excessive, and past date ranges.
+- Finalized itineraries cannot be modified through chat.
+- Development chat responses use the latest user message rather than an earlier
+  message from the conversation.
+- Development plan generation now derives the requested day count and sequential
+  dates from the prompt instead of returning a single day based on the current
+  date.
+
+### Generated-plan validation
+
+- Added `normalizeGeneratedPlan()` to reject malformed AI output before it is
+  persisted.
+- A generated plan must contain:
+  - a non-empty summary;
+  - exactly the requested number of days;
+  - dates matching the requested range in sequential order;
+  - at least one session per day;
+  - session times in valid 24-hour `HH:MM` format;
+  - chronologically increasing, non-duplicate session times;
+  - non-empty session titles;
+  - supported categories: `stay`, `travel`, `meal`, `activity`, `rest`,
+    `cultural`, or `wellness`.
+- Day numbers and accepted textual fields are normalized before persistence.
+- Added service tests for valid normalization, incorrect dates, unsupported
+  categories, unordered sessions, development stub dates, and past trip starts.
+
+### Budget and suggestion selection alignment
+
+- Backend suggestion and generation prompts now describe `budgetMinor` as the
+  maximum **budget per person**, matching the existing web form and itinerary
+  detail display.
+- **`apps/web/app/itineraries/new/page.tsx`** — selecting a concept now sends
+  `suggestion.key` as `themeHint` instead of the presentation title.
+- **`apps/api/src/itinerary/dto/generate-itinerary.dto.ts`** — documents
+  `themeHint` as the stable concept key selected from the suggestion response.
+- Web production build passes.
+
+### Shared trip preference DTO
+
+- **`apps/api/src/itinerary/dto/itinerary-preferences.dto.ts`** (new) — centralizes
+  the common fields used by suggestion and generation requests.
+- Existing fields remain compatible:
+  - destination;
+  - start and end dates;
+  - traveller count;
+  - interests;
+  - per-person budget in the smallest currency unit.
+- New optional validated fields:
+  - `travelStyle`: budget, balanced, comfort, luxury, or backpacking;
+  - `pace`: relaxed, balanced, or fast-paced;
+  - `dietaryRequirements`;
+  - `accessibilityNeeds`;
+  - `accommodationPreference`;
+  - `transportPreference`;
+  - `activityIntensity`;
+  - `specialRequests`.
+- **`suggest-itinerary.dto.ts`** now extends `ItineraryPreferencesDto`.
+- **`generate-itinerary.dto.ts`** now extends `ItineraryPreferencesDto` and adds
+  only generation-specific `listingId` and `themeHint` fields.
+- These preference fields are accepted and validated at the request boundary and
+  are now persisted with generated itineraries. Prompt wiring, ranking usage, and
+  frontend controls remain follow-up work.
+
+### Preference persistence
+
+- **`apps/api/prisma/schema.prisma`** — `Itinerary` now stores:
+  - `travelStyle`;
+  - `pace`;
+  - `dietaryRequirements`;
+  - `accessibilityNeeds`;
+  - `accommodationPreference`;
+  - `transportPreference`;
+  - `activityIntensity`;
+  - `specialRequests`.
+- **Migration `0037_itinerary_preferences`** — adds the eight optional preference
+  columns to `Itinerary`. `dietaryRequirements` is stored as a non-null PostgreSQL
+  text array with an empty-array default; the remaining fields are nullable text.
+  The migration uses `ADD COLUMN IF NOT EXISTS` per repository convention.
+- Migration `0037_itinerary_preferences` was applied successfully to the local
+  Docker PostgreSQL database, and Prisma reports the database schema as up to date.
+- **`apps/api/src/itinerary/itinerary.service.ts`** — `generate()` now maps every
+  validated preference into the Prisma itinerary-create payload, using empty
+  arrays or `null` for omitted optional values.
+- **`apps/api/src/itinerary/itinerary.service.spec.ts`** — added a focused
+  generation test verifying that the expanded preferences are passed to the
+  grounding service and persisted in the itinerary record.
+
+### Grounded itinerary generation
+
+The itinerary grounding pipeline now validates inventory before constructing AI
+prompts, ensuring recommendations are based on live platform data rather than
+unverified listings.
+
+#### Stay grounding
+
+- Retrieves candidate listings from discovery or a selected listing.
+- Verifies full-stay availability for the requested travel dates.
+- Generates live pricing quotes for each available stay.
+- Excludes unavailable properties before prompt construction.
+
+#### Experience grounding
+
+- Filters public experiences by destination.
+- Restricts experiences to the user's travel window.
+- Verifies seat availability for the requested traveler count.
+- Supplies only validated experiences to the itinerary generation prompt.
+
+This significantly improves itinerary reliability by ensuring the language model
+receives only inventory that is currently available and can be booked.
+
+### Verification
+
+- `pnpm --filter @dhyana/api build` — passed.
+- `pnpm --filter @dhyana/api test` — **21 suites / 329 tests passed**.
+
 ---
 
 ## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass

@@ -105,7 +105,7 @@ export function setTokenGetter(fn: () => Promise<string | null>) {
   _tokenGetter = fn;
 }
 
-async function getToken(): Promise<string | null> {
+export async function getToken(): Promise<string | null> {
   if (_tokenGetter) {
     return _tokenGetter();
   }
@@ -546,6 +546,17 @@ export const bookingsApi = {
       method: 'POST',
       body: JSON.stringify({ method }),
     }),
+
+  /** Host/admin: manually confirm a pending booking (payment taken offline). */
+  confirmManual: (id: string, method = 'MANUAL') =>
+    request<Booking>(`/bookings/${id}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ method }),
+    }),
+
+  /** Host/admin: manually transition a guest to CHECKED_IN (no QR scan). */
+  markCheckedIn: (id: string) =>
+    request<Booking>(`/bookings/${id}/mark-checked-in`, { method: 'POST' }),
 
   cancel: (id: string, reason: string) =>
     request<Booking>(`/bookings/${id}/cancel`, {
@@ -1373,6 +1384,139 @@ export const addOnsApi = {
 
   retire: (id: string) =>
     request<AddOn>(`/admin/addons/${id}/retire`, { method: 'POST' }),
+};
+
+// ─── CRM (admin) ──────────────────────────────────────────────────────────────
+
+export interface CrmTag {
+  id: string;
+  name: string;
+  color: string;
+  category?: string | null;
+  count?: number;
+}
+
+export interface CrmContactRow {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  type: string;
+  createdAt: string;
+  ownerId: string | null;
+  source: string | null;
+  leadScore: number | null;
+  doNotContact: boolean;
+  tags: CrmTag[];
+  bookingsCount: number;
+  lastBookingAt: string | null;
+  totalSpentPaise: number;
+}
+
+export interface CrmContactsResponse {
+  data: CrmContactRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pageCount: number;
+}
+
+export interface CrmContact360 {
+  id: string;
+  fullName: string;
+  email: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  type: string;
+  createdAt: string;
+  profile: {
+    userId: string;
+    ownerId: string | null;
+    source: string | null;
+    doNotContact: boolean;
+    leadScore: number | null;
+    lastContactedAt: string | null;
+  } | null;
+  tags: (CrmTag & { addedAt: string })[];
+  kpis: {
+    bookingsCount: number;
+    totalSpentPaise: number;
+    lastBookingAt: string | null;
+    reviewsCount: number;
+    avgRating: number | null;
+    openIssues: number;
+    messagesSent: number;
+  };
+}
+
+export interface CrmTimelineItem {
+  id: string;
+  kind: 'crm' | 'booking' | 'message' | 'issue' | 'review';
+  type: string;
+  summary: string;
+  occurredAt: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface CrmNote {
+  id: string;
+  userId: string;
+  authorId: string;
+  body: string;
+  pinned: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const crmApi = {
+  listContacts: (
+    params: {
+      q?: string;
+      type?: string;
+      tagId?: string;
+      ownerId?: string;
+      sort?: string;
+      page?: number;
+      pageSize?: number;
+    } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== '' && v !== null) qs.set(k, String(v));
+    });
+    return request<CrmContactsResponse>(`/admin/crm/contacts?${qs}`);
+  },
+  getContact: (userId: string) => request<CrmContact360>(`/admin/crm/contacts/${userId}`),
+  getTimeline: (userId: string, limit = 40) =>
+    request<CrmTimelineItem[]>(`/admin/crm/contacts/${userId}/timeline?limit=${limit}`),
+  updateProfile: (
+    userId: string,
+    body: { ownerId?: string; source?: string; doNotContact?: boolean; leadScore?: number },
+  ) =>
+    request<unknown>(`/admin/crm/contacts/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  listTags: () => request<CrmTag[]>('/admin/crm/tags'),
+  createTag: (body: { name: string; color?: string; category?: string }) =>
+    request<CrmTag>('/admin/crm/tags', { method: 'POST', body: JSON.stringify(body) }),
+  assignTag: (userId: string, tagId: string) =>
+    request<{ ok: boolean }>(`/admin/crm/contacts/${userId}/tags/${tagId}`, { method: 'POST' }),
+  removeTag: (userId: string, tagId: string) =>
+    request<{ ok: boolean }>(`/admin/crm/contacts/${userId}/tags/${tagId}`, { method: 'DELETE' }),
+
+  listNotes: (userId: string) => request<CrmNote[]>(`/admin/crm/contacts/${userId}/notes`),
+  addNote: (userId: string, body: { body: string; pinned?: boolean }) =>
+    request<CrmNote>(`/admin/crm/contacts/${userId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateNote: (id: string, body: { body?: string; pinned?: boolean }) =>
+    request<CrmNote>(`/admin/crm/notes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteNote: (id: string) =>
+    request<{ ok: boolean }>(`/admin/crm/notes/${id}`, { method: 'DELETE' }),
 };
 
 // ─── Utility ──────────────────────────────────────────────────────────────────

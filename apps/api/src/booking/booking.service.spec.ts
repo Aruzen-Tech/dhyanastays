@@ -63,6 +63,8 @@ function makeStateMachineMock() {
           PAY_LATER_FINAL_CAPTURED: 'CONFIRMED_PAID',
           BALANCE_DUE_TRIGGERED: 'BALANCE_DUE',
           BALANCE_PAID: 'CONFIRMED_PAID',
+          MANUAL_CONFIRMED: 'CONFIRMED_PAID',
+          CHECKED_IN: 'CHECKED_IN',
           STAY_COMPLETED: 'COMPLETED',
           AUTO_COMPLETED: 'COMPLETED',
           ADMIN_FULL_REFUND_ISSUED: 'REFUNDED',
@@ -737,6 +739,96 @@ describe('BookingService', () => {
           }),
         }),
       );
+    });
+  });
+
+  describe('manual lifecycle (host / admin)', () => {
+    function mkService(prismaMock: any) {
+      return new BookingService(
+        prismaMock as any,
+        makePricingMock() as any,
+        makeAuditMock() as any,
+        makeLedgerMock() as any,
+        makeNotificationMock() as any,
+        makeOutboxMock() as any,
+        { onReferredUserFirstBooking: jest.fn().mockResolvedValue(undefined) } as any,
+        { createBookingAddOns: jest.fn(), cancelBookingAddOns: jest.fn() } as any,
+        { awardPoints: jest.fn(), pointsForPaise: jest.fn().mockReturnValue(0) } as any,
+        makePayLaterMock() as any,
+        makeStateMachineMock() as any,
+        { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue('sig') } as any,
+      );
+    }
+    // The listing's owning host is 'host-user' (matched by userId, not role).
+    const bk = (over: any = {}) => ({
+      id: 'bk-1',
+      status: 'CONFIRMED_PAID',
+      plan: 'FULL',
+      priceSnapshot: SNAPSHOT,
+      startsAt: new Date('2025-12-01'),
+      endsAt: new Date('2025-12-04'),
+      listingId: 'listing-1',
+      listing: { hostId: 'host-1', host: { userId: 'host-user' } },
+      cancellationPolicySnapshot: { tiers: [] },
+      ...over,
+    });
+
+    it('manualCheckIn: a host who does not own the listing is forbidden', async () => {
+      const prismaMock = {
+        booking: { findUnique: jest.fn().mockResolvedValue(bk()) },
+      };
+      await expect(
+        mkService(prismaMock).manualCheckIn('intruder', 'HOST', 'bk-1'),
+      ).rejects.toThrow('Not your booking');
+    });
+
+    it('manualCheckIn: rejects a booking that is not confirmed', async () => {
+      const prismaMock = {
+        booking: { findUnique: jest.fn().mockResolvedValue(bk({ status: 'PAYMENT_PENDING' })) },
+      };
+      await expect(
+        mkService(prismaMock).manualCheckIn('host-user', 'HOST', 'bk-1'),
+      ).rejects.toThrow('Cannot check in');
+    });
+
+    it('manualCheckIn: the owning host checks in CONFIRMED_PAID → CHECKED_IN', async () => {
+      const txMock: any = {
+        booking: {
+          update: jest.fn().mockImplementation(async (a: any) => ({ ...bk(), status: a.data.status })),
+        },
+        payoutLine: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      };
+      const prismaMock = {
+        booking: { findUnique: jest.fn().mockResolvedValue(bk()) },
+        $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+      };
+      const res = await mkService(prismaMock).manualCheckIn('host-user', 'HOST', 'bk-1');
+      expect(res.status).toBe('CHECKED_IN');
+      expect(txMock.payoutLine.updateMany).toHaveBeenCalled();
+    });
+
+    it('manualComplete: admin completes a CHECKED_IN booking → COMPLETED', async () => {
+      const txMock: any = {
+        booking: {
+          findUnique: jest.fn().mockResolvedValue(bk({ status: 'CHECKED_IN' })),
+          update: jest.fn().mockImplementation(async (a: any) => ({ ...bk(), status: a.data.status })),
+        },
+      };
+      const prismaMock = {
+        booking: { findUnique: jest.fn().mockResolvedValue(bk({ status: 'CHECKED_IN' })) },
+        $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+      };
+      const res = await mkService(prismaMock).manualComplete('admin-1', 'ADMIN', 'bk-1');
+      expect(res.status).toBe('COMPLETED');
+    });
+
+    it('manualConfirm: rejects a booking that is not PAYMENT_PENDING (already completed)', async () => {
+      const prismaMock = {
+        booking: { findUnique: jest.fn().mockResolvedValue(bk({ status: 'COMPLETED' })) },
+      };
+      await expect(
+        mkService(prismaMock).manualConfirm('host-user', 'HOST', 'bk-1'),
+      ).rejects.toThrow('Cannot confirm booking');
     });
   });
 });

@@ -12,6 +12,7 @@ import {
   Prisma,
   UserRole,
 } from '@prisma/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { OutboxService } from '../notification/outbox.service';
 import { AdminNotificationService } from '../admin/admin-notification.service';
@@ -19,6 +20,13 @@ import { AuditService } from '../common/services/audit.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { HostSettingsService } from '../host-settings/host-settings.service';
+import { CONTACT_BLOCK_MESSAGE, containsContactNumber } from './contact-filter';
+import {
+  MESSAGE_CREATED,
+  MESSAGE_STATUS,
+  MessageCreatedEvent,
+  MessageStatusEvent,
+} from './messaging.events';
 
 /**
  * Concierge SLA: host must reply within this window after a guest message,
@@ -54,6 +62,7 @@ export class MessagingService {
     private readonly adminNotifications: AdminNotificationService,
     private readonly auditService: AuditService,
     private readonly hostSettings: HostSettingsService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // ─── Create or find conversation (ad-hoc, pre-booking) ────────────────────
@@ -152,7 +161,7 @@ export class MessagingService {
         messages: {
           orderBy: { createdAt: 'desc' },
           take: 1,
-          select: { body: true, createdAt: true, senderId: true, isRead: true, isSystem: true },
+          select: { body: true, createdAt: true, senderId: true, isRead: true, isSystem: true, status: true },
         },
         _count: {
           select: {
@@ -191,7 +200,70 @@ export class MessagingService {
     if (conversation.userOneId !== userId && conversation.userTwoId !== userId) {
       throw new ForbiddenException('Not your conversation');
     }
+
+    // The recipient opening the thread → the counterparty's still-SENT messages
+    // become DELIVERED. READ is a separate, explicit step via markRead.
+    const now = new Date();
+    const delivered = await this.markDelivered(conversationId, userId);
+    // Reflect the update in the returned payload without a re-fetch.
+    const deliveredIds = new Set(delivered);
+    for (const m of conversation.messages) {
+      if (deliveredIds.has(m.id)) {
+        m.status = 'DELIVERED';
+        m.deliveredAt = now;
+      }
+    }
+
     return conversation;
+  }
+
+  /**
+   * Mark the counterparty's still-SENT messages in a conversation as DELIVERED
+   * (recipient's client received them). Broadcasts a realtime status event and
+   * returns the affected message ids. Idempotent — only SENT rows move.
+   */
+  async markDelivered(conversationId: string, userId: string): Promise<string[]> {
+    // Only a participant may mark delivery — a non-participant (admin observing
+    // over the socket room) is a safe no-op, never touching status on their behalf.
+    const convo = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { userOneId: true, userTwoId: true },
+    });
+    if (!convo || (convo.userOneId !== userId && convo.userTwoId !== userId)) {
+      return [];
+    }
+    const pending = await this.prisma.message.findMany({
+      where: { conversationId, senderId: { not: userId }, status: 'SENT' },
+      select: { id: true },
+    });
+    if (pending.length === 0) return [];
+    const ids = pending.map((m) => m.id);
+    const at = new Date();
+    await this.prisma.message.updateMany({
+      where: { id: { in: ids } },
+      data: { status: 'DELIVERED', deliveredAt: at },
+    });
+    this.events.emit(MESSAGE_STATUS, {
+      conversationId,
+      messageIds: ids,
+      status: 'DELIVERED',
+      at: at.toISOString(),
+    } as MessageStatusEvent);
+    return ids;
+  }
+
+  /** Whether a user may join a conversation's realtime room. Admin → any. */
+  async canAccessConversation(
+    conversationId: string,
+    userId: string,
+    role: UserRole,
+  ): Promise<boolean> {
+    if (role === UserRole.ADMIN) return true;
+    const c = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { userOneId: true, userTwoId: true },
+    });
+    return !!c && (c.userOneId === userId || c.userTwoId === userId);
   }
 
   /** Admin (L2+) reads any conversation, skipping the participant check. */
@@ -226,12 +298,25 @@ export class MessagingService {
       throw new BadRequestException('Conversation is closed');
     }
 
+    // Block off-platform contact sharing (phone / mobile / telephone numbers).
+    if (containsContactNumber(dto.body)) {
+      await this.auditService.log(
+        userId,
+        'MESSAGE_BLOCKED_CONTACT',
+        'conversation',
+        conversationId,
+        { reason: 'contact_number' },
+      );
+      throw new BadRequestException(CONTACT_BLOCK_MESSAGE);
+    }
+
     const message = await this.prisma.message.create({
       data: {
         conversationId,
         senderId: userId,
         senderRole: userRole,
         body: dto.body,
+        // status defaults to SENT.
       },
       include: {
         sender: { select: { id: true, fullName: true, role: true, avatarUrl: true } },
@@ -244,6 +329,12 @@ export class MessagingService {
       conversation.kind,
       conversation.status,
     );
+
+    // Realtime: push the new message to everyone in the conversation room.
+    this.events.emit(MESSAGE_CREATED, {
+      conversationId,
+      message,
+    } as MessageCreatedEvent);
 
     // Only concierge threads fan out notifications here. Ad-hoc threads stay
     // lightweight and rely on in-app polling.
@@ -264,20 +355,36 @@ export class MessagingService {
   async markRead(conversationId: string, userId: string) {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
+      select: { userOneId: true, userTwoId: true },
     });
     if (!conversation) throw new NotFoundException('Conversation not found');
+    // Only a participant may mark the counterparty's messages read. A
+    // non-participant (e.g. an admin observing a guest↔host thread over the
+    // socket room) is a safe no-op — never mark or leak status on their behalf.
     if (conversation.userOneId !== userId && conversation.userTwoId !== userId) {
-      throw new ForbiddenException('Not your conversation');
+      return { success: true };
     }
 
-    await this.prisma.message.updateMany({
-      where: {
-        conversationId,
-        senderId: { not: userId },
-        isRead: false,
-      },
-      data: { isRead: true },
+    const unread = await this.prisma.message.findMany({
+      where: { conversationId, senderId: { not: userId }, status: { not: 'READ' } },
+      select: { id: true },
     });
+    if (unread.length === 0) return { success: true };
+
+    const ids = unread.map((m) => m.id);
+    const at = new Date();
+    await this.prisma.message.updateMany({
+      where: { id: { in: ids } },
+      // Leave deliveredAt as-is (already set once delivered; status=READ drives
+      // the read ticks regardless).
+      data: { isRead: true, status: 'READ', readAt: at },
+    });
+    this.events.emit(MESSAGE_STATUS, {
+      conversationId,
+      messageIds: ids,
+      status: 'READ',
+      at: at.toISOString(),
+    } as MessageStatusEvent);
 
     return { success: true };
   }

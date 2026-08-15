@@ -76,23 +76,36 @@ Production boot validation (`env.validation.ts`) enforces every row marked ●.
 4. **Apply.** First build takes ~5–10 min. Your API URL will be
    `https://dhyana-api.onrender.com` (exact name shown in the dashboard).
 
-## 5. Migrate + seed the live database (from your machine)
+## 5. Database migrations (automatic) + one-time seed
 
-Render's free tier has no pre-deploy hook, so run migrations locally against
-the cloud DB once (repeat only when new migrations land):
+**Migrations run automatically on every deploy.** The API container's start-up
+hook (`apps/api/docker-entrypoint.sh`) runs `prisma migrate deploy` (and the
+post-migrate GiST index) before serving — so pushing code that adds a migration
+applies it to the live DB on the next container start. No manual step.
 
-```bash
-# Render dashboard → dhyana-postgres → "External Database URL" → copy it
+> **Gotcha if you ever run migrations by hand:** `schema.prisma` sets
+> `directUrl = env("DIRECT_URL")`, so **`prisma migrate` connects via `DIRECT_URL`,
+> not `DATABASE_URL`.** Overriding `DATABASE_URL` alone has no effect on migrate —
+> it'll silently keep using whatever `DIRECT_URL` resolves to (e.g. your local
+> `.env`). Either set `DIRECT_URL`, or bypass env entirely with an explicit
+> `--url`:
+>
+> ```powershell
+> # Render dashboard → dhyana-postgres → "External Database URL"
+> cd apps/api
+> npx prisma db execute --url "<external-db-url>?sslmode=require" `
+>   --file "prisma\migrations\<name>\migration.sql"
+> ```
+
+**Seed the first admin (one time only).** The seed uses the Prisma *client*, which
+reads `DATABASE_URL`:
+
+```powershell
 cd apps/api
-
-# Windows PowerShell:
-$env:DATABASE_URL = "<external-database-url>"
-npx prisma migrate deploy
-npx prisma db execute --file prisma/post-migrate/01_booking_gist_index.sql --schema prisma/schema.prisma
+$env:DATABASE_URL = "<external-database-url>?sslmode=require"
 $env:ADMIN_EMAIL = "you@example.com"; $env:ADMIN_PASSWORD = "<strong-password>"
 npx ts-node src/prisma/seed.ts
-
-# macOS/Linux: DATABASE_URL="<url>" npx prisma migrate deploy   (etc.)
+Remove-Item Env:\DATABASE_URL   # so local dev points back at localhost
 ```
 
 Verify: `https://dhyana-api.onrender.com/api/listings` returns JSON.

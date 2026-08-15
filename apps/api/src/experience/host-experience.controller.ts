@@ -31,6 +31,11 @@ export class HostExperienceController {
     return this.service.createHostExperience(user.sub, dto);
   }
 
+  @Get(':id')
+  getOne(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.service.getHostExperienceById(user.sub, id);
+  }
+
   @Patch(':id')
   update(
     @CurrentUser() user: RequestUser,

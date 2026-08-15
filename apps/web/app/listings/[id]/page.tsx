@@ -3,16 +3,21 @@
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
 import { useFeature } from '../../../context/FeatureContext';
-import WishlistButton from '../../../components/WishlistButton';
 import AvailabilityCalendar from '../../../components/calendar/AvailabilityCalendar';
+import StayGallery from '../../../components/listing-detail/StayGallery';
+import StayHeader from '../../../components/listing-detail/StayHeader';
+import StayDetailsGrid from '../../../components/listing-detail/StayDetailsGrid';
+import StayAmenities from '../../../components/listing-detail/StayAmenities';
+import StayReviews from '../../../components/listing-detail/StayReviews';
+import StayVideoSection from '../../../components/listing-detail/StayVideoSection';
+import MobileStickyBar from '../../../components/listing-detail/MobileStickyBar';
 
 const ListingMap = dynamic(() => import('../../../components/ListingMap'), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-[300px] rounded-xl bg-gray-100 animate-pulse flex items-center justify-center">
+    <div className="w-full h-full rounded-xl bg-gray-100 animate-pulse flex items-center justify-center">
       <span className="text-gray-400">Loading map...</span>
     </div>
   ),
@@ -150,58 +155,6 @@ function loadRazorpayScript(): Promise<void> {
     script.onerror = () => reject(new Error('Failed to load payment gateway. Check your connection and try again.'));
     document.head.appendChild(script);
   });
-}
-
-// ─── Hero placeholder ─────────────────────────────────────────────────────────
-
-const HERO_GRADIENTS: [string, string][] = [
-  ['#1a5c4a', '#2d8268'],
-  ['#2d5a8e', '#4a7fb5'],
-  ['#6b3a2a', '#9c5a3c'],
-  ['#4a3a6b', '#7a5a9c'],
-  ['#3a5a2a', '#5a8a3c'],
-];
-
-function HeroPlaceholder({ id, city, state, title }: { id: string; city: string; state: string; title: string }) {
-  const idx = id.charCodeAt(0) % HERO_GRADIENTS.length;
-  const [from, to] = HERO_GRADIENTS[idx];
-  const gradId = `hero-${id.slice(0, 8)}`;
-  return (
-    <svg viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg" className="w-full h-full" aria-label={title}>
-      <defs>
-        <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor={from} />
-          <stop offset="100%" stopColor={to} />
-        </linearGradient>
-      </defs>
-      <rect width="900" height="400" fill={`url(#${gradId})`} />
-      <circle cx="750" cy="80" r="180" fill="white" fillOpacity="0.04" />
-      <circle cx="150" cy="340" r="130" fill="white" fillOpacity="0.04" />
-      <g transform="translate(420,130)" fill="white" fillOpacity="0.5">
-        <polygon points="40,0 80,40 0,40" />
-        <rect x="10" y="40" width="60" height="44" />
-        <rect x="26" y="56" width="16" height="28" />
-      </g>
-      <text x="450" y="230" textAnchor="middle" fill="white" fillOpacity="0.7"
-        fontSize="18" fontFamily="system-ui, sans-serif" fontWeight="600">
-        {city}, {state}
-      </text>
-    </svg>
-  );
-}
-
-function StarDisplay({ rating, size = 'sm' }: { rating: number; size?: 'sm' | 'md' }) {
-  const cls = size === 'sm' ? 'w-4 h-4' : 'w-5 h-5';
-  return (
-    <div className="flex gap-0.5">
-      {[1, 2, 3, 4, 5].map((star) => (
-        <svg key={star} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-          fill={star <= Math.round(rating) ? '#f59e0b' : '#e5e7eb'} className={cls}>
-          <path d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.007 5.404.433c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.433 2.082-5.006z" />
-        </svg>
-      ))}
-    </div>
-  );
 }
 
 type Step = 'details' | 'quote' | 'guestdetails' | 'booking' | 'payment' | 'confirmed';
@@ -515,7 +468,7 @@ export default function ListingDetailPage() {
             email: guestDetails.email || undefined,
             contact: guestDetails.phone,
           },
-          theme: { color: '#1a5c4a' },
+          theme: { color: '#0e3b47' },
           handler: () => {
             // Payment captured — webhook will confirm booking asynchronously
             resolve();
@@ -557,154 +510,56 @@ export default function ListingDetailPage() {
     );
   }
 
-  const heroMedia = listing.media?.[0];
-
   return (
-    <div className="container-page py-10">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+    <div className="mx-auto max-w-7xl px-4 py-6 pb-24 sm:px-6 sm:py-10 lg:px-10 lg:pb-10 xl:px-12">
+      <StayGallery
+        listingId={listing.id}
+        title={listing.title}
+        city={listing.city}
+        state={listing.state}
+        description={listing.description}
+        propertyType={listing.propertyType}
+        media={listing.media}
+      />
+
+      <div className="mt-8 grid grid-cols-1 gap-10 lg:mt-10 lg:grid-cols-3">
         {/* Left: Listing info */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Hero */}
-          <div className="rounded-2xl overflow-hidden h-72 bg-brand-100">
-            {heroMedia ? (
-              <img
-                src={heroMedia.url}
-                alt={listing.title}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <HeroPlaceholder
-                id={listing.id}
-                city={listing.city}
-                state={listing.state}
-                title={listing.title}
-              />
-            )}
-          </div>
-
-          {/* Photo gallery (if multiple images) */}
-          {listing.media && listing.media.length > 1 && (
-            <div className="grid grid-cols-4 gap-2">
-              {listing.media.slice(1, 5).map((m) => (
-                <div key={m.id} className="rounded-xl overflow-hidden h-20 bg-gray-100">
-                  <img src={m.url} alt="" className="w-full h-full object-cover" />
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Title + status + wishlist */}
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">{listing.title}</h1>
-              <div className="flex items-center gap-3 mt-1">
-                <p className="text-gray-500">
-                  📍 {listing.city}, {listing.state}, {listing.country}
-                </p>
-                {listingReviews && listingReviews.count > 0 && (
-                  <span className="flex items-center gap-1 text-sm text-gray-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#f59e0b" className="w-4 h-4">
-                      <path d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.007 5.404.433c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.433 2.082-5.006z" />
-                    </svg>
-                    {listingReviews.avgRating} ({listingReviews.count})
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {user?.role === 'GUEST' && (listing as any).host?.userId && (
-                <button
-                  onClick={() => {
-                    const hostUserId = (listing as any).host.userId;
-                    guestMessagingApi
-                      .startConversation({
-                        recipientId: hostUserId,
-                        listingId: listing.id,
-                        message: `Hi, I have a question about "${listing.title}"`,
-                      })
-                      .then((conv) => router.push(`/guest/messages/${conv.id}`))
-                      .catch((e: Error) => alert(e.message));
-                  }}
-                  className="btn-ghost text-sm flex items-center gap-1"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                  Message Host
-                </button>
-              )}
-              <WishlistButton listingId={listing.id} size="md" className="!text-gray-400 hover:!text-red-500" />
-              <StatusBadge status={listing.status} />
-            </div>
-          </div>
+        <div className="space-y-6 lg:col-span-2 lg:space-y-8">
+          <StayHeader
+            listing={listing}
+            listingReviews={listingReviews}
+            canMessageHost={user?.role === 'GUEST' && !!(listing as any).host?.userId}
+            onMessageHost={() => {
+              const hostUserId = (listing as any).host.userId;
+              guestMessagingApi
+                .startConversation({
+                  recipientId: hostUserId,
+                  listingId: listing.id,
+                  message: `Hi, I have a question about "${listing.title}"`,
+                })
+                .then((conv) => router.push(`/guest/messages/${conv.id}`))
+                .catch((e: Error) => alert(e.message));
+            }}
+          />
 
           {/* Description */}
-          <div className="card p-6">
-            <h2 className="font-semibold text-gray-900 mb-3">About this stay</h2>
+          <div className="card p-6 lg:p-7">
+            <h2 className="font-semibold text-gray-900 mb-4">About this stay</h2>
             <p className="text-gray-600 leading-relaxed">{listing.description}</p>
           </div>
 
-          {/* Tags / Amenities */}
-          {listing.tags && listing.tags.length > 0 && (() => {
-            const byCategory: Record<string, string[]> = {};
-            listing.tags!.forEach((lt) => {
-              if (!byCategory[lt.tag.category]) byCategory[lt.tag.category] = [];
-              byCategory[lt.tag.category].push(lt.tag.name);
-            });
-            return (
-              <div className="card p-6">
-                <h2 className="font-semibold text-gray-900 mb-4">Amenities &amp; Features</h2>
-                <div className="space-y-3">
-                  {Object.entries(byCategory).map(([category, names]) => (
-                    <div key={category}>
-                      <p className="text-xs text-gray-400 capitalize mb-1.5">{category}</p>
-                      <div className="flex flex-wrap gap-2">
-                        {names.map((name) => (
-                          <span key={name} className="px-3 py-1 bg-brand-50 text-brand-700 rounded-full text-xs font-medium border border-brand-100">
-                            {name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
+          {listing.tags && listing.tags.length > 0 && <StayAmenities tags={listing.tags} />}
 
-          {/* Details grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {[
-              { icon: '👥', label: 'Max guests', value: listing.rateRules?.[0]?.maxGuests ?? '—' },
-              { icon: '🌏', label: 'Country', value: listing.country },
-              { icon: '🕐', label: 'Timezone', value: listing.timezone },
-            ].map((d) => (
-              <div key={d.label} className="card p-4 text-center">
-                <div className="text-2xl mb-1">{d.icon}</div>
-                <div className="text-xs text-gray-500">{d.label}</div>
-                <div className="font-semibold text-gray-900 text-sm mt-0.5">{String(d.value)}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Location map */}
-          {listing.latitude && listing.longitude && (
-            <div className="card p-6">
-              <h2 className="font-semibold text-gray-900 mb-3">Location</h2>
-              <ListingMap
-                listings={[listing]}
-                height="300px"
-                center={[listing.latitude, listing.longitude]}
-                zoom={13}
-                interactive={true}
-              />
-            </div>
-          )}
+          <StayDetailsGrid
+            maxGuests={listing.rateRules?.[0]?.maxGuests}
+            country={listing.country}
+            timezone={listing.timezone}
+          />
 
           {/* Seasonal rates (if any) */}
           {listing.seasonalRates && listing.seasonalRates.length > 0 && (
-            <div className="card p-6">
-              <h2 className="font-semibold text-gray-900 mb-3">Seasonal pricing</h2>
+            <div className="card p-6 lg:p-7">
+              <h2 className="font-semibold text-gray-900 mb-4">Seasonal pricing</h2>
               <div className="space-y-2">
                 {listing.seasonalRates.map((r) => (
                   <div key={r.id} className="flex justify-between text-sm">
@@ -719,8 +574,8 @@ export default function ListingDetailPage() {
           )}
 
           {/* Cancellation policy */}
-          <div className="card p-6">
-            <h2 className="font-semibold text-gray-900 mb-3">Cancellation policy</h2>
+          <div className="card p-6 lg:p-7">
+            <h2 className="font-semibold text-gray-900 mb-4">Cancellation policy</h2>
             <ul className="space-y-2 text-sm text-gray-600">
               <li className="flex items-start gap-2">
                 <span className="text-green-500 mt-0.5">✓</span>
@@ -737,51 +592,12 @@ export default function ListingDetailPage() {
             </ul>
           </div>
 
-          {/* Guest reviews */}
-          {listingReviews && listingReviews.count > 0 && (
-            <div className="card p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-semibold text-gray-900">
-                  Guest reviews ({listingReviews.count})
-                </h2>
-                <div className="flex items-center gap-2">
-                  <StarDisplay rating={listingReviews.avgRating} size="md" />
-                  <span className="font-bold text-gray-900">{listingReviews.avgRating}</span>
-                </div>
-              </div>
-              <div className="space-y-4">
-                {listingReviews.reviews.slice(0, 5).map((review) => (
-                  <div key={review.id} className="border-b border-gray-100 pb-4 last:border-0 last:pb-0">
-                    <div className="flex items-center gap-3 mb-1.5">
-                      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-sm font-bold text-gray-500">
-                        {(review.user?.fullName ?? 'G').charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{review.user?.fullName ?? 'Guest'}</p>
-                        <div className="flex items-center gap-2">
-                          <StarDisplay rating={review.rating} />
-                          <span className="text-xs text-gray-400">{formatDate(review.createdAt)}</span>
-                        </div>
-                      </div>
-                    </div>
-                    {review.comment && (
-                      <p className="text-sm text-gray-600 ml-11">{review.comment}</p>
-                    )}
-                  </div>
-                ))}
-                {listingReviews.count > 5 && (
-                  <p className="text-sm text-gray-400 text-center">
-                    Showing 5 of {listingReviews.count} reviews
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
+          {listingReviews && listingReviews.count > 0 && <StayReviews listingReviews={listingReviews} />}
         </div>
 
         {/* Right: Booking panel */}
         <div className="lg:col-span-1">
-          <div className="card p-6 sticky top-24">
+          <div id="booking-card" className="card p-6 lg:p-7 sticky top-24 scroll-mt-24">
             {/* Price */}
             <div className="mb-5">
               {listing.rateRules?.[0]?.baseNightlyRate ? (
@@ -1133,6 +949,53 @@ export default function ListingDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Video + Location — side by side on desktop, stacked on mobile, both
+          capped to the same modest height rather than each section's own
+          previous full-length treatment.
+
+          TEMPORARY PREVIEW OVERRIDE — no listing in the current dataset has
+          real coordinates yet, so the real guard below never renders,
+          making this layout impossible to see live. Forced on for now with
+          a fallback center (India) so the map has something to draw;
+          restore the real guard (and delete PREVIEW_* below) once listings
+          have real lat/lng:
+
+            {listing.latitude && listing.longitude && ( ...map card... )}
+
+          and the wrapping grid's className back to:
+
+            `mt-8 grid grid-cols-1 gap-6 lg:mt-10 ${listing.latitude && listing.longitude ? 'lg:grid-cols-2' : ''}`
+      */}
+      <div className="mt-8 grid grid-cols-1 gap-6 lg:mt-10 lg:grid-cols-2">
+        <StayVideoSection
+          listingId={listing.id}
+          title={listing.title}
+          posterUrl={listing.media?.[0]?.url}
+        />
+        {(() => {
+          const PREVIEW_LAT = 20.5937; // fallback only — center of India, not a real listing coordinate
+          const PREVIEW_LNG = 78.9629;
+          const previewLat = listing.latitude ?? PREVIEW_LAT;
+          const previewLng = listing.longitude ?? PREVIEW_LNG;
+          return (
+            <div className="card shadow-none border-0 flex h-full flex-col p-6 lg:p-7">
+              <h2 className="mb-4 font-semibold text-gray-900">Location</h2>
+              <div className="h-72 overflow-hidden rounded-xl lg:h-80">
+                <ListingMap
+                  listings={[{ ...listing, latitude: previewLat, longitude: previewLng }]}
+                  height="100%"
+                  center={[previewLat, previewLng]}
+                  zoom={13}
+                  interactive={true}
+                />
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      <MobileStickyBar nightlyRate={listing.rateRules?.[0]?.baseNightlyRate} visible={step === 'details'} />
 
       {/* Abandon-hold confirmation */}
       {showAbandonConfirm && (

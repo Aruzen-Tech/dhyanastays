@@ -1,7 +1,23 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { ConversationMessage } from '../lib/types';
+import type { ConversationMessage, MessageStatus } from '../lib/types';
+
+/** WhatsApp-style delivery ticks shown on the sender's own messages. */
+function StatusTicks({ status }: { status?: MessageStatus }) {
+  if (!status) return null;
+  const isRead = status === 'READ';
+  const doubled = status === 'DELIVERED' || isRead;
+  return (
+    <span
+      title={status.toLowerCase()}
+      aria-label={status.toLowerCase()}
+      className={isRead ? 'text-sky-500 font-semibold' : 'text-gray-400'}
+    >
+      {doubled ? '✓✓' : '✓'}
+    </span>
+  );
+}
 
 function formatTime(dateStr: string) {
   const d = new Date(dateStr);
@@ -30,12 +46,33 @@ interface Props {
   currentUserId: string;
   onSend: (body: string) => Promise<void>;
   sending?: boolean;
+  /** Emitted (debounced) as the user types, for the realtime typing indicator. */
+  onTyping?: (isTyping: boolean) => void;
+  /** Shown above the composer when the other party is typing. */
+  typingLabel?: string;
 }
 
-export default function MessageThread({ messages, currentUserId, onSend, sending }: Props) {
+export default function MessageThread({
+  messages,
+  currentUserId,
+  onSend,
+  sending,
+  onTyping,
+  typingLabel,
+}: Props) {
   const [draft, setDraft] = useState('');
+  const [error, setError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const typingIdle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setDraft(e.target.value);
+    if (!onTyping) return;
+    onTyping(true);
+    clearTimeout(typingIdle.current);
+    typingIdle.current = setTimeout(() => onTyping(false), 1500);
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -45,8 +82,18 @@ export default function MessageThread({ messages, currentUserId, onSend, sending
     e.preventDefault();
     if (!draft.trim() || sending) return;
     const msg = draft.trim();
+    setError('');
     setDraft('');
-    await onSend(msg);
+    clearTimeout(typingIdle.current);
+    onTyping?.(false);
+    try {
+      await onSend(msg);
+    } catch (err) {
+      // Restore the draft so a blocked/failed message isn't lost, and surface
+      // the reason (e.g. the contact-number block).
+      setDraft(msg);
+      setError(err instanceof Error ? err.message : 'Message could not be sent.');
+    }
     inputRef.current?.focus();
   };
 
@@ -88,8 +135,13 @@ export default function MessageThread({ messages, currentUserId, onSend, sending
                 >
                   {msg.body}
                 </div>
-                <p className={`text-xs text-gray-400 mt-1 ${isMine ? 'text-right' : ''}`}>
-                  {formatTime(msg.createdAt)}
+                <p
+                  className={`text-xs text-gray-400 mt-1 flex items-center gap-1 ${
+                    isMine ? 'justify-end' : ''
+                  }`}
+                >
+                  <span>{formatTime(msg.createdAt)}</span>
+                  {isMine && !msg.isSystem && <StatusTicks status={msg.status} />}
                 </p>
               </div>
             </div>
@@ -98,12 +150,31 @@ export default function MessageThread({ messages, currentUserId, onSend, sending
         <div ref={bottomRef} />
       </div>
 
+      {/* Typing indicator */}
+      {typingLabel && (
+        <div className="px-4 pb-1 text-xs text-gray-400 italic flex items-center gap-1">
+          <span className="inline-flex gap-0.5">
+            <span className="w-1 h-1 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+            <span className="w-1 h-1 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+            <span className="w-1 h-1 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+          </span>
+          {typingLabel}
+        </div>
+      )}
+
+      {/* Send error (e.g. contact-number block) */}
+      {error && (
+        <div className="px-4 py-2 text-xs text-red-600 bg-red-50 border-t border-red-100">
+          {error}
+        </div>
+      )}
+
       {/* Input */}
       <form onSubmit={handleSubmit} className="border-t border-gray-100 p-3 flex gap-2">
         <textarea
           ref={inputRef}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
           rows={1}

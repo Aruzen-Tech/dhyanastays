@@ -5,6 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 `0000_name`; commits as short SHAs.
 
 **Two-tier changelog:**
+
 - **This file** — concise, scannable summary (one line per item).
 - **[`docs/CHANGELOG-detailed.md`](docs/CHANGELOG-detailed.md)** — granular record
   (files, method/endpoint signatures, migration DDL, rationale, test results).
@@ -16,9 +17,103 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-11 — Admin CRM (Phase 1: foundation + 360° profiles)
+
+First slice of the advanced admin CRM. Unified contacts (guests **and** hosts)
+overlaid on `User` — no duplicate contact table. Dark-launched behind the new
+`crm` feature flag (default **off**).
+
+### Added
+
+- **Migration `0038_crm_foundation`** (idempotent) — `CrmContactProfile` (1:1
+  overlay: owner, source, doNotContact, leadScore), `CrmTag` + `CrmContactTag`
+  (customer-level tags, distinct from the listing-only `Tag`), `CrmNote`,
+  `CrmActivity` (+ `CrmActivityType` enum).
+- **`crm` backend module** (`apps/api/src/crm/`) — contacts search/filter/paginate
+  with per-row bookings + lifetime value (sum of `CAPTURED` payments); 360°
+  profile with computed KPIs; a **merged activity timeline** (CRM events +
+  events derived live from bookings/messages/issues/reviews); tag assign/remove;
+  notes CRUD. All routes gated `@AdminLevelGuard(L2)` + `@FeatureGate('crm')`.
+- **Admin UI** — `/admin/crm` (contacts table: search, type/tag filters,
+  bookings + LTV columns) and `/admin/crm/[id]` (360° profile: KPI tiles, merged
+  timeline, tag chips, notes). CRM entry added to the admin nav, flag-gated.
+- **`crm` feature flag** in the registry (category `CRM`, admin audience).
+
+### Verification
+
+- `prisma validate` + `generate`; api & web `tsc --noEmit` clean; api `lint` clean.
+- New `crm.service.spec.ts` — **6 tests** (LTV math, timeline merge/order, KPIs,
+  profile upsert). Full api suite green — **393 tests, 25 suites**.
+
+### Fixed
+
+- **`itinerary.service.spec.ts` date rot** — the spec hardcoded 2026‑08‑10 trip
+  dates that became "past" over time, tripping `validateDateRange`. Froze the
+  clock (`jest.setSystemTime`, faking **only** `Date` so real timers are
+  untouched) instead of bumping literals, so it can't rot again.
+
+### Migration note
+
+- Apply with `prisma migrate deploy` (adds the 5 CRM tables + enum). Additive;
+  existing rows untouched.
+
+---
+
+## 2026-07-28 — AI Trip Planner grounding, validation, and preference inputs
+
+Commits `2d2d34f`, `80d520e`, `dc01b0c`, `b15a8cf`, `885c28f`,
+`4988793`, `01acbff`, `2259529`, `f929640`, `8517911`.
+Migration `0037_itinerary_preferences`.
+
+### Added
+
+- **Verified internal inventory grounding** for generated itineraries. The planner
+  now searches approved Dhyana Stays listings and experiences, verifies stay
+  availability, obtains trusted backend pricing, checks experience dates and
+  remaining seats, and exposes only verified candidates to the AI prompt.
+- **Shared itinerary preference request model** with optional travel style, trip
+  pace, dietary requirements, accessibility needs, accommodation preference,
+  transport preference, activity intensity, and special requests.
+- **Persistent itinerary preferences** — migration `0037_itinerary_preferences`
+  adds travel style, pace, dietary requirements, accessibility needs,
+  accommodation preference, transport preference, activity intensity, and
+  special requests to generated itinerary records.
+
+### Changed
+
+- **Trip concepts and development stubs are destination-agnostic** rather than
+  being restricted to wellness and retreat themes.
+- **Budget semantics are consistently per person**, and the web suggestion flow
+  now sends the stable suggestion key instead of the display title.
+- Generated itineraries now save all validated trip preferences so they can be
+  reused by itinerary display, refinement, ranking, and future regeneration.
+- `SuggestItineraryDto` and `GenerateItineraryDto` now inherit their common trip
+  fields from `ItineraryPreferencesDto`.
+- **Grounded itinerary generation** — AI itinerary generation now verifies
+  candidate stays using real-time availability and pricing before they are sent
+  to the language model. Experiences are also filtered by destination, travel
+  window, and seat availability so generated itineraries are based on
+  bookable, validated inventory.
+
+### Fixed
+
+- **Generated itinerary structure is strictly validated** for summary, exact day
+  count, sequential trip dates, non-empty sessions, `HH:MM` times, chronological
+  ordering, and supported session categories.
+- **Past trip start dates are rejected**, in addition to invalid, reversed, and
+  over-21-day date ranges.
+- **Chat refinement is hardened** by rejecting finalized-itinerary changes and
+  using the latest user request in the development response flow.
+
+### Verification
+
+- API build passes.
+- API test suite: **21 suites / 329 tests passing**.
+
 ## 2026-07-25 — Guest dashboard: view booking, download invoice + Stay Pass
 
 ### Added
+
 - **Per-booking actions in the dashboard "My Bookings" list** — **View**
   (→ `/bookings/:id`), **Invoice**, and **Stay Pass** (shown for confirmed
   statuses when `stay_pass` is on) alongside the existing Cancel.
@@ -37,6 +132,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 ## 2026-07-25 — Show the Stay Pass on the booking page
 
 ### Fixed
+
 - **The Stay Pass ticket rendered but was never shown to the guest.** The
   `ticket-render` sweep produces the ticket (`GET /bookings/:id/ticket` serves
   it), but the booking detail page had no UI for it, so guests "didn't get" their
@@ -52,6 +148,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 ## 2026-07-25 — Confirm before abandoning a hold
 
 ### Added
+
 - **"Cancel your hold?" confirmation** on the listing booking flow. While a hold
   is live (guest-details / payment-plan steps), leaving now asks first:
   - the in-app **← Back (release hold)** button opens a confirm modal;
@@ -70,6 +167,7 @@ Migration `0036_pay_on_arrival`. Guests can reserve now and pay the full amount
 at the property — only on listings the host has opted in.
 
 ### Added
+
 - **Host opt-in** — `Listing.payOnArrivalEnabled` (default **false**). Toggle on
   the listing edit page ("Accept pay-on-arrival"); flows through the existing
   `PATCH /host/listings/:id`.
@@ -86,9 +184,11 @@ at the property — only on listings the host has opted in.
   CONFIRMED_DEPOSIT); collection reuses `BALANCE_PAID`.
 
 ### Changed
+
 - `POST /payments/init` rejects `PAY_ON_ARRIVAL` bookings (settled offline).
 
 ### Notes
+
 - No positive payout line is created for pay-on-arrival — the host collects the
   cash directly and settles the platform fee out of band. (+8 unit tests.)
 
@@ -97,6 +197,7 @@ at the property — only on listings the host has opted in.
 ## 2026-07-25 — Calendar: only confirmed bookings read as "booked"
 
 ### Fixed
+
 - **Held / pending dates showed as BOOKED.** The availability endpoint counted
   `PAYMENT_PENDING` in the same bucket as confirmed bookings, so a date you were
   merely holding (or that had an unpaid booking) rendered as *booked* before any
@@ -114,12 +215,14 @@ at the property — only on listings the host has opted in.
 **resumable** and stops a guest being blocked by their own hold.
 
 ### Fixed
+
 - **A guest could be blocked by their own hold.** `createHold`'s overlap check
   didn't exclude the caller, so re-selecting the same dates threw *"held by
   another guest."* The 409 now excludes `guestId` (own holds), and the guest's
   earlier un-booked holds on the listing are cleared when they move to new dates.
 
 ### Added
+
 - **Resume-on-return.** `createHold` returns the guest's own live (un-booked,
   non-expired) hold for the same dates instead of minting a duplicate
   (`HOLD_RESUMED` audit). New `GET /api/holds/active?listingId=` returns the
@@ -138,6 +241,7 @@ it off in the control panel to fall back to the native date inputs / read-only
 calendars). No schema changes, no migration.
 
 ### Added
+
 - **Public availability endpoint** — `GET /api/listings/:id/availability?from=&to=`
   returns a PII-free per-day array (`state` AVAILABLE/BOOKED/HELD/BLOCKED/PAST,
   paise `priceMinor`, `isSeasonal`, `isTurnover`, `minNights`, `heldUntil`).
@@ -164,6 +268,7 @@ calendars). No schema changes, no migration.
   merged booking+block all-day events; host "Export .ics" link).
 
 ### Changed
+
 - Host/admin block + seasonal-rate mutations now write **audit logs**
   (`AVAILABILITY_BLOCK_CREATE/DELETE`, `SEASONAL_RATE_CREATE/DELETE`).
 - `getPublicListingById` includes `stayTheme` (id + tokens) for the theme tint.
@@ -174,6 +279,7 @@ calendars). No schema changes, no migration.
 ## 2026-07-24 — Docs: interactive-calendar research + implementation plan
 
 ### Added
+
 - **[`docs/CALENDAR-ENHANCEMENT-IDEAS.md`](docs/CALENDAR-ENHANCEMENT-IDEAS.md)** —
   grounded research across the three calendar surfaces (guest date-picker, host
   availability, admin ops), a unified availability **colour language**,
@@ -190,6 +296,7 @@ calendars). No schema changes, no migration.
 Migration `0035_passport_stamp_details`. Feature-flagged (`stay_pass`).
 
 ### Added
+
 - **The Stay Passport** — every guest profile is now a passport whose pages are
   their stays. **Two-phase stamping:** an ENTRY stamp is inked at **verified
   check-in** (QR scan → `PassportStamp` with `checkedInAt`), then **sealed at
@@ -209,6 +316,7 @@ Migration `0035_passport_stamp_details`. Feature-flagged (`stay_pass`).
   checkedInAt/completedAt` (migration 0035).
 
 ### Verified
+
 - 5 new unit tests (two-phase stamping, idempotency, never-scanned backstop,
   passport aggregation). Suites: **295/295 unit, 34/34 integration**, lint + tsc
   clean, web compiles.
@@ -223,6 +331,7 @@ Migration `0035_passport_stamp_details`. Feature-flagged (`stay_pass`).
 Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_pass`, default OFF).
 
 ### Added
+
 - **Phase A — themed booking tickets.** New `stay-pass` module: theme registry
   (6 launch themes seeded; per-listing `stayThemeId` with guaranteed default
   fallback), deterministic SVG master template rendered to **OG / story / email
@@ -245,6 +354,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 - Dockerfile: Noto fonts (Latin/Tamil/Devanagari) baked into the runtime image.
 
 ### Verified
+
 - 18 new unit tests (token security, renderer determinism + privacy, check-in
   guards + payout re-anchor); suites green: **290/290 unit, 34/34 integration**.
 - Live end-to-end on dev: sweep rendered a real ticket (all 5 formats, viewable
@@ -256,6 +366,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-23 — Docs: Stay Pass module implementation approach
 
 ### Added
+
 - **[`docs/STAY-PASS-IMPLEMENTATION-APPROACH.md`](docs/STAY-PASS-IMPLEMENTATION-APPROACH.md)**
   — grounded implementation approach for the Stay Pass spec (themed tickets,
   wallet passes, signed-QR check-in, Stay Passport), mapped against the actual
@@ -270,6 +381,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-22 — Docs: booking-engine end-to-end test plan (Word + Markdown)
 
 ### Added
+
 - **[`docs/BOOKING-ENGINE-TEST-PLAN.md`](docs/BOOKING-ENGINE-TEST-PLAN.md)** +
   **`docs/Dhyana-Stays-Booking-Engine-Test-Plan.docx`** — focused deep-dive on the
   booking flow + confirmation correctness: ~40 scenarios across quote/pricing,
@@ -285,6 +397,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-22 — Docs: manual test plan (Word + Markdown)
 
 ### Added
+
 - **[`docs/MANUAL-TEST-PLAN.md`](docs/MANUAL-TEST-PLAN.md)** +
   **`docs/Dhyana-Stays-Manual-Test-Plan.docx`** — ~55 end-to-end manual test
   scenarios across 20 modules (auth, discovery/map, booking full/deposit/
@@ -298,6 +411,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-22 — Fix: all background jobs failed to enqueue (BullMQ colon in jobId)
 
 ### Fixed
+
 - **Every scheduled job threw `Custom Id cannot contain :` and never enqueued.**
   `jobs.scheduler.ts`'s `bucketJobId()` built job IDs as `${name}:${bucket}` —
   BullMQ reserves `:` as its Redis key delimiter and rejects any custom jobId
@@ -313,6 +427,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-19 — Fix schema drift: 3 tables missing from migrations (0033)
 
 ### Fixed
+
 - **Migration/schema drift — `SystemConfig`, `AdminNotification`, `HostNotification`
   were in `schema.prisma` but no migration created them.** Local/dev DBs had them
   (added ad-hoc via `db push`/`migrate dev`), but a fresh `prisma migrate deploy`
@@ -330,6 +445,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-19 — Production hardening pass: AI itinerary, jobs, CI, error tracking
 
 ### Fixed
+
 - **AI itinerary — Anthropic call had no timeout.** A stalled connection would
   hang the request (and the guest's HTTP call) indefinitely. Added a 30s
   per-attempt `AbortController` timeout; timeout/network errors now surface as
@@ -339,6 +455,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
   Trigger is now `main`/`dev`.
 
 ### Added
+
 - **CI integration-test job.** New `integration` job spins up Postgres 16,
   applies migrations + the GiST index, and runs the 34-test booking-engine
   integration suite + concurrency proofs — the tests that caught the
@@ -350,6 +467,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
   `SENTRY_TRACES_SAMPLE_RATE`, `SENTRY_RELEASE`.
 
 ### Changed
+
 - **BullMQ default job options (all 11 queues).** Added `attempts: 3` +
   exponential backoff (transient failures now retry — all processors are
   idempotent) and `removeOnComplete`/`removeOnFail` caps so finished jobs stop
@@ -363,6 +481,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-19 — Discovery tag URL validation
 
 ### Fixed
+
 - Prevented unvalidated listing-tag IDs from filtering Discovery results before metadata loads.
 - Added metadata-aware validation and canonicalization for tag IDs in shared URLs.
 - Preserved raw tag URLs when metadata is unavailable while keeping those tags inactive.
@@ -374,6 +493,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-19 — Discovery URL-state hardening
 
 ### Fixed
+
 - Prevented malformed guest and maximum-price URL values from corrupting Discovery results.
 - Added canonical handling for numeric, text, enum, experience, and dietary URL parameters.
 - Removed duplicate and invalid fixed-filter values from shareable URLs.
@@ -385,6 +505,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-19 — Discovery request-state hardening
 
 ### Fixed
+
 - Prevented stale search responses from replacing newer Discovery results.
 - Prevented older requests from clearing the active searching state.
 - Invalidated in-flight search updates when the Discovery page unmounts.
@@ -395,6 +516,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-19 — Discovery edge-case hardening
 
 ### Improved
+
 - Added validation for reversed map latitude and longitude bounds.
 - Added consistent 50-result limits for Meilisearch and database search fallback.
 - Added regression coverage for zero-area map bounds and search fallback behavior.
@@ -405,6 +527,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-19 — Discovery frontend tests
 
 ### Added
+
 - Added a dedicated Vitest setup for the web application.
 - Added deterministic unit tests for dense map-marker grouping.
 - Added component tests protecting the listing-card link and wishlist structure.
@@ -416,6 +539,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Docs: production feature checklist (vs. all-modules PDF)
 
 ### Added
+
 - **[`docs/PRODUCTION-CHECKLIST.md`](docs/PRODUCTION-CHECKLIST.md)** — full audit
   of the 34-module "Complete Module Breakdown (V1→V3)" PDF against the codebase
   (grep-verified): per-module ✅/🟡/❌ tables, phase scorecard, and a prioritized
@@ -429,6 +553,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery listing-card accessibility
 
 ### Improved
+
 - Removed invalid nested interactive content from Discovery listing cards.
 - Preserved native card-link navigation while making the wishlist control independent.
 - Added clearer keyboard focus treatment for card and wishlist interactions.
@@ -440,6 +565,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery map accessibility
 
 ### Improved
+
 - Added labelled and busy-state semantics to Map and Split map regions.
 - Improved map loading, error, and empty-state accessibility.
 - Added accessible names and keyboard metadata to individual stay markers.
@@ -452,6 +578,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery controls accessibility
 
 ### Improved
+
 - Added accessible names and selected-state semantics to Grid, Map, and Split
   view controls.
 - Added expanded-state semantics to the Discovery filter panel.
@@ -465,6 +592,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Dense map marker grouping
 
 ### Improved
+
 - Grouped nearby map markers using deterministic client-side clustering.
 - Added cluster markers showing the number of stays in dense areas.
 - Added selectable, scrollable stay lists for exact-coordinate and
@@ -479,6 +607,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery map viewport result limit
 
 ### Improved
+
 - Limited map viewport queries to 200 approved listings.
 - Prevented very large map responses from slowing the Discovery page.
 - Kept the existing newest-first ordering and response format unchanged.
@@ -488,6 +617,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery selection-state cleanup
 
 ### Improved
+
 - Cleared selected listings when they are removed by filters or map movement.
 - Prevented stale marker highlights after switching away from Split view.
 - Kept marker and card selection synchronized with currently visible results.
@@ -497,6 +627,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery map request cancellation
 
 ### Improved
+
 - Cancelled outdated map viewport requests when users move or zoom the map.
 - Prevented cancelled requests from showing map error states.
 - Kept stale-response protection so only the latest viewport updates markers.
@@ -507,6 +638,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery marker and card selection
 
 ### Improved
+
 - Clicking a map marker now selects the matching listing.
 - In Split view, the matching listing card scrolls into view automatically.
 - Selected listing cards and markers remain visually highlighted.
@@ -517,6 +649,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery browser history support
 
 ### Improved
+
 - Added browser Back and Forward support for Discovery search state.
 - Search text, filters, and view mode are restored from the URL without
   refreshing the page.
@@ -528,6 +661,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Responsive Discovery map views
 
 ### Improved
+
 - Made the Discovery Grid and Map controls available on mobile devices.
 - Kept Split view available on tablet and desktop layouts.
 - Added responsive map heights for smaller screens.
@@ -540,6 +674,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery autocomplete keyboard navigation
 
 ### Improved
+
 - Search autocomplete now supports Arrow Up and Arrow Down navigation.
 - Pressing Enter selects the active suggestion, while Escape closes the list.
 - Added visible active-suggestion styling and improved combobox accessibility
@@ -550,6 +685,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery Meilisearch reindexing
 
 ### Added
+
 - Added a reusable mapper for generating consistent Meilisearch listing
   documents.
 - Added a `meili:reindex` command that rebuilds the listings index from all
@@ -566,6 +702,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery search relevance ordering
 
 ### Fixed
+
 - Discovery search results now preserve the relevance order returned by
   Meilisearch.
 - Listings missing from PostgreSQL or no longer approved are safely excluded
@@ -577,6 +714,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery filter URL state
 
 ### Added
+
 - All Discovery filters are now synchronized with the browser URL.
 - Shared links and page refreshes now preserve state, guests, maximum price,
   tags, experiences, property type, dietary options, sorting, search text, and
@@ -588,6 +726,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery URL state
 
 ### Added
+
 - Search text and selected Discovery view are now synchronized with the browser
   URL.
 - Search and Map/Split view selections survive page refreshes and can be shared
@@ -599,6 +738,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery search autocomplete
 
 ### Added
+
 - Added client-side search suggestions for listing names, cities, and states.
 - Suggestions appear after two characters, remove duplicates, and close after
   selection or when clicking outside the search box.
@@ -610,6 +750,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery search database fallback
 
 ### Fixed
+
 - Discovery search now falls back to PostgreSQL when Meilisearch is available
   but returns no matching documents.
 - Added backend tests covering Meilisearch results and zero-result fallback
@@ -620,6 +761,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-18 — Discovery split-view status panel
 
 ### Added
+
 - Added dedicated loading, error, and empty-area states to the listing panel in
   Split view, so it no longer appears blank when the current map viewport has
   no matching stays.
@@ -629,6 +771,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-17 — Discovery map loading and empty states
 
 ### Added
+
 - Added non-blocking loading, error, and empty-area overlays for Map and Split
   views while keeping the Leaflet map visible and interactive.
 - Map viewport errors are now handled separately from page-level Discovery
@@ -639,6 +782,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-17 — Discovery map price markers
 
 ### Changed
+
 - Replaced standard Leaflet pins with theme-aware nightly-price markers and
   improved listing popups with property type, location, guest capacity,
   experience, price, and listing links.
@@ -650,6 +794,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-17 — Discovery map viewport loading
 
 ### Changed
+
 - Map and split views now load approved listings for the current Leaflet
   viewport through `GET /api/listings/map`, ignore stale responses, and keep
   active search and filter results applied to visible markers and split cards.
@@ -662,6 +807,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-17 — Discovery map bounds validation
 
 ### Fixed
+
 - `GET /api/listings/map` now rejects missing, non-numeric, or out-of-range
   coordinates with `400 Bad Request` instead of allowing invalid `NaN` values
   to reach Prisma and return `500 Internal Server Error`. Added unit coverage
@@ -672,6 +818,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-16 — Docs: discovery/map handoff brief
 
 ### Added
+
 - **[`docs/HANDOFF-discovery-map.md`](docs/HANDOFF-discovery-map.md)** — brief
   for the developer taking over discovery/search + map work: setup pointer,
   scope, file map (both apps), project conventions (paise, Meili-fallback,
@@ -683,6 +830,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-16 — CORS: graceful denial + wildcard origins (fixes login 500)
 
 ### Fixed
+
 - `apps/api/src/main.ts`: a disallowed `Origin` header made the CORS callback
   **throw** → unhandled 500 on every request — including same-origin traffic
   proxied through the web app's `/api` rewrite (the proxy forwards the browser's
@@ -697,6 +845,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-16 — Web: tolerate trailing slash in NEXT_PUBLIC_API_URL
 
 ### Fixed
+
 - `apps/web/next.config.js`: the `/api/*` rewrite now strips trailing slashes
   from `NEXT_PUBLIC_API_URL`. A value saved as `https://host/` produced
   `https://host//api/...` → 404 (`Cannot GET //api/listings`) on the deployed
@@ -707,6 +856,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-16 — Allow NODE_ENV=staging (deployed-for-testing mode)
 
 ### Fixed
+
 - `env.validation.ts`: `NODE_ENV` enum now includes **`staging`** — the mode the
   Render blueprint uses. The API crashed at boot (`"NODE_ENV" must be one of
   [development, test, production]`). Every code branch checks `=== 'production'`,
@@ -718,6 +868,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-12 — Fix Render deploy crash: pnpm layout in API runtime image
 
 ### Fixed
+
 - `apps/api/Dockerfile` runtime stage: container crashed on boot with
   `Cannot find module '@nestjs/common'`. pnpm links each package's deps inside
   its own `node_modules` as relative symlinks into the root `.pnpm` store; the
@@ -731,6 +882,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-12 — CI green: fix all 273 lint errors + the last failing unit test
 
 ### Fixed
+
 - **ESLint config** (`eslint.config.mjs`): spec files may use `any` (mocks need
   it — kills ~230 noise errors); `no-unused-vars` now honors the `^_` convention
   (BullMQ `_job` params etc.).
@@ -752,6 +904,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-12 — Deployment kit: live staging on Render + Vercel
 
 ### Added
+
 - **[`render.yaml`](render.yaml)** — Render Blueprint provisioning the API
   (Docker), PostgreSQL 16, and a Redis-compatible Key Value store
   (`noeviction` for BullMQ) in one click; `NODE_ENV=staging` so stub providers
@@ -766,6 +919,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
   node_modules/build outputs) into images.
 
 ### Changed
+
 - `apps/api/Dockerfile`: prisma client generation now calls
   `pnpm --filter @dhyana/api exec prisma generate` directly — the package script
   wraps it in `dotenv -e .env`, which is absent (correctly) from the build context.
@@ -775,6 +929,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-12 — Docs: clone & setup guide
 
 ### Added
+
 - **[`docs/SETUP.md`](docs/SETUP.md)** — complete new-machine setup guide:
   prerequisites table (Node 22, pnpm 10.2.0, Postgres 16, Redis/Memurai,
   Meilisearch optional), key dependency versions, env-file walkthrough with the
@@ -787,6 +942,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-12 — Fix IDE "Cannot find name 'jest'" in API spec files
 
 ### Fixed
+
 - `apps/api/tsconfig.json`: added explicit `"types": ["node", "jest"]`. The real
   compiler always resolved Jest globals (0 errors, tests green), but VS Code's
   TS server intermittently failed the automatic `@types` visibility scan under
@@ -800,12 +956,14 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-08 — Dev performance: Turbopack + Redis recovery
 
 ### Changed
+
 - **Web dev server now uses Turbopack** (`next dev --turbopack`) — page-to-page
   clicks in dev were slow because webpack compiled each of the 80+ routes
   on-demand (measured 3.5s first visit vs 0.5s after); Turbopack compiles
   drastically faster. Production builds unchanged.
 
 ### Infrastructure (local dev, no code change)
+
 - Diagnosed "slow clicks": API was healthy (~60 ms); Redis (Memurai Windows
   service) was stopped, silently disabling all 12 background queues (hold
   expiry, balance due, outbox, SOS…). Started Memurai, restarted the API —
@@ -817,6 +975,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-08 — Nature-luxury visual theme (all pages)
 
 ### Changed
+
 - **Design system re-skinned to a nature-luxury palette** — because every page
   reads colors from CSS variables, redefining the tokens in `globals.css`
   restyled all 76 pages at once: deep-evergreen brand scale (light) / soft sage
@@ -830,6 +989,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
   instead of monochrome blacks.
 
 ### Fixed
+
 - Production build: wrapped `useSearchParams()` in Suspense boundaries on
   `/auth/register` and `/sos` (pre-existing prerender failures that blocked
   `next build`). All 76 pages now prerender.
@@ -839,6 +999,7 @@ Migration `0035_stay_pass` *(numbered 0034 in-tree)* — feature-flagged (`stay_
 ## 2026-07-08 — Docs: Word test report + roadmap
 
 ### Added
+
 - **[`docs/booking-engine-test-report.docx`](docs/booking-engine-test-report.docx)** —
   native Word version of the test report (converted with the `docx` lib; headings,
   8 tables, code blocks preserved).
@@ -858,6 +1019,7 @@ defects — all fixed; engine now green across 260 unit + 34 integration tests a
 the concurrency proofs at 50 iterations.
 
 ### Fixed
+
 - **Payment confirmation was broken for every capture.** The overlap backstop
   query in `BookingService.confirmPayment` used `tsrange(...)` with JS `Date`
   params, which Prisma binds as `timestamptz` — no matching `tsrange` overload,
@@ -882,10 +1044,12 @@ the concurrency proofs at 50 iterations.
   `snapshot.payLaterFirstInstalment`.
 
 ### Changed
+
 - `BALANCE_PAID` state transition now also accepts `CONFIRMED_DEPOSIT` (balance
   paid early, before the balance-due cron), not just `BALANCE_DUE`.
 
 ### Tests / Infrastructure
+
 - New real-service harness (`test/integration/services-harness.ts`): wires every
   real booking service against dev Postgres; only NotificationService (no-op) and
   Razorpay (stub mode) are doubled.
@@ -907,6 +1071,7 @@ the concurrency proofs at 50 iterations.
 Commit `0f38f27`.
 
 ### Added
+
 - **Release a hold when the guest abandons the flow.** `HoldService.releaseHold`
   (owner-only, idempotent, refuses holds already converted to a booking) +
   `DELETE /holds/:id`. Frees the dates immediately instead of holding them for the
@@ -916,6 +1081,7 @@ Commit `0f38f27`.
   hold-create conflict response is enriched with `heldUntil` + `remainingSeconds`.
 
 ### Changed
+
 - **Booking panel** (`apps/web/app/listings/[id]`): releases the hold on tab close
   (`pagehide` + `fetch(keepalive)`), SPA unmount, and an explicit "Back (release
   hold)" button — guarded so a hold that became a booking is never released. Shows
@@ -930,6 +1096,7 @@ Commit `0f38f27`.
 Commit `2b67128`. Migration `0032_feature_flags_host_settings`.
 
 ### Added
+
 - **Feature-flag system.** Canonical code registry (`feature-flags.registry.ts`,
   12 features / 7 categories) merged with admin DB overrides (`FeatureFlag`).
   `FeatureFlagService` with a 15s hot-path cache.
@@ -950,6 +1117,7 @@ Commit `2b67128`. Migration `0032_feature_flags_host_settings`.
   links to both control panels.
 
 ### Changed
+
 - Messaging `startConversation` (guest→host) gated by host `allowGuestMessages`;
   concierge access gated by `allowConciergeChat`.
 
@@ -961,6 +1129,7 @@ Migrations `0029_booking_status_history`, `0030_booking_gist_index`,
 `0031_booking_correctness_pass`. (Landed under commit `2b67128`.)
 
 ### Added
+
 - **`BookingStateMachine`** — single chokepoint for every `Booking.status`
   transition with an append-only `statusHistory` audit trail. Illegal transitions
   rejected. All status writes route through it (grep-verified zero direct writes).
@@ -981,6 +1150,7 @@ Migrations `0029_booking_status_history`, `0030_booking_gist_index`,
   serializable retry, tampered-snapshot HMAC, state-machine persistence.
 
 ### Fixed
+
 - **Nested-transaction split-brain** in the webhook confirm path — `confirmPayment`
   is tx-scoped (inline steps) and `withSerializableRetry` wraps the whole webhook
   handler, so payment-capture + confirm + ledger commit atomically.
@@ -993,6 +1163,7 @@ Migrations `0025_booking_terms_acceptance`, `0026_trusted_contact_email`,
 `0027_itinerary_chat_and_usage`, `0028_sos_chat`.
 
 ### Fixed — Part I (critical booking bugs)
+
 - **Razorpay 100× overcharge** — snapshot amounts are paise; removed the erroneous
   `× 100` at `createOrder`.
 - **Webhook unit mismatch** — stopped dividing captured paise by 100 (had broken
@@ -1001,6 +1172,7 @@ Migrations `0025_booking_terms_acceptance`, `0026_trusted_contact_email`,
   proportionally to the captured amount; platform keeps the markup.
 
 ### Added / Changed — Part II (booking flow)
+
 - 30-min **quote/snapshot TTL** (HMAC-covered `expiresAt`; 410 on expired).
 - **GST 18%** line item on platform fee + add-on commission.
 - **Hold reaper** now deletes expired rows (was audit-only).
@@ -1012,6 +1184,7 @@ Migrations `0025_booking_terms_acceptance`, `0026_trusted_contact_email`,
 - Frontend **hold-expiry countdown**; add-ons **disabled in Phase 1 UI**.
 
 ### Added / Changed — Part III (SOS)
+
 - Production env gates (`SOS_OPS_PHONE`/`SOS_OPS_EMAIL`), **SMS circuit breaker**,
   ack-latency metrics, strict E.164 validation.
 - **Platform-level SOS**: trusted contacts support email + phone; broadcast fans
@@ -1020,12 +1193,14 @@ Migrations `0025_booking_terms_acceptance`, `0026_trusted_contact_email`,
   incident console, guest SOS history; trigger redirects to the live console.
 
 ### Added / Changed — Part IV (AI Itinerary)
+
 - No silent stub in production; per-user rate limits; monthly cost cap
   (`ItineraryUsage`); prompt caching; retry/backoff.
 - **3-step planner**: trip form → AI concept suggestions → full plan → chat
   refinement (`ItineraryMessage`).
 
 ### Infrastructure
+
 - Env validation requires `REDIS_URL`, `ANTHROPIC_API_KEY`, SOS ops contacts in
   production; app fails fast if Redis is unreachable in prod.
 - Installed **Memurai** (Redis-compatible) for BullMQ locally.
@@ -1039,6 +1214,7 @@ Migrations `0025_booking_terms_acceptance`, `0026_trusted_contact_email`,
 Commit `3c0f24e`. Migrations `0021`–`0024`.
 
 ### Added
+
 - **§5.15 Experiences** — host/guest/public/admin, atomic seat allocation
   (`0024_experiences_groups_itinerary`).
 - **§5.8 Trip Groups** + expense splitting (EQUAL/CUSTOM) + balances.
@@ -1054,6 +1230,7 @@ Commit `3c0f24e`. Migrations `0021`–`0024`.
 Commit `de191fd`. Migration `0020_sos_support`.
 
 ### Added
+
 - SOS incident service, trusted-contact register, BullMQ `sos-broadcast` queue
   (priority 1, inline dispatch for the P99 < 5s SLA).
 
@@ -1065,52 +1242,63 @@ Commit `de191fd`. Migration `0020_sos_support`.
 ### Added — `apps/api/`
 
 #### Auth0 JWT Strategy (`src/auth/strategies/jwt.strategy.ts`)
+
 - **Dual-mode** `JwtStrategy`: when `AUTH0_DOMAIN` env var is set, verifies RS256 JWTs via JWKS (`jwks-rsa`); otherwise falls back to HS256 with static secret (existing behaviour)
 - Exports `RequestUser`, `CustomJwtPayload`, `Auth0JwtPayload` types
 - `validate()` reads role from `https://dhyanastays.in/role` namespaced claim (Auth0) or flat `role` claim (custom JWT)
 
 #### Auth0 Sync Endpoint (`src/auth/`)
+
 - `dto/sync-user.dto.ts` — `SyncUserDto` with optional `fullName` and `desiredRole`
 - `auth.service.ts` — added `syncUser()`: upserts user by auth0Sub → email → create; `getMe()`: returns safe profile; `safeProfile()`: strips passwordHash; `login()` guards against null passwordHash (Auth0-only accounts)
 - `auth.controller.ts` — `POST /auth/sync` (@Public, called by frontend after Auth0 login); `GET /auth/me` (authenticated)
 
 #### Schema + Migration
+
 - `prisma/schema.prisma` — `User.passwordHash String?` (nullable); `User.auth0Sub String? @unique` added
 - `prisma/migrations/0002_auth0/migration.sql` — non-breaking ALTER TABLE: adds `auth0Sub` column, drops NOT NULL on `passwordHash`
 
 #### Config
+
 - `src/config/env.validation.ts` — `AUTH0_DOMAIN` and `AUTH0_AUDIENCE` added as optional Joi vars
 
 #### Dependencies
+
 - `jwks-rsa@^4.0.1` added to `apps/api`
 
 ### Added — `apps/web/`
 
 #### AuthContext (`context/AuthContext.tsx`) — full rewrite
+
 - **Dual-mode**: Auth0Provider + Auth0InnerProvider when `NEXT_PUBLIC_AUTH0_DOMAIN` is set; CustomAuthProvider otherwise
 - Exports: `AuthUser`, `AuthContextValue`, `AuthProvider`, `useAuth`
 - Auth0InnerProvider: registers `setTokenGetter` so all `api.ts` calls automatically use Auth0 access token; syncs user to DB via `POST /api/auth/sync` after login
 - CustomAuthProvider: existing email+password flow unchanged
 
 #### API client (`lib/api.ts`)
+
 - `setTokenGetter(fn)` — pluggable async token getter; replaces `tokenStore.getAccess()` when set
 - `getToken()` — internal helper: uses `_tokenGetter` if set, else falls back to `tokenStore`
 - Auto-refresh on 401 only fires in custom JWT mode (Auth0 handles refresh internally)
 
 #### Auth pages
+
 - `app/auth/login/page.tsx` — Auth0 mode: "Continue with Auth0" button; Custom mode: existing email/password form
 - `app/auth/register/page.tsx` — Auth0 mode: role selector + Auth0 redirect; Custom mode: full registration form
 - `app/auth/callback/page.tsx` — **NEW**: Auth0 callback handler; shows spinner while syncing; redirects to `/dashboard`
 
 #### Dependencies
+
 - `@auth0/auth0-react@^2.15.0` added to `apps/web`
 
 ### Documentation
+
 - `docs/auth0-setup.md` — **NEW**: step-by-step Auth0 tenant setup guide (tenant, SPA app, API resource server, roles, Post Login Action for role injection, env vars, test flows)
 - `docs/decision-log.md` — Auth0 integration decision recorded
 - `docs/auth0-setup.md` — Auth0 Action code for injecting `https://dhyanastays.in/role` claim
 
 ### Tests
+
 - **API TypeScript**: `tsc --noEmit` exits 0 — zero errors
 - **234/234 tests continue to pass** — dual-mode design means no Auth0 credentials needed for tests; custom JWT mode is the default
 
@@ -1121,6 +1309,7 @@ Commit `de191fd`. Migration `0020_sos_support`.
 ### Added — `apps/api/`
 
 #### NotificationService (`src/notification/`)
+
 - `notification.service.ts` — Full email + SMS service with 4 providers:
   - **Email**: `stub` (console log) | `resend` (HTTP API) | `sendgrid` (HTTP API) | `smtp` (nodemailer v6)
   - **SMS**: `stub` (console log) | `msg91` (Flow API, TRAI DLT-compatible) | `twilio` (REST API)
@@ -1130,6 +1319,7 @@ Commit `de191fd`. Migration `0020_sos_support`.
 - `notification.module.ts` — exports `NotificationService`
 
 #### StorageService (`src/storage/`)
+
 - `storage.service.ts` — S3-compatible presigned PUT URL generation with 3 providers:
   - **stub**: returns local placeholder URL, no external calls
   - **s3**: AWS S3 (ap-south-1 default) with SigV4 presigned PUT
@@ -1142,6 +1332,7 @@ Commit `de191fd`. Migration `0020_sos_support`.
 - `storage.module.ts` — exports `StorageService`
 
 #### Wired into existing services
+
 - `BookingService` — injects `NotificationService`; fires `sendBookingConfirmed` after payment captured, `sendBookingCancelled` after cancellation, `sendBalanceDueReminder` for BALANCE_DUE bookings (all non-blocking `void`)
 - `ListingService` — injects `NotificationService`; fires `sendHostListingApproved` / `sendHostListingRejected` after admin review (non-blocking)
 - `BookingModule` — imports `NotificationModule`
@@ -1149,6 +1340,7 @@ Commit `de191fd`. Migration `0020_sos_support`.
 - `AppModule` — imports `NotificationModule`, `StorageModule`
 
 #### Config
+
 - `env.validation.ts` — added 20 new env vars with defaults:
   - `EMAIL_PROVIDER`, `EMAIL_FROM`, `RESEND_API_KEY`, `SENDGRID_API_KEY`, `SMTP_HOST/PORT/USER/PASS`
   - `SMS_PROVIDER`, `MSG91_AUTH_KEY`, `MSG91_SENDER_ID`, `MSG91_BOOKING_TEMPLATE_ID`, `TWILIO_ACCOUNT_SID/AUTH_TOKEN/FROM_NUMBER`
@@ -1158,9 +1350,11 @@ Commit `de191fd`. Migration `0020_sos_support`.
   - Added `TZ`, `API_URL`, `WEB_URL`
 
 #### Dependencies
+
 - `nodemailer@6` (CJS-compatible) + `@types/nodemailer` added to `apps/api`
 
 #### Tests
+
 - `notification.service.spec.ts` — **NEW** — 36 unit tests covering all 6 provider branches (stub/resend/sendgrid/smtp/msg91/twilio), fallback-to-stub when credentials missing, error swallowing (non-fatal), and all 5 notification template methods
 - `storage.service.spec.ts` — **NEW** — 33 unit tests covering stub/s3/r2 presigned URL generation (SigV4 params, key uniqueness, mime-to-ext mapping), deleteObject (stub no-fetch, s3/r2 SigV4 DELETE), buildPublicUrl (CDN/S3/R2 formats)
 - `booking.service.spec.ts` — added `makeNotificationMock()` helper; all `new BookingService(...)` calls updated to pass 5th arg
@@ -1171,9 +1365,11 @@ Commit `de191fd`. Migration `0020_sos_support`.
 - **Grand total: 234/234 tests passing**
 
 #### Bug fixed
+
 - `storage.controller.ts` — `@Get('stub/*key')` → `@Get('stub/*')` with `@Param('0')`: NestJS/Express does not support named wildcards; unnamed wildcard match is stored as param `'0'`
 
 ### Documentation
+
 - `docs/credentials-guide.md` — already comprehensive; covers all new providers (Sections 5–7)
 
 ---
@@ -1181,6 +1377,7 @@ Commit `de191fd`. Migration `0020_sos_support`.
 ## [Unreleased] — Remove sample data + real registration flows
 
 ### Frontend (apps/web)
+
 - **ListingCard.tsx** — Replaced `placehold.co` external image with deterministic inline SVG placeholder (gradient + house icon, no network requests)
 - **listings/[id]/page.tsx** — Replaced `placehold.co` hero image with `HeroPlaceholder` inline SVG component; fixed TS error by extracting named component instead of IIFE
 - **auth/login/page.tsx** — Removed demo credentials box and divider
@@ -1190,17 +1387,19 @@ Commit `de191fd`. Migration `0020_sos_support`.
 - **admin/listings/page.tsx** — Added "Host Approvals" tab alongside "Listing Approvals"; wrapped `useSearchParams` in `<Suspense>` boundary (Next.js 15 requirement)
 
 ### API (apps/api)
+
 - **listing.service.ts** — Added `getHostProfile()`, `getPendingHosts()`, `reviewHost()` methods
 - **host-listing.controller.ts** — Added `GET /host/profile` endpoint; rewrote to `@Controller()` with explicit paths
 - **admin-listing.controller.ts** — Added `GET /admin/hosts/pending`, `POST /admin/hosts/:id/approve`, `POST /admin/hosts/:id/reject` endpoints
 
 ### Build
-- Next.js build: ✅ 11/11 routes compiled, 0 TypeScript errors
 
+- Next.js build: ✅ 11/11 routes compiled, 0 TypeScript errors
 
 ## [Unreleased] — Config: Redis version pinned to 6.2.0
 
 ### Changed
+
 - `docker-compose.yml`: Redis image updated from `redis:7` to `redis:6.2.0` for version consistency.
 
 ---
@@ -1208,12 +1407,14 @@ Commit `de191fd`. Migration `0020_sos_support`.
 ## [Unreleased] — Bug Fix: CreateBookingDto.holdId validator
 
 ### Fixed
+
 - `apps/api/src/booking/dto/create-booking.dto.ts`: Changed `holdId` from `@IsUUID()` to `@IsString()`.
   - Root cause: Prisma uses CUID format for IDs (e.g. `cmm33mik4...`), not UUID v4. The `@IsUUID()` validator was rejecting all valid hold IDs.
   - Impact: `POST /api/bookings` was returning 400 for all requests.
   - Fix: `@IsString()` — accepts any non-empty string, consistent with how `listingId` is validated in `CreateHoldDto`.
 
 ### Tests
+
 - 40/40 unit tests passing after fix.
 
 ---
@@ -1221,6 +1422,7 @@ Commit `de191fd`. Migration `0020_sos_support`.
 ## [Unreleased] — Infrastructure Milestone: Full Stack Live
 
 ### Added
+
 - PostgreSQL 16 installed natively on Windows via winget
 - Redis 5.0.14 (tporadowski/redis) installed at `C:\redis\` and running on port 6379
 - Database user `dhyana` + database `dhyana_stays` created
@@ -1230,15 +1432,16 @@ Commit `de191fd`. Migration `0020_sos_support`.
 - Web (Next.js) confirmed running on port 3000
 
 ### Verified
+
 - `GET  http://localhost:3001/api/listings` → `[]` (200 OK)
 - `POST http://localhost:3001/api/auth/login` → JWT issued for admin ✅
 - Redis PING → PONG ✅
 - PostgreSQL `dhyana_stays` DB accessible ✅
 
-
 ## [Unreleased] — Bug-fix batch: frontend/backend field alignment
 
 ### Fixed
+
 - **API** `booking.controller.ts`: Added `GET /bookings` endpoint (was missing, caused 404 for guest dashboard)
 - **API** `booking.service.spec.ts`: Updated `cancelBooking()` test assertions — service now returns plain `Booking` (not `{ booking, refundAmount }`); tests now assert `result.status` and side-effect mocks
 - **Web** `lib/types.ts`: Aligned all types with actual DB schema:
@@ -1259,6 +1462,7 @@ Commit `de191fd`. Migration `0020_sos_support`.
 - **Web** `app/admin/listings/page.tsx`: Fixed `listing.rateRules?.[0]?.baseNightlyRate` and `listing.rateRules?.[0]?.maxGuests`
 
 ### Verified
+
 - `pnpm run build` (Next.js): ✅ Compiled successfully — 0 TypeScript errors, 11/11 routes
 - `pnpm run test` (API unit): ✅ 40/40 tests pass (5 suites)
 - `pnpm exec jest --config jest-e2e.config.json` (E2E): ✅ **112/112 tests pass** (was 104)
@@ -1268,10 +1472,10 @@ Commit `de191fd`. Migration `0020_sos_support`.
   - Security guard sweep updated: 12 guarded routes now verified (was 10)
 - **Grand total: 152/152 tests passing** (40 unit + 112 E2E)
 
-
 ## [0.3.0] — UI/UX Complete (Phase 1 Frontend)
 
 ### Added — `apps/web/`
+
 - **Tailwind CSS** setup: custom Dhyana brand palette (brand-700=#1a5c4a, gold-500=#d4a853, surface=#f7f4ef), card shadows, `animate-fade-in` keyframe
 - **`lib/types.ts`** — full TypeScript types: UserRole, AuthTokens, JwtPayload, Listing, PriceQuote, Hold, Booking, Payment, PayoutLine, PayoutBatch, HostStatement, ApiError
 - **`lib/api.ts`** — typed fetch wrapper with JWT injection, auto-refresh on 401, tokenStore (localStorage), authApi, listingsApi, pricingApi, holdsApi, bookingsApi, paymentsApi, payoutsApi, formatINR, formatDate, generateUUID
@@ -1291,19 +1495,21 @@ Commit `de191fd`. Migration `0020_sos_support`.
 - **`app/admin/payouts/page.tsx`** — admin payout management: eligible lines, run weekly batch, mark batch paid
 
 ### Build
+
 - `pnpm --filter @dhyana/web install` ✅
 - `pnpm run build` → **Compiled successfully in 15.5s** ✅ zero errors
-
 
 ## [Unreleased] — Option A: Deploy Prep — Schema + Env + Migration Lock
 
 ### Added
+
 - `apps/api/.env.example` — comprehensive, fully-documented reference for all 22 environment
   variables (required vs optional, defaults, generation instructions for secrets)
 - `apps/api/prisma/migrations/migration_lock.toml` — required by `prisma migrate deploy`
   for deterministic production migrations; was missing from repo
 
 ### Verified
+
 - `prisma generate` ✔ — Prisma Client v6.19.2 generated cleanly from schema
 - `pnpm --filter @dhyana/api test` ✔ — 40/40 unit tests still passing after generate
 - Schema (`schema.prisma`) and migration SQL (`0001_init/migration.sql`) are clean and consistent
@@ -1314,6 +1520,7 @@ Commit `de191fd`. Migration `0020_sos_support`.
 ## [Unreleased] — E2E Test Suite — 104/104 passing
 
 ### Added
+
 - `apps/api/test/app.e2e-spec.ts` — comprehensive E2E test suite (104 tests across 7 modules)
   - Auth: register (GUEST/HOST/validation/ADMIN rejection), login, refresh, logout
   - Listings: host CRUD, admin approval/reject/request-changes, public feed, 401/403/400
@@ -1328,6 +1535,7 @@ Commit `de191fd`. Migration `0020_sos_support`.
 - `@types/supertest` devDependency added
 
 ### Fixed
+
 - Circular dependency: processors imported `QUEUE_*` constants from `jobs.module.ts` → extracted to `jobs.constants.ts`
 - E2E test assertions aligned to actual DTO validation rules:
   - `POST /auth/login` returns 201 (NestJS @Post default), not 200
@@ -1340,12 +1548,12 @@ Commit `de191fd`. Migration `0020_sos_support`.
   - Security sweep excludes /pricing/quote (intentionally public)
 
 ### Test results
-```
+
+```text
 Test Suites: 1 passed, 1 total
 Tests:       104 passed, 104 total
 Time:        ~19s
 ```
-
 
 All notable changes to Dhyana Stays are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
@@ -1361,23 +1569,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ### Added
 
 #### Booking Engine
+
 - `BookingService`: `createBooking` (hold → PAYMENT_PENDING, atomic transaction), `confirmPayment` (PAYMENT_PENDING → CONFIRMED_DEPOSIT | CONFIRMED_PAID), `transitionToBalanceDue` (CONFIRMED_DEPOSIT → BALANCE_DUE), `autoCancelUnpaidBalance` (BALANCE_DUE → CANCELLED after 24h grace), `cancelBooking` (policy-based refund), `completeBooking` (→ COMPLETED)
 - `BookingController`: `POST /api/bookings`, `GET /api/bookings/:id`, `POST /api/bookings/:id/cancel`, `POST /api/bookings/:id/complete`
 - `BookingModule`: wires PricingModule, AuditService, LedgerService
 
 #### Payment Integration
+
 - `RazorpayService`: `createOrder` (native fetch, stub mode when no credentials), `verifyWebhookSignature` (HMAC-SHA256 + `timingSafeEqual`), `createRefund`
 - `PaymentService`: `initPayment` (idempotency key, FULL/DEPOSIT/BALANCE types), `handleWebhook` (sig verify → payment.captured/failed/refund.processed), `payBalance`
 - `PaymentController`: `POST /api/payments/init`, `POST /api/payments/webhook` (raw body, `@Public`), `POST /api/payments/bookings/:id/pay-balance`
 - Webhook idempotency: already-CAPTURED payments are skipped silently
 
 #### Payout System
+
 - `PayoutService`: `markEligible` (check-in+24h), `runWeeklyBatch` (ELIGIBLE → SCHEDULED), `markBatchPaid` (SCHEDULED → PAID), `getEligibleLines`, `getHostStatements`, `getBatches`, `handleRefundAfterPayout` (negative balance carry-forward)
 - `PayoutController`: `GET /api/admin/payouts/eligible`, `POST /api/admin/payouts/run-weekly`, `POST /api/admin/payouts/batches/:id/mark-paid`, `GET /api/admin/payouts/batches`, `GET /api/host/payouts/statements`
 - Host share: 90% of captured amount (10% platform fee)
 - Payout eligibility: check-in + 24h
 
 #### Background Jobs (BullMQ + @nestjs/schedule)
+
 - `hold_expiry`: every minute — expires stale holds
 - `balance_due`: every 15 min — transitions CONFIRMED_DEPOSIT → BALANCE_DUE, auto-cancels unpaid
 - `payout_eligibility`: every hour — marks eligible payout lines
@@ -1386,19 +1598,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - `JobsModule`: registers all queues and processors
 
 #### Common Services
+
 - `AuditService`: append-only audit log for all admin actions and financial events
 - `LedgerService`: append-only ledger events (PAYMENT_CAPTURED, REFUND_ISSUED, PAYOUT_SCHEDULED, PAYOUT_SENT, BALANCE_CARRY_FORWARD)
 - `CommonModule`: exports both services
 
 #### Pricing Engine
+
 - `PricingService`: `quote()` (per-night breakdown, seasonal rate overrides, 10% platform fee, deposit/balance split), `computeRefundAmount()` (≥48h→100%, <48h>10h→50%, ≤10h→0%)
 - `PricingController`: `POST /api/pricing/quote`
 
 #### Hold Engine
+
 - `HoldService`: `createHold()` (availability check, 15-min TTL, price snapshot), `expireStaleHolds()` (batch expiry)
 - `HoldController`: `POST /api/holds`
 
 #### Infrastructure
+
 - `ThrottlerModule`: rate limiting on all endpoints
 - `BullModule`: Redis-backed job queues (4 queues)
 - `rawBody: true` on NestJS bootstrap for webhook signature verification
@@ -1406,10 +1622,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - `env.validation.ts`: added `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `THROTTLE_TTL`, `THROTTLE_LIMIT`, `ALLOWED_ORIGINS`
 
 #### Database
+
 - Full migration SQL: 16 tables, all enums, FK constraints, indexes
 - `prisma generate` run — Prisma client fully generated
 
 #### Tests (40 tests, 5 suites — all passing)
+
 - `auth.service.spec.ts`: register, login, refresh, logout (4 tests)
 - `listing.service.spec.ts`: create, update, re-approval, admin review (8 tests)
 - `pricing.service.spec.ts`: quote calculation, seasonal rates, refund policy, edge cases (14 tests)
@@ -1417,16 +1635,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 - `payment.service.spec.ts`: init, idempotency, webhook sig verify, captured/failed events (14 tests)
 
 #### Documentation
+
 - `docs/state-machines.md`: full explicit state machines for Booking, Payout, Listing, Hold, Payment
 - `docs/testing.md`: test guide, coverage table, concurrency reproduction steps
 - `docs/decision-log.md`: updated with all Phase 1 decisions
 
 ### Changed
+
 - `app.module.ts`: added ThrottlerModule, BullModule (Redis), BookingModule, PaymentModule, PayoutModule, JobsModule, CommonModule, PricingModule, HoldModule
 - `main.ts`: `rawBody: true`, global ValidationPipe, CORS
 - `payment.service.ts`: `as unknown as PriceSnapshot` cast for Prisma JsonValue compatibility
 
 ### Dependencies Added
+
 - `@nestjs/bullmq` — BullMQ NestJS integration
 - `@nestjs/schedule` — Cron job scheduling
 - `@nestjs/throttler` — Rate limiting
@@ -1438,6 +1659,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 ## [0.1.0] - 2026-02-24 — Phase 1 Iteration 1: Auth + Listings
 
 ### Added
+
 - Monorepo setup: `apps/api` (NestJS), `apps/web` (Next.js), `packages/shared`
 - Docker Compose: PostgreSQL 16, Redis 7, Meilisearch v1.12
 - Auth: register (GUEST/HOST), login, refresh token, logout with audit log
