@@ -32,6 +32,7 @@ export const Capability = {
   HOST_MANAGE:     'host.manage',
   INVESTOR_VIEW:   'investor.view',
   GUEST_BOOK:      'guest.book',
+  INFLUENCER_MANAGE: 'influencer.manage',
 } as const;
 export type CapabilityKey = (typeof Capability)[keyof typeof Capability];
 
@@ -72,6 +73,11 @@ export class CapabilitiesService {
 
     if (ctx.role === UserRole.GUEST) {
       caps.add(Capability.GUEST_BOOK);
+    }
+
+    if (ctx.role === UserRole.INFLUENCER) {
+      caps.add(Capability.INFLUENCER_MANAGE);
+      return caps;
     }
 
     // ── Phase 1: UserKind + StaffRole.level ────────────────────────────────

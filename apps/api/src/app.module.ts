@@ -29,6 +29,7 @@ import { PayLaterModule } from './pay-later/pay-later.module';
 import { SosModule } from './sos/sos.module';
 import { InvestorModule } from './investor/investor.module';
 import { ExperienceModule } from './experience/experience.module';
+import { InfluencerModule } from './influencer/influencer.module';
 import { TripGroupModule } from './trip-group/trip-group.module';
 import { ItineraryModule } from './itinerary/itinerary.module';
 import { FeatureModule } from './feature/feature.module';
@@ -206,6 +207,10 @@ export class AppModule {
 
         // Experience & Event module (Phase 3 §5.15)
         ExperienceModule,
+
+        // Influencer Dashboard backend (campaigns, content, promo/tracking,
+        // booking attribution, commission, payouts)
+        InfluencerModule,
 
         // Group Planning & Expense Splitting (Phase 3 §5.8)
         TripGroupModule,
