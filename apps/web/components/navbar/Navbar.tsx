@@ -6,122 +6,125 @@ import { useEffect, useMemo, useState } from 'react';
 import BrandMark from '../BrandMark';
 import { useAuth } from '../../context/AuthContext';
 import { useFeatures } from '../../context/FeatureContext';
-import { useIsDesktop } from '../../hooks/useIsDesktop';
-import { useScrollLock } from '../../hooks/useScrollLock';
-import { buildNavItems } from '../../lib/navigation';
-import DesktopNavigation from './DesktopNavigation';
-import MobileNavigation from './MobileNavigation';
+import { buildNavItems, isItemActive, type NavItem } from '../../lib/navigation';
+import SidebarDrawer from './SidebarDrawer';
 import UserMenu from './UserMenu';
 
 /**
- * Composition root. Builds the priority-ordered nav item list once (the
- * single source of truth for both the measured desktop row and the flat
- * mobile drawer — they cannot structurally drift apart), and lays out
- * logo / nav / user menu / hamburger. No role branching or per-item JSX
- * lives here; that's all in lib/navigation.ts and the child components.
+ * Compact top bar: a ⋯ button that reveals the full off-canvas SidebarDrawer,
+ * the logo, a set of large, centered quick links (Explore + guest shortcuts),
+ * and the right-side user cluster. The drawer still holds the complete nav;
+ * the quick links just save common destinations a click.
  */
 export default function Navbar() {
   const { user } = useAuth();
   const { isEnabled } = useFeatures();
   const pathname = usePathname();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const isDesktop = useIsDesktop();
-  // Gates the navbar search icon below — it only makes sense on the
-  // homepage, where its target (#hero-destination) actually exists.
-  //
-  // Resolved in an effect rather than read directly from usePathname()
-  // during render: this Navbar sits in the shared root layout, and Next
-  // App Router can serve that layout's SSR shell from a cache keyed to
-  // whichever route first produced it — so a direct `pathname === '/'`
-  // here disagreed between the server-rendered HTML and the client's own
-  // hydration pass on every route except whichever one warmed the cache,
-  // a real (not flaky) hydration mismatch confirmed via repeated fresh
-  // loads of multiple routes. Starting at `false` and correcting after
-  // mount makes the server and first client render provably identical
-  // (both always false), eliminating the mismatch; the cost is the icon
-  // appearing one frame late on a fresh load of the homepage, not on
-  // in-app client-side navigation to it.
-  const [isHomepage, setIsHomepage] = useState(false);
-  useEffect(() => {
-    setIsHomepage(pathname === '/');
-  }, [pathname]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const items = useMemo(
     () => buildNavItems({ role: user?.role, kind: user?.kind, isEnabled }),
     [user?.role, user?.kind, isEnabled],
   );
 
-  // Locks the page behind the drawer while it's open; the effect's cleanup
-  // (keyed on mobileOpen) restores scroll on every close path — the close
-  // button, selecting an item, the desktop-transition reset below, a route
-  // change (the drawer's own item clicks call onClose directly), or unmount.
-  useScrollLock(mobileOpen);
+  // Centered header shortcuts. Explore for everyone; SOS + AI Itinerary for
+  // guests (flag-gated) so they never need to open the drawer for these.
+  const quickLinks = useMemo<NavItem[]>(() => {
+    const links: NavItem[] = [{ id: 'q-explore', href: '/', label: 'Explore', activeMatch: 'exact' }];
+    if (user?.role === 'GUEST') {
+      if (isEnabled('ai_itinerary')) {
+        links.push({ id: 'q-itinerary', href: '/itineraries', label: 'AI Itinerary', activeMatch: 'prefix' });
+      }
+      if (isEnabled('sos')) {
+        links.push({
+          id: 'q-sos',
+          href: '/sos',
+          label: '🆘 SOS',
+          activeMatch: 'exact',
+          emphasis: 'danger',
+          title: 'Emergency SOS',
+        });
+      }
+    }
+    return links;
+  }, [user?.role, isEnabled]);
 
-  // If the viewport crosses into desktop while the drawer is open, close it
-  // rather than leaving stale `mobileOpen` state around — `md:hidden` on
-  // MobileNavigation already hides it visually at that point, but the state
-  // itself would still be `true`, which would incorrectly keep the scroll
-  // lock active on desktop and pop the drawer back open with no user action
-  // if the viewport later shrinks back below the breakpoint.
+  // Close the drawer whenever the route changes.
   useEffect(() => {
-    if (isDesktop) setMobileOpen(false);
-  }, [isDesktop]);
+    setDrawerOpen(false);
+  }, [pathname]);
 
   return (
     <header className="sticky top-0 z-50 glass-nav">
       <div className="container-page">
-        <nav className="flex items-center justify-between h-16 gap-4">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 group shrink-0" onClick={() => setMobileOpen(false)}>
-            <BrandMark size={36} />
-            <span className="font-bold text-brand-700 text-lg tracking-tight group-hover:opacity-80 transition-opacity">
-              Dhyana Stays
-            </span>
-          </Link>
-
-          <DesktopNavigation items={items} pathname={pathname} />
-
+        <nav className="flex items-center h-16 gap-3">
+          {/* Left: menu + logo */}
           <div className="flex items-center gap-2 shrink-0">
-            {isHomepage && (
-              <button
-                type="button"
-                onClick={() => {
-                  const destination = document.getElementById('hero-destination');
-                  destination?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  destination?.focus();
-                }}
-                aria-label="Search stays"
-                className="hidden sm:flex w-9 h-9 rounded-full items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-brand-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/30 focus-visible:ring-offset-2"
-              >
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-                  <circle cx="11" cy="11" r="8" />
-                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                </svg>
-              </button>
-            )}
-
-            <UserMenu />
-
-            {/* Hamburger */}
             <button
-              onClick={() => setMobileOpen((o) => !o)}
-              className="md:hidden w-9 h-9 rounded-xl flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 transition-all"
-              aria-label="Toggle menu"
-              aria-expanded={mobileOpen}
+              onClick={() => setDrawerOpen(true)}
+              className="w-9 h-9 rounded-xl flex items-center justify-center bg-gray-100 hover:bg-gray-200 text-gray-600 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/30"
+              aria-label="Open navigation menu"
+              aria-expanded={drawerOpen}
+              aria-haspopup="dialog"
             >
-              <div className="w-4 h-3 flex flex-col justify-between">
-                <span className={`block h-0.5 bg-current rounded transition-all origin-center ${mobileOpen ? 'rotate-45 translate-y-[5.5px]' : ''}`} />
-                <span className={`block h-0.5 bg-current rounded transition-all ${mobileOpen ? 'opacity-0 scale-x-0' : ''}`} />
-                <span className={`block h-0.5 bg-current rounded transition-all origin-center ${mobileOpen ? '-rotate-45 -translate-y-[5.5px]' : ''}`} />
-              </div>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="5" cy="12" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="19" cy="12" r="2" />
+              </svg>
             </button>
+
+            <Link
+              href="/"
+              className="flex items-center gap-2.5 group shrink-0"
+              onClick={() => setDrawerOpen(false)}
+            >
+              <BrandMark size={34} />
+              <span className="font-bold text-brand-700 text-lg tracking-tight group-hover:opacity-80 transition-opacity hidden sm:inline">
+                Dhyana Stays
+              </span>
+            </Link>
+          </div>
+
+          {/* Center: large quick links (fills the space between logo and user cluster) */}
+          <div className="flex-1 flex items-center justify-center min-w-0">
+            <div className="hidden md:flex items-center gap-2 lg:gap-4">
+              {quickLinks.map((item) => {
+                const active = isItemActive(item, pathname);
+                const danger = item.emphasis === 'danger';
+                return (
+                  <Link
+                    key={item.id}
+                    href={item.href}
+                    title={item.title}
+                    className={`px-5 py-2.5 rounded-full text-base font-semibold whitespace-nowrap transition-all active:scale-[0.97] ${
+                      danger
+                        ? 'text-red-600 hover:bg-red-50 hover:text-red-700'
+                        : active
+                          ? 'text-brand-700 bg-brand-50 shadow-sm'
+                          : 'text-gray-600 hover:text-brand-700 hover:bg-gray-100'
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right: user cluster */}
+          <div className="flex items-center gap-2 shrink-0">
+            <UserMenu />
           </div>
         </nav>
       </div>
 
-      {mobileOpen && (
-        <MobileNavigation items={items} pathname={pathname} onClose={() => setMobileOpen(false)} />
-      )}
+      <SidebarDrawer
+        items={items}
+        pathname={pathname}
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+      />
     </header>
   );
 }

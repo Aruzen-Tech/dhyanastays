@@ -1519,6 +1519,30 @@ export const crmApi = {
     request<{ ok: boolean }>(`/admin/crm/notes/${id}`, { method: 'DELETE' }),
 };
 
+// ─── Assistant ──────────────────────────────────────────────────────────────
+
+export interface AssistantSuggestion {
+  label: string;
+  href: string;
+  why?: string;
+}
+
+export interface AssistantReply {
+  answer: string;
+  suggestions: AssistantSuggestion[];
+  /** 'ai' when Anthropic answered; 'search' when the deterministic fallback did. */
+  source: 'ai' | 'search';
+}
+
+export const assistantApi = {
+  ask: (body: {
+    message: string;
+    path?: string;
+    items: { label: string; href: string; description?: string }[];
+  }) =>
+    request<AssistantReply>('/assistant/ask', { method: 'POST', body: JSON.stringify(body) }),
+};
+
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
 export function formatINR(paise: number): string {

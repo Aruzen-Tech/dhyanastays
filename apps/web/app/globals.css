@@ -53,6 +53,19 @@
     --glass-border: rgba(17, 24, 39, 0.08);
     --glass-shadow: 0 8px 32px 0 rgba(17, 24, 39, 0.08);
 
+    /* Frosted card surface — glassy but readable */
+    --card-bg: rgba(255, 255, 255, 0.72);
+    --card-border: rgba(17, 24, 39, 0.07);
+    --card-hover-border: rgba(14, 59, 71, 0.22);
+    --card-shadow: 0 1px 3px rgba(17,24,39,0.05), 0 10px 30px -14px rgba(17,24,39,0.14);
+    --card-shadow-hover: 0 16px 48px -14px rgba(14,59,71,0.22);
+    --card-highlight: rgba(255, 255, 255, 0.6);
+
+    /* Aurora ambient tints (soft, decorative — gives glass its depth) */
+    --aurora-1: rgba(42, 118, 134, 0.10);
+    --aurora-2: rgba(166, 129, 72, 0.08);
+    --aurora-3: rgba(23, 91, 105, 0.09);
+
     /* Nav glass — clean, near-solid white (see .glass-nav below: no blur) */
     --nav-bg: rgba(255, 255, 255, 0.98);
     --nav-border: rgba(17, 24, 39, 0.08);
@@ -110,6 +123,19 @@
     --glass-border: rgba(255, 255, 255, 0.08);
     --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
 
+    /* Frosted card surface — dark */
+    --card-bg: rgba(23, 29, 38, 0.60);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --card-hover-border: rgba(163, 222, 223, 0.24);
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 10px 30px -14px rgba(0,0,0,0.6);
+    --card-shadow-hover: 0 16px 48px -14px rgba(0,0,0,0.7);
+    --card-highlight: rgba(255, 255, 255, 0.10);
+
+    /* Aurora ambient tints — richer in dark */
+    --aurora-1: rgba(79, 166, 173, 0.12);
+    --aurora-2: rgba(209, 174, 118, 0.08);
+    --aurora-3: rgba(39, 118, 124, 0.12);
+
     /* Nav glass — clean, near-solid (see .glass-nav below: no blur) */
     --nav-bg: rgba(11, 15, 20, 0.96);
     --nav-border: rgba(255, 255, 255, 0.08);
@@ -153,6 +179,22 @@
     background-attachment: fixed;
   }
 
+  /* Soft, slowly-drifting aurora behind all content — gives glass surfaces depth. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: -10%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(38rem 38rem at 12% 6%, var(--aurora-1), transparent 60%),
+      radial-gradient(32rem 32rem at 88% 10%, var(--aurora-2), transparent 60%),
+      radial-gradient(44rem 44rem at 62% 96%, var(--aurora-3), transparent 62%);
+    background-repeat: no-repeat;
+    animation: aurora 24s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+
   * {
     box-sizing: border-box;
   }
@@ -186,6 +228,22 @@
            hover:bg-brand-800 active:scale-[0.97]
            transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed
            shadow-sm hover:shadow-md;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Light sheen that sweeps across on hover */
+  .btn-primary::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 45%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+    transform: translateX(-160%) skewX(-18deg);
+    pointer-events: none;
+  }
+  .btn-primary:hover::after { animation: sheen 0.7s ease; }
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: 0 10px 24px -8px rgba(var(--brand-700), 0.5);
   }
 
   .btn-secondary {
@@ -231,17 +289,23 @@
   /* ── Cards ─────────────────────────────────────────────────────────────── */
 
   .card {
-    @apply bg-white rounded-xl border border-gray-200 overflow-hidden;
-    box-shadow: 0 1px 4px 0 rgba(17,24,39,0.05), 0 1px 2px -1px rgba(17,24,39,0.04);
-    transition: box-shadow 0.2s ease, transform 0.2s ease, background-color 0.25s ease, border-color 0.25s ease;
+    @apply rounded-xl overflow-hidden;
+    background: var(--card-bg);
+    backdrop-filter: blur(11px) saturate(140%);
+    -webkit-backdrop-filter: blur(11px) saturate(140%);
+    border: 1px solid var(--card-border);
+    box-shadow: var(--card-shadow), inset 0 1px 0 var(--card-highlight);
+    transition: box-shadow 0.25s ease, transform 0.25s ease, background-color 0.25s ease, border-color 0.25s ease;
   }
+  .card:hover { border-color: var(--card-hover-border); }
 
   .card-hover {
     @apply card cursor-pointer;
   }
   .card-hover:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 40px -8px rgba(17,24,39,0.10);
+    transform: translateY(-3px);
+    box-shadow: var(--card-shadow-hover), inset 0 1px 0 var(--card-highlight);
+    border-color: var(--card-hover-border);
   }
 
   /* ── Glass Effects ─────────────────────────────────────────────────────── */
@@ -297,7 +361,8 @@
   /* ── Section container ─────────────────────────────────────────────────── */
 
   .container-page {
-    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+    @apply w-full px-4 sm:px-6 lg:px-8;
+    animation: page-fade 0.5s ease-out both;
   }
 
   /* ── Page heading ──────────────────────────────────────────────────────── */
@@ -663,6 +728,72 @@
   .text-fixed-black { color: #000000 !important; }
   .bg-fixed-white   { background-color: #ffffff !important; }
   .bg-fixed-black   { background-color: #000000 !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Motion — keyframes + interactive utilities (app-wide glassy polish)
+───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes aurora {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(-1.5%, 1.5%, 0) scale(1.06); }
+  100% { transform: translate3d(1.5%, -1%, 0) scale(1.03); }
+}
+
+@keyframes sheen {
+  0%   { transform: translateX(-160%) skewX(-18deg); }
+  100% { transform: translateX(320%)  skewX(-18deg); }
+}
+
+@keyframes page-fade {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--brand-500), 0); }
+  50%      { box-shadow: 0 0 24px 1px rgba(var(--brand-500), 0.22); }
+}
+
+@layer utilities {
+  /* Opt-in lift-on-hover for any element (tiles, list rows, link cards). */
+  .hover-lift {
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  /* Opt-in soft glowing pulse (CTAs, live indicators). */
+  .animate-glow { animation: glow-pulse 2.4s ease-in-out infinite; }
+
+  /* Reveal children with a staggered rise — add to a grid/list wrapper. */
+  .reveal-children > * { animation: slide-up 0.5s ease-out both; }
+  .reveal-children > *:nth-child(2) { animation-delay: 60ms; }
+  .reveal-children > *:nth-child(3) { animation-delay: 120ms; }
+  .reveal-children > *:nth-child(4) { animation-delay: 180ms; }
+  .reveal-children > *:nth-child(5) { animation-delay: 240ms; }
+  .reveal-children > *:nth-child(6) { animation-delay: 300ms; }
+}
+
+/* Respect users who prefer reduced motion — strip ambient + entrance motion. */
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none !important; }
+  .container-page,
+  .reveal-children > *,
+  .animate-glow,
+  .btn-primary:hover::after {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Print: strip app chrome so invoices etc. print clean (Save as PDF). */
