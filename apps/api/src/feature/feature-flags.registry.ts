@@ -170,6 +170,17 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: false, // dark launch — flip on in the control panel
     audience: ['admin'],
   },
+
+  // ── Assistant ─────────────────────────────────────────────────────────────
+  {
+    key: 'in_app_assistant',
+    label: 'In-app Assistant',
+    description:
+      'Role-aware navigator: instant feature search + AI chat that guides admins, hosts and guests to the right page. Degrades to keyword search without an AI key.',
+    category: 'AI & Concierge',
+    defaultEnabled: true,
+    audience: ['guest', 'host', 'admin', 'investor'],
+  },
 ];
 
 export const FEATURE_KEYS = FEATURE_REGISTRY.map((f) => f.key);

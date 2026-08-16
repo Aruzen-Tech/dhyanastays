@@ -6,6 +6,8 @@ import { ThemeProvider } from '../context/ThemeContext';
 import { FeatureProvider } from '../context/FeatureContext';
 import Navbar from '../components/navbar/Navbar';
 import Footer from '../components/footer/Footer';
+import SosFab from '../components/SosFab';
+import AssistantLauncher from '../components/assistant/AssistantLauncher';
 
 export const metadata: Metadata = {
   title: {
@@ -58,6 +60,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <main className="flex-1 animate-fade-in">{children}</main>
 
             <Footer />
+            <SosFab />
+            <AssistantLauncher />
             </FeatureProvider>
           </AuthProvider>
         </ThemeProvider>
