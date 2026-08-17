@@ -55,7 +55,10 @@ const focusRingClassName =
 
 export default function Footer() {
   return (
-    <footer className="border-t border-gray-100 bg-white mt-16">
+    /* `bg-surface`, not `bg-white`: the footer was only white because the
+       page was. Left hardcoded it would become a white slab under the new
+       sage background instead of the page running to the bottom. */
+    <footer className="border-t border-gray-200 bg-surface mt-16">
       {/* Same EXPLORE_CONTAINER_CLASS the Explore hero and stays listing
           section use, so the footer's left/right edges line up with them
           exactly rather than using the site-wide (wider) container-page. */}

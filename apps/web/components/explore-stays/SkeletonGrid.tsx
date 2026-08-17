@@ -1,52 +1,60 @@
+import Skeleton from '../Skeleton';
+
 /**
- * Loading placeholder shaped like StayEditorialGrid — mirrors ListingCard's
- * exact structure and spacing (image aspect ratio, then Title → Location →
- * Metadata → Price, same paddings/line-heights) block for block, so real
- * cards can swap in with zero layout shift. Every card here uses the same
- * fixed image ratio; ListingCard no longer has a "large" size variant, so
- * the skeleton mustn't invent one either — that mismatch was what made the
- * first skeleton render taller than the rest.
+ * Loading placeholder for the stays section.
+ *
+ * Mirrors StayCarousel + CompactStayCard block for block: the same arrow row,
+ * the same track padding and gaps, the same fixed card widths per breakpoint,
+ * and inside each card the same frame (`p-2`, concentric 24px/16px radii),
+ * the same 4:3 photo and the same three text rows at their real heights.
+ * Matching those heights is the whole point — a skeleton that is a few pixels
+ * off makes the page jump when the data lands.
+ *
+ * Heights are derived from the real card's type, not guessed:
+ *   title    text-[15px] leading-snug   -> ~20px -> h-5
+ *   location text-[11px] leading-4      ->  16px -> h-4
+ *   price    text-sm (line-height 20px) ->  20px -> h-5
+ *
+ * Every block is a <Skeleton>, so the fill colour and shimmer come from the
+ * shared `.skeleton` class rather than being restated here.
+ *
+ * No arrow row here: the previous/next controls moved into StayToolbar,
+ * which stays mounted while this renders, so reserving space for them a
+ * second time would open a gap that closes when the data lands.
+ *
+ * `aria-hidden` because it carries no information: app/page.tsx already
+ * announces "Loading stays." through a live region, and letting a screen
+ * reader walk a dozen empty boxes would only add noise.
  */
 export default function SkeletonGrid() {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div
-          key={i}
-          className="h-full flex flex-col overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-[0_1px_2px_rgba(17,24,39,0.04)]"
-        >
-          {/* Image — same fixed aspect-[4/3] as the real card, on every card. */}
-          <div className="aspect-[4/3] shrink-0 bg-gray-100 animate-pulse" />
+    <div className="relative" aria-hidden="true">
+      {/* Track — `overflow-hidden` rather than `overflow-x-auto`: there is
+          nothing to scroll yet, and a scrollable region with no real content
+          is just a trap for a stray swipe. */}
+      <div className="-mx-2 flex gap-4 overflow-hidden px-2 pb-6 pt-4 sm:gap-5">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} className="w-[228px] shrink-0 sm:w-[244px] lg:w-[264px]">
+            {/* A much lighter shadow than the real card's resting one: a
+                placeholder should sit quieter on the page than the content
+                replacing it, so the swap settles rather than deflates. */}
+            <div className="rounded-3xl border border-gray-100 bg-white p-2 shadow-[0_2px_6px_-4px_rgba(17,24,39,0.07)]">
+              <Skeleton variant="rounded" className="aspect-[4/3] w-full" />
 
-          <div className="flex flex-1 flex-col p-5 sm:p-6">
-            {/* Title (leading-6 / 24px, matching the real h3) */}
-            <div className="h-6 w-4/5 rounded bg-gray-100 animate-pulse" />
+              <div className="px-1 pb-1 pt-3">
+                <Skeleton variant="text" className="h-5 w-4/5" />
 
-            {/* Location (leading-5 / 20px row, pin icon + text) */}
-            <div className="h-5 flex items-center gap-1.5 mt-1.5">
-              <div className="w-3.5 h-3.5 rounded-full bg-gray-100 animate-pulse shrink-0" />
-              <div className="h-3.5 w-2/5 rounded bg-gray-100 animate-pulse" />
-            </div>
+                <div className="mt-1 flex h-4 items-center gap-1.5">
+                  <Skeleton variant="circular" className="h-3 w-3 shrink-0" />
+                  <Skeleton variant="text" className="h-3 w-2/5" />
+                </div>
 
-            {/* Metadata row (leading-5 / 20px row, two icon+label items) */}
-            <div className="h-5 flex items-center gap-4 mt-2.5">
-              <div className="flex items-center gap-1.5">
-                <div className="w-4 h-4 rounded-full bg-gray-100 animate-pulse shrink-0" />
-                <div className="h-3.5 w-16 rounded bg-gray-100 animate-pulse" />
+                <Skeleton variant="text" className="mt-1.5 h-5 w-24" />
               </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-4 h-4 rounded-full bg-gray-100 animate-pulse shrink-0" />
-                <div className="h-3.5 w-14 rounded bg-gray-100 animate-pulse" />
-              </div>
-            </div>
-
-            {/* Price — pinned to the bottom behind a divider, matching the real card */}
-            <div className="mt-auto pt-3 border-t border-gray-100">
-              <div className="h-7 w-24 rounded bg-gray-100 animate-pulse" />
             </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

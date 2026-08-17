@@ -4,7 +4,6 @@ import {
   type KeyboardEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,8 +16,8 @@ import ExploreHeader from '../components/explore-stays/ExploreHeader';
 import FilterPanel from '../components/explore-stays/FilterPanel';
 import StayToolbar from '../components/explore-stays/StayToolbar';
 import ActiveFilterChips from '../components/explore-stays/ActiveFilterChips';
-import StayEditorialGrid from '../components/explore-stays/StayEditorialGrid';
-import Pagination from '../components/explore-stays/Pagination';
+import StayCarousel from '../components/explore-stays/StayCarousel';
+import StaySpotlight from '../components/explore-stays/StaySpotlight';
 import SkeletonGrid from '../components/explore-stays/SkeletonGrid';
 import EmptyState from '../components/explore-stays/EmptyState';
 import ErrorState from '../components/explore-stays/ErrorState';
@@ -28,7 +27,9 @@ import {
   normalizeDiscoveryUrlState,
   parseDiscoveryTagCandidates,
 } from '../lib/discovery-url-state';
+import { useCarouselScroll } from '../hooks/useCarouselScroll';
 import { EXPLORE_CONTAINER_CLASS } from '../lib/exploreLayout';
+import { EXPLORE_RESULTS_ANCHOR } from '../lib/mockPromotedStays';
 import type { DiscoverySort, Listing, Tag } from '../lib/types';
 import {
   DIETARY_OPTIONS,
@@ -56,13 +57,12 @@ function useDebounce<T>(value: T, delay: number): T {
 
 type ViewMode = 'grid' | 'map' | 'split';
 
-// The public /listings API has no page/limit/total contract (confirmed by
-// reading lib/api.ts and the backend's PublicListingController — it always
-// returns the full matching array), so there's no existing page size to
-// reuse. 9 is a new, purely presentational choice: it divides evenly into
-// StayEditorialGrid's 3-column desktop layout (exactly 3 full rows) with no
-// dangling partial row.
-const RESULTS_PAGE_SIZE = 9;
+// Grid view renders `results` in full inside a horizontal carousel, so there
+// is no client-side page size or reveal count here anymore — both the earlier
+// pagination and the progressive reveal that replaced it are gone. The public
+// /listings API has no page/limit/total contract either (confirmed by reading
+// lib/api.ts and the backend's PublicListingController — it always returns the
+// full matching array), so nothing downstream needs one.
 
 type SearchSuggestion = {
   label: string;
@@ -146,12 +146,12 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
+  // The grid/map/split toggle was removed from the toolbar, but the state
+  // stays: the `?view=` URL param still drives it (see the normalizer below),
+  // and the map/split branches further down still render. Deleting the state
+  // would have silently broken a shareable URL, so the change is confined to
+  // the control that set it.
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
-  // Client-side pagination over `results` — see RESULTS_PAGE_SIZE above for
-  // why this isn't wired to the API. Grid-view-only (map/split keep showing
-  // every result in view, unpaginated — see visibleMapListings below, which
-  // is untouched by this and still derives from the full `results` array).
-  const [currentPage, setCurrentPage] = useState(1);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedListingId, setSelectedListingId] = useState<string | null>(
     null,
@@ -390,28 +390,6 @@ export default function HomePage() {
 
     return mapListings.filter((listing) => resultIds.has(listing.id));
   }, [mapListings, results]);
-
-  // Pagination is a pure view over `results` — every existing search/filter
-  // effect already fully recomputes `results` on its own; this only resets
-  // which page of that (possibly new) set is showing, same as any standard
-  // "new result set → back to page 1" pagination behavior.
-  const totalPages = Math.max(1, Math.ceil(results.length / RESULTS_PAGE_SIZE));
-  const paginatedResults = useMemo(
-    () => results.slice((currentPage - 1) * RESULTS_PAGE_SIZE, currentPage * RESULTS_PAGE_SIZE),
-    [results, currentPage],
-  );
-
-  // useLayoutEffect (not useEffect): resolves before paint, so switching to
-  // a new result set while parked on, say, page 3 never briefly renders
-  // "page 3 sliced from the new results" before snapping to page 1.
-  useLayoutEffect(() => {
-    setCurrentPage(1);
-  }, [results]);
-
-  const handlePageChange = useCallback((page: number) => {
-    setCurrentPage(page);
-    resultsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
 
   useEffect(() => {
     if (!selectedListingId) return;
@@ -992,10 +970,12 @@ export default function HomePage() {
         ? 'Searching stays.'
         : `${results.length} curated ${results.length === 1 ? 'stay' : 'stays'}.`;
 
-  const visibleResultsStatusText =
-    loading || searching
-      ? 'Searching...'
-      : `${results.length} curated ${results.length === 1 ? 'stay' : 'stays'}`;
+  // Scroll state for the stay carousel. It lives here, not in StayCarousel,
+  // because the previous/next buttons now sit in StayToolbar — a sibling, not
+  // a descendant — and both need the same ref and edge flags.
+  const carousel = useCarouselScroll<HTMLUListElement>(results);
+  const showStayCarousel =
+    viewMode === 'grid' && !loading && !searching && !error && results.length > 0;
 
   const discoveryFocusRingClassName =
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/30 focus-visible:ring-offset-2';
@@ -1038,10 +1018,15 @@ export default function HomePage() {
           `container-page` (max-w-7xl) used elsewhere in the app — scoped to
           just the Explore page, which keeps every other page's shared
           container untouched. */}
-      <section ref={resultsSectionRef} className={`${EXPLORE_CONTAINER_CLASS} py-12`}>
+      {/* `id` + `scroll-mt-24` are an anchor target only (cleared for the
+          sticky navbar) — the Stay Spotlight CTAs point here while their
+          promotions have no real listing id yet. No behaviour attached. */}
+      <section
+        ref={resultsSectionRef}
+        id={EXPLORE_RESULTS_ANCHOR}
+        className={`${EXPLORE_CONTAINER_CLASS} scroll-mt-24 pb-10 pt-3`}
+      >
         <ExploreHeader
-          search={search}
-          visibleResultsText={visibleResultsStatusText}
           srResultsText={resultsStatusText}
           showClearAll={!!(search || activeFilterCount > 0)}
           onClearAll={() => { setSearch(''); clearFilters(); }}
@@ -1052,11 +1037,13 @@ export default function HomePage() {
           <StayToolbar
             filterSort={filterSort}
             setFilterSort={setFilterSort}
-            viewMode={viewMode}
-            setViewMode={setViewMode}
             activeFilterCount={activeFilterCount}
             onOpenFilters={() => setFiltersOpen(true)}
             focusRingClassName={discoveryFocusRingClassName}
+            canScrollPrev={showStayCarousel ? carousel.canScrollPrev : undefined}
+            canScrollNext={showStayCarousel ? carousel.canScrollNext : undefined}
+            onScrollPrev={showStayCarousel ? carousel.scrollPrev : undefined}
+            onScrollNext={showStayCarousel ? carousel.scrollNext : undefined}
           />
 
             <ActiveFilterChips
@@ -1097,19 +1084,12 @@ export default function HomePage() {
 
             {!loading && !searching && !error && results.length > 0 && (
               <>
-                {/* Grid view — paginated client-side (see RESULTS_PAGE_SIZE);
-                    map/split below intentionally keep using the full,
-                    unpaginated `results`/`visibleMapListings`. */}
+                {/* Grid view — a horizontal carousel over the *whole* result
+                    set, so no stay is hidden behind a control; map/split below
+                    are untouched and still use
+                    `results`/`visibleMapListings`. */}
                 {viewMode === 'grid' && (
-                  <>
-                    <StayEditorialGrid listings={paginatedResults} />
-                    <Pagination
-                      currentPage={currentPage}
-                      totalPages={totalPages}
-                      onPageChange={handlePageChange}
-                      focusRingClassName={discoveryFocusRingClassName}
-                    />
-                  </>
+                  <StayCarousel listings={results} trackRef={carousel.trackRef} />
                 )}
 
                 {/* Map view */}
@@ -1248,6 +1228,18 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Promoted stays — sits immediately below the stays section, so the
+          page reads results first and editorial promotion second.
+          Presentational, mock-data-driven (lib/mockPromotedStays.ts); reads no
+          search/filter/map/listing state.
+
+          Note: while these promotions have no real listingId, their CTAs fall
+          back to the #explore-results anchor, which is now *above* this
+          section — a click scrolls back up to the stays row. That is the
+          placeholder path only; it disappears the moment real listing ids
+          arrive and promotedStayHref() starts returning /listings/<id>. */}
+      <StaySpotlight />
+
       <FilterPanel
         isOpen={filtersOpen}
         onClose={() => setFiltersOpen(false)}
@@ -1279,37 +1271,6 @@ export default function HomePage() {
         formatFacet={formatFacet}
         focusRingClassName={discoveryFocusRingClassName}
       />
-      {/* Features section */}
-      <section className="bg-white border-t border-gray-100 py-16">
-        <div className="container-page">
-          <h2 className="text-2xl font-bold text-center text-gray-900 mb-12">Why Dhyana Stays?</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              {
-                icon: '🌿',
-                title: 'Curated by experts',
-                desc: 'Every property is personally vetted by our wellness curators for authenticity and quality.',
-              },
-              {
-                icon: '🔒',
-                title: 'Secure bookings',
-                desc: 'Razorpay-powered payments with full/deposit options and transparent refund policies.',
-              },
-              {
-                icon: '🤝',
-                title: 'Host community',
-                desc: 'Join our network of conscious hosts and earn with weekly payouts and full transparency.',
-              },
-            ].map((f) => (
-              <div key={f.title} className="text-center p-6">
-                <div className="text-4xl mb-4">{f.icon}</div>
-                <h3 className="font-semibold text-gray-900 mb-2">{f.title}</h3>
-                <p className="text-gray-500 text-sm leading-relaxed">{f.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
     </>
   );
 }
