@@ -339,6 +339,10 @@ export const listingsApi = {
       method: 'DELETE',
     }),
 
+  /** Submit a draft listing for approval (backend enforces min 5 photos + 1 video). */
+  submitForApproval: (id: string) =>
+    request<Listing>(`/host/listings/${id}/submit`, { method: 'POST' }),
+
   // Seasonal rates
   addSeasonalRate: (id: string, body: { startsAt: string; endsAt: string; nightlyRate: number }) =>
     request<SeasonalRate>(`/host/listings/${id}/seasonal-rates`, {
@@ -436,12 +440,16 @@ export const listingsApi = {
 export const storageApi = {
   getPresignedUrl: (folder: string, filename: string, mimeType: string) =>
     request<{ uploadUrl: string; publicUrl: string; key: string; expiresIn: number }>(
-      '/storage/presigned',
+      '/storage/presign',
       {
         method: 'POST',
         body: JSON.stringify({ folder, filename, mimeType }),
       },
     ),
+  deleteObject: (key: string) =>
+    request<{ success: boolean }>(`/storage/object?key=${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+    }),
 };
 
 // ─── Pricing ──────────────────────────────────────────────────────────────────
@@ -1437,6 +1445,7 @@ export interface CrmContact360 {
     doNotContact: boolean;
     leadScore: number | null;
     lastContactedAt: string | null;
+    stageId: string | null;
   } | null;
   tags: (CrmTag & { addedAt: string })[];
   kpis: {
@@ -1467,6 +1476,47 @@ export interface CrmNote {
   pinned: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type CrmTaskStatus = 'OPEN' | 'DONE' | 'CANCELLED';
+export type CrmTaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
+export type CrmStageKind = 'GUEST' | 'HOST' | 'LEAD';
+
+export interface CrmTask {
+  id: string;
+  userId: string | null;
+  title: string;
+  description: string | null;
+  status: CrmTaskStatus;
+  priority: CrmTaskPriority;
+  dueAt: string | null;
+  assigneeId: string | null;
+  createdById: string;
+  completedAt: string | null;
+  createdAt: string;
+  user?: { id: string; fullName: string; email: string } | null;
+}
+
+export interface CrmLifecycleStage {
+  id: string;
+  name: string;
+  kind: CrmStageKind;
+  order: number;
+  color: string;
+}
+
+export interface CrmBoardCard {
+  userId: string;
+  fullName: string;
+  email: string;
+  role: string;
+  ownerId: string | null;
+}
+
+export interface CrmBoard {
+  kind: CrmStageKind;
+  stages: CrmLifecycleStage[];
+  cards: Record<string, CrmBoardCard[]>;
 }
 
 export const crmApi = {
@@ -1517,6 +1567,63 @@ export const crmApi = {
     request<CrmNote>(`/admin/crm/notes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteNote: (id: string) =>
     request<{ ok: boolean }>(`/admin/crm/notes/${id}`, { method: 'DELETE' }),
+
+  // ── Tasks (Phase 2) ──
+  listContactTasks: (userId: string) =>
+    request<CrmTask[]>(`/admin/crm/contacts/${userId}/tasks`),
+  listTasks: (params: { status?: string; assigneeId?: string } = {}) => {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v) qs.set(k, String(v));
+    });
+    return request<CrmTask[]>(`/admin/crm/tasks?${qs}`);
+  },
+  createTask: (body: {
+    title: string;
+    description?: string;
+    userId?: string;
+    assigneeId?: string;
+    priority?: CrmTaskPriority;
+    dueAt?: string;
+  }) => request<CrmTask>('/admin/crm/tasks', { method: 'POST', body: JSON.stringify(body) }),
+  updateTask: (
+    id: string,
+    body: Partial<{
+      title: string;
+      description: string;
+      assigneeId: string;
+      priority: CrmTaskPriority;
+      status: CrmTaskStatus;
+      dueAt: string;
+    }>,
+  ) => request<CrmTask>(`/admin/crm/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  completeTask: (id: string) =>
+    request<CrmTask>(`/admin/crm/tasks/${id}/complete`, { method: 'POST' }),
+  deleteTask: (id: string) =>
+    request<{ ok: boolean }>(`/admin/crm/tasks/${id}`, { method: 'DELETE' }),
+
+  // ── Pipeline (Phase 2) ──
+  listStages: (kind?: CrmStageKind) =>
+    request<CrmLifecycleStage[]>(`/admin/crm/pipeline/stages${kind ? `?kind=${kind}` : ''}`),
+  createStage: (body: { name: string; kind: CrmStageKind; color?: string; order?: number }) =>
+    request<CrmLifecycleStage>('/admin/crm/pipeline/stages', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateStage: (id: string, body: { name?: string; color?: string; order?: number }) =>
+    request<CrmLifecycleStage>(`/admin/crm/pipeline/stages/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteStage: (id: string) =>
+    request<{ ok: boolean }>(`/admin/crm/pipeline/stages/${id}`, { method: 'DELETE' }),
+  getBoard: (kind: CrmStageKind) =>
+    request<CrmBoard>(`/admin/crm/pipeline/board?kind=${kind}`),
+  moveContactStage: (userId: string, stageId: string | null) =>
+    request<{ ok: boolean }>(`/admin/crm/contacts/${userId}/stage`, {
+      method: 'POST',
+      body: JSON.stringify({ stageId: stageId ?? '' }),
+    }),
 };
 
 // ─── Assistant ──────────────────────────────────────────────────────────────
@@ -2052,4 +2159,176 @@ export interface BookingTicket {
 export const ticketApi = {
   /** The Stay Pass ticket for a booking (owner/admin). PENDING while it renders. */
   get: (bookingId: string) => request<BookingTicket>(`/bookings/${bookingId}/ticket`),
+};
+
+// ── Stay Spotlight (admin-curated homepage carousel) ─────────────────────────
+
+export interface UploadedMedia {
+  id: string;
+  url: string;
+  mediaType: string;
+  sortOrder?: number;
+}
+
+/** Public card shape consumed by the homepage Stay Spotlight carousel. */
+export interface SpotlightPublicItem {
+  id: string;
+  listingId: string;
+  title: string;
+  location: string;
+  description: string;
+  imageUrl: string | null;
+  videoUrl: string | null;
+  media: { url: string; mediaType: string }[];
+  nightlyRate: number;
+  rating: number;
+  reviewCount: number;
+  badge: string;
+}
+
+/** Admin row: the spotlight record plus a live listing summary. */
+export interface SpotlightAdminItem {
+  id: string;
+  listingId: string;
+  badge: string | null;
+  tagline: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  media: UploadedMedia[];
+  imageCount: number;
+  videoCount: number;
+  listing: {
+    id: string;
+    title: string;
+    location: string;
+    status: string;
+    imageUrl: string | null;
+    nightlyRate: number;
+    rating: number;
+    reviewCount: number;
+  };
+}
+
+// ── Advertisement Centre (admin-authored Explore-page popups) ────────────────
+
+export const AD_FREQUENCIES = ['once', 'session', 'daily', 'always'] as const;
+export type AdFrequency = (typeof AD_FREQUENCIES)[number];
+
+/** Public billboard payload (no counters/scheduling internals). */
+export interface PublicAd {
+  id: string;
+  title: string;
+  body: string | null;
+  imageUrl: string | null;
+  videoUrl: string | null;
+  media: { url: string; mediaType: string }[];
+  ctaLabel: string | null;
+  ctaHref: string | null;
+  accentColor: string | null;
+  frequency: AdFrequency;
+  placement: string;
+}
+
+/** Admin row — the full ad record incl. schedule + performance counters. */
+export interface AdminAd {
+  id: string;
+  title: string;
+  body: string | null;
+  imageUrl: string | null;
+  ctaLabel: string | null;
+  ctaHref: string | null;
+  placement: string;
+  frequency: AdFrequency;
+  accentColor: string | null;
+  isActive: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  priority: number;
+  impressionCount: number;
+  clickCount: number;
+  media: UploadedMedia[];
+  imageCount: number;
+  videoCount: number;
+  createdAt: string;
+}
+
+export interface AdvertisementInput {
+  title: string;
+  body?: string;
+  imageUrl?: string;
+  ctaLabel?: string;
+  ctaHref?: string;
+  placement?: string;
+  frequency?: AdFrequency;
+  accentColor?: string;
+  isActive?: boolean;
+  startsAt?: string;
+  endsAt?: string;
+  priority?: number;
+}
+
+export const adApi = {
+  // Public feed lives at /promotions/* with neutral action names so ad-blocker
+  // filter lists don't hide these first-party promos (see AdvertisementController).
+  /** Public: active promos for a placement (schedule-filtered, priority order). */
+  getActive: (placement = 'explore_billboard') =>
+    request<PublicAd[]>(`/promotions/active?placement=${encodeURIComponent(placement)}`),
+  impression: (id: string) =>
+    request<{ ok: boolean }>(`/promotions/${id}/view`, { method: 'POST' }),
+  click: (id: string) =>
+    request<{ ok: boolean }>(`/promotions/${id}/go`, { method: 'POST' }),
+  // Admin
+  list: () => request<AdminAd[]>('/admin/advertisements'),
+  create: (body: AdvertisementInput) =>
+    request<AdminAd>('/admin/advertisements', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id: string, body: Partial<AdvertisementInput>) =>
+    request<AdminAd>(`/admin/advertisements/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  remove: (id: string) =>
+    request<{ ok: boolean }>(`/admin/advertisements/${id}`, { method: 'DELETE' }),
+  addMedia: (id: string, body: { url: string; mediaType: string; sortOrder?: number }) =>
+    request<UploadedMedia>(`/admin/advertisements/${id}/media`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deleteMedia: (id: string, mediaId: string) =>
+    request<{ ok: boolean }>(`/admin/advertisements/${id}/media/${mediaId}`, { method: 'DELETE' }),
+};
+
+export const spotlightApi = {
+  /** Public homepage feed (active spotlights on approved listings). */
+  getPublic: () => request<SpotlightPublicItem[]>('/spotlight'),
+  /** Admin: every spotlight row (active or not), in display order. */
+  list: () => request<SpotlightAdminItem[]>('/admin/spotlight'),
+  add: (body: { listingId: string; badge?: string; tagline?: string }) =>
+    request<SpotlightAdminItem>('/admin/spotlight', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  update: (
+    id: string,
+    body: { badge?: string; tagline?: string; isActive?: boolean },
+  ) =>
+    request<SpotlightAdminItem>(`/admin/spotlight/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  remove: (id: string) =>
+    request<{ ok: boolean }>(`/admin/spotlight/${id}`, { method: 'DELETE' }),
+  /** Persist a new display order (ids top-to-bottom). */
+  reorder: (ids: string[]) =>
+    request<SpotlightAdminItem[]>('/admin/spotlight/reorder', {
+      method: 'PUT',
+      body: JSON.stringify({ ids }),
+    }),
+  addMedia: (id: string, body: { url: string; mediaType: string; sortOrder?: number }) =>
+    request<UploadedMedia>(`/admin/spotlight/${id}/media`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deleteMedia: (id: string, mediaId: string) =>
+    request<{ ok: boolean }>(`/admin/spotlight/${id}/media/${mediaId}`, { method: 'DELETE' }),
 };

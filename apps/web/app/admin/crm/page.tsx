@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { crmApi, formatINR, type CrmContactRow, type CrmTag } from '../../../lib/api';
+import CrmTabs from '../../../components/crm/CrmTabs';
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -94,6 +95,8 @@ export default function CrmContactsPage() {
           </p>
         </div>
       </div>
+
+      <CrmTabs />
 
       {/* Filters */}
       <div className="card p-4 mb-4">

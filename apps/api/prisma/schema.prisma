@@ -210,6 +210,9 @@ model User {
   crmTags             CrmContactTag[]
   crmNotes            CrmNote[]
   crmActivities       CrmActivity[]
+  crmTasks            CrmTask[]
+  spotlightStays      SpotlightStay[]
+  advertisements      Advertisement[]
 }
 
 model Host {
@@ -273,6 +276,7 @@ model Listing {
   capitalCalls        CapitalCall[]
   experiences         Experience[]         @relation("ListingExperiences")
   stayTheme           StayTheme?           @relation(fields: [stayThemeId], references: [id])
+  spotlight           SpotlightStay?
 
   @@index([hostId])
   @@index([status, createdAt])
@@ -650,6 +654,98 @@ model Review {
 
   @@index([listingId])
   @@index([userId])
+}
+
+/// Admin-curated "Stay Spotlight" — featured listings shown in the homepage
+/// hero carousel, ordered and toggleable from /admin/spotlight. One row per
+/// featured listing (listingId unique); the public feed joins live listing
+/// data (title, image, price, rating) so the card never drifts from the source.
+model SpotlightStay {
+  id          String   @id @default(cuid())
+  listingId   String   @unique
+  /// Optional custom pill text; falls back to "Featured Stay" when empty.
+  badge       String?
+  /// Optional editorial one-liner; falls back to the listing description.
+  tagline     String?
+  /// Ascending display order in the carousel.
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  listing     Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  media       SpotlightMedia[]
+
+  @@index([isActive, sortOrder])
+}
+
+/// Uploaded photos/video for a spotlight feature (min 5 images + 1 video to
+/// activate). `mediaType` is the file MIME; "image/*" vs "video/*".
+model SpotlightMedia {
+  id          String        @id @default(cuid())
+  spotlightId String
+  url         String
+  mediaType   String
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  spotlight   SpotlightStay @relation(fields: [spotlightId], references: [id], onDelete: Cascade)
+
+  @@index([spotlightId, sortOrder])
+}
+
+/// Advertisement Centre — admin-authored promos shown as a sliding billboard
+/// at the top of the Explore page. Fully admin-controlled: content, image,
+/// CTA, schedule window, display frequency, priority, active toggle;
+/// impression/click counters give basic performance visibility. The public
+/// feed returns only ads that are active AND within their (optional) schedule
+/// window.
+model Advertisement {
+  id              String    @id @default(cuid())
+  title           String
+  /// Supporting copy under the title.
+  body            String?
+  /// Banner image URL (optional — the popup renders text-only without it).
+  imageUrl        String?
+  /// Call-to-action button label; hidden when empty.
+  ctaLabel        String?
+  /// Where the CTA points — internal path (/…) or external URL.
+  ctaHref         String?
+  /// Surface this ad targets. Extensible; today only "explore_billboard".
+  placement       String    @default("explore_billboard")
+  /// How often one browser is shown this ad: once | session | daily | always.
+  frequency       String    @default("session")
+  /// Optional hex accent for the popup header/button.
+  accentColor     String?
+  isActive        Boolean   @default(true)
+  /// Optional schedule window. Null start = live now; null end = no expiry.
+  startsAt        DateTime?
+  endsAt          DateTime?
+  /// Higher shows first when several ads are eligible.
+  priority        Int       @default(0)
+  impressionCount Int       @default(0)
+  clickCount      Int       @default(0)
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       User      @relation(fields: [createdById], references: [id])
+  media           AdvertisementMedia[]
+
+  @@index([placement, isActive, priority])
+}
+
+/// Uploaded photos/video for an advertisement (min 5 images + 1 video to
+/// activate). `mediaType` is the file MIME; "image/*" vs "video/*".
+model AdvertisementMedia {
+  id              String        @id @default(cuid())
+  advertisementId String
+  url             String
+  mediaType       String
+  sortOrder       Int           @default(0)
+  createdAt       DateTime      @default(now())
+  advertisement   Advertisement @relation(fields: [advertisementId], references: [id], onDelete: Cascade)
+
+  @@index([advertisementId, sortOrder])
 }
 
 model GuestNotification {
@@ -1778,10 +1874,13 @@ model CrmContactProfile {
   doNotContact    Boolean   @default(false)
   leadScore       Int?
   lastContactedAt DateTime?
+  stageId         String?   // lifecycle pipeline stage (Phase 2)
+  stage           CrmLifecycleStage? @relation(fields: [stageId], references: [id], onDelete: SetNull)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   @@index([ownerId])
+  @@index([stageId])
 }
 
 /// Customer-level tag (distinct from the listing-only `Tag`).
@@ -1844,4 +1943,61 @@ enum CrmActivityType {
   OUTREACH_SENT
   CALL_LOGGED
   CONTACT_UPDATED
+}
+
+// ── CRM (admin) — Phase 2 workflow: tasks + lifecycle pipeline ────────────────
+
+enum CrmStageKind {
+  GUEST
+  HOST
+  LEAD
+}
+
+enum CrmTaskStatus {
+  OPEN
+  DONE
+  CANCELLED
+}
+
+enum CrmTaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+/// Lifecycle pipeline stage — one ordered set per contact kind.
+model CrmLifecycleStage {
+  id        String              @id @default(cuid())
+  name      String
+  kind      CrmStageKind
+  order     Int                 @default(0)
+  color     String              @default("#64748b")
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  contacts  CrmContactProfile[]
+
+  @@unique([kind, name])
+  @@index([kind, order])
+}
+
+/// A follow-up task, optionally attached to a contact. Staff refs
+/// (assigneeId/createdById) are plain ids, not relations, to avoid User bloat.
+model CrmTask {
+  id          String          @id @default(cuid())
+  userId      String? // contact (null = standalone task)
+  title       String
+  description String?
+  status      CrmTaskStatus   @default(OPEN)
+  priority    CrmTaskPriority @default(MEDIUM)
+  dueAt       DateTime?
+  assigneeId  String? // staff (User id)
+  createdById String // staff (User id)
+  completedAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([assigneeId, status])
+  @@index([status, dueAt])
 }

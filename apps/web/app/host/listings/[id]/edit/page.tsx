@@ -1,10 +1,11 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '../../../../../context/AuthContext';
-import { listingsApi, storageApi, formatDate, formatINR } from '../../../../../lib/api';
+import { listingsApi, formatDate, formatINR } from '../../../../../lib/api';
 import type { AvailabilityBlock, Listing, ListingMedia, SeasonalRate, Tag } from '../../../../../lib/types';
+import MediaUploader, { countMedia } from '../../../../../components/media/MediaUploader';
 import {
   DIETARY_OPTIONS,
   EXPERIENCE_TAGS,
@@ -45,8 +46,8 @@ export default function EditListingPage() {
 
   // Media state
   const [media, setMedia] = useState<ListingMedia[]>([]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitMsg, setSubmitMsg] = useState('');
 
   // Seasonal rates state
   const [seasonalRates, setSeasonalRates] = useState<SeasonalRate[]>([]);
@@ -173,50 +174,30 @@ export default function EditListingPage() {
     }
   };
 
-  // ── Photo upload ──────────────────────────────────────────────────────────
+  // ── Media (photos + video) ────────────────────────────────────────────────
 
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadingPhoto(true);
-    try {
-      // 1. Get presigned PUT URL from API
-      const { uploadUrl, publicUrl } = await storageApi.getPresignedUrl(
-        `listings/${id}`,
-        file.name,
-        file.type || 'image/jpeg',
-      );
-
-      // 2. PUT file directly to S3/R2
-      const uploadRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'image/jpeg' },
-        body: file,
-      });
-      if (!uploadRes.ok) throw new Error('Upload failed');
-
-      // 3. Save media record to DB
-      const newMedia = await listingsApi.addMedia(id, {
-        url: publicUrl,
-        mediaType: file.type || 'image/jpeg',
-        sortOrder: media.length,
-      });
-      setMedia((prev) => [...prev, newMedia]);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Photo upload failed');
-    } finally {
-      setUploadingPhoto(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+  const addMediaItem = async (m: { url: string; mediaType: string; sortOrder: number }) => {
+    const created = await listingsApi.addMedia(id, m);
+    setMedia((prev) => [...prev, created]);
+    return created;
   };
 
-  const handleDeleteMedia = async (mediaId: string) => {
-    if (!confirm('Remove this photo?')) return;
+  const removeMediaItem = async (mediaId: string) => {
+    await listingsApi.deleteMedia(id, mediaId);
+    setMedia((prev) => prev.filter((m) => m.id !== mediaId));
+  };
+
+  const handleSubmitForApproval = async () => {
+    setSubmitting(true);
+    setSubmitMsg('');
     try {
-      await listingsApi.deleteMedia(id, mediaId);
-      setMedia((prev) => prev.filter((m) => m.id !== mediaId));
+      const updated = await listingsApi.submitForApproval(id);
+      setListing(updated);
+      setSubmitMsg('Submitted for approval — our team will review it shortly.');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete photo');
+      setSubmitMsg(err instanceof Error ? err.message : 'Could not submit for approval');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -545,52 +526,63 @@ export default function EditListingPage() {
         </button>
       </div>
 
-      {/* ── Photo gallery ── */}
+      {/* ── Media (photos + video) ── */}
       <div className="card p-6 mt-8 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-semibold text-gray-900">Photos</h2>
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploadingPhoto}
-            className="btn-secondary text-sm py-1.5 px-4"
-          >
-            {uploadingPhoto ? <><span className="spinner" /> Uploading…</> : '+ Add photo'}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handlePhotoUpload}
-          />
-        </div>
+        <MediaUploader
+          items={media}
+          folder={`listings/${id}`}
+          onAdd={addMediaItem}
+          onDelete={removeMediaItem}
+          minImages={5}
+          minVideos={1}
+          aspect={4 / 3}
+          label="Photos & video"
+          hint="Crop/rotate photos as you add them."
+        />
 
-        {media.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-6">
-            No photos yet. Add photos to make your listing more attractive.
-          </p>
-        ) : (
-          <div className="grid grid-cols-3 gap-3">
-            {media.map((m, i) => (
-              <div key={m.id} className="relative group rounded-xl overflow-hidden h-28 bg-gray-100">
-                <img src={m.url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
-                <button
-                  onClick={() => handleDeleteMedia(m.id)}
-                  className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 text-xs
-                             opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                >
-                  ×
-                </button>
-                {i === 0 && (
-                  <span className="absolute bottom-1 left-1 bg-brand-700 text-white text-xs px-1.5 py-0.5 rounded">
-                    Cover
+        {/* Submit for approval */}
+        {(() => {
+          const { images, videos } = countMedia(media);
+          const canSubmit = images >= 5 && videos >= 1;
+          const status = listing?.status;
+          const submittable =
+            status === 'DRAFT' || status === 'REJECTED' || status === 'CHANGES_REQUESTED';
+          return (
+            <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-sm">
+                  <span className="text-gray-500">Status: </span>
+                  <span className="font-medium">{status ?? '—'}</span>
+                </div>
+                {submittable ? (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={!canSubmit || submitting}
+                    onClick={handleSubmitForApproval}
+                    title={canSubmit ? '' : 'Add at least 5 photos and 1 video first'}
+                  >
+                    {submitting ? 'Submitting…' : 'Submit for approval'}
+                  </button>
+                ) : (
+                  <span className="text-xs text-muted">
+                    {status === 'PENDING_APPROVAL'
+                      ? 'Awaiting admin review.'
+                      : status === 'APPROVED'
+                        ? 'Live and visible to guests.'
+                        : ''}
                   </span>
                 )}
               </div>
-            ))}
-          </div>
-        )}
+              {!canSubmit && submittable && (
+                <p className="mt-2 text-xs text-amber-600">
+                  Add at least 5 photos and 1 video to submit ({images}/5 photos, {videos}/1 video).
+                </p>
+              )}
+              {submitMsg && <p className="mt-2 text-sm">{submitMsg}</p>}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Seasonal rates ── */}

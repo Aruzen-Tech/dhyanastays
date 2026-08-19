@@ -284,7 +284,27 @@ export class StorageService {
       'image/webp': '.webp',
       'image/gif': '.gif',
       'application/pdf': '.pdf',
+      // Video
+      'video/mp4': '.mp4',
+      'video/webm': '.webm',
+      'video/quicktime': '.mov',
+      'video/x-matroska': '.mkv',
+      'video/ogg': '.ogv',
     };
     return map[mime] ?? '.bin';
+  }
+
+  /**
+   * Dev-only: persist raw bytes uploaded to the stub PUT endpoint, so the
+   * presigned "upload URL" the stub hands back actually works locally.
+   * Mirrors `readStubObject`'s containment check.
+   */
+  async writeStubBytes(key: string, bytes: Buffer): Promise<void> {
+    if (this.provider !== 'stub') return;
+    const filePath = path.resolve(path.join(StorageService.stubDir(), key));
+    if (!filePath.startsWith(path.resolve(StorageService.stubDir()))) return;
+    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.promises.writeFile(filePath, bytes);
+    this.logger.log(`[STORAGE STUB] stub-upload ${key} (${bytes.length} bytes)`);
   }
 }

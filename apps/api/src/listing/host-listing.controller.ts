@@ -109,6 +109,12 @@ export class HostListingController {
     return this.listingService.deleteMedia(user.sub, id, mediaId);
   }
 
+  /** Submit a draft listing for approval (enforces min 5 photos + 1 video). */
+  @Post('host/listings/:id/submit')
+  submitForApproval(@CurrentUser() user: RequestUser, @Param('id') id: string) {
+    return this.listingService.submitListingForApproval(user.sub, id);
+  }
+
   // ── Tags / Amenities ─────────────────────────────────────────────────────────
 
   @Get('host/tags')
