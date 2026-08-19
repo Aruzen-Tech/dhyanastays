@@ -23,7 +23,6 @@ export default function NewListingPage() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) router.push('/auth/login');
@@ -48,7 +47,7 @@ export default function NewListingPage() {
     setError('');
     setLoading(true);
     try {
-      await listingsApi.create({
+      const created = await listingsApi.create({
         title: form.title,
         description: form.description,
         city: form.city,
@@ -56,10 +55,11 @@ export default function NewListingPage() {
         baseNightlyRate: Number(form.baseNightlyRate) * 100, // convert ₹ to paise
         maxGuests: Number(form.maxGuests),
       });
-      setSuccess(true);
+      // Draft created — continue to the edit page to add photos + video and
+      // then submit for approval.
+      router.push(`/host/listings/${created.id}/edit`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to create listing');
-    } finally {
       setLoading(false);
     }
   };
@@ -89,35 +89,6 @@ export default function NewListingPage() {
     );
   }
 
-  // ── Success state ──────────────────────────────────────────────────────────
-  if (success) {
-    return (
-      <div className="container-page py-16 max-w-lg mx-auto text-center">
-        <div className="card p-10">
-          <div className="text-5xl mb-4">🎉</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Listing submitted!</h2>
-          <p className="text-gray-500 text-sm mb-6">
-            Your listing has been submitted for admin review. You&apos;ll be notified once it&apos;s approved.
-          </p>
-          <div className="flex gap-3 justify-center">
-            <button onClick={() => router.push('/dashboard')} className="btn-primary">
-              Go to dashboard
-            </button>
-            <button
-              onClick={() => {
-                setSuccess(false);
-                setForm({ title: '', description: '', city: '', state: '', baseNightlyRate: '', maxGuests: '' });
-              }}
-              className="btn-secondary"
-            >
-              Add another
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // ── Create listing form ────────────────────────────────────────────────────
   return (
     <div className="container-page py-10 max-w-2xl mx-auto">
@@ -128,7 +99,7 @@ export default function NewListingPage() {
         </button>
         <h1 className="page-title">Create a new listing</h1>
         <p className="text-gray-500 text-sm mt-1">
-          Your listing will be reviewed by our team before going live.
+          Save the basics, then add photos &amp; a video and submit for review.
         </p>
       </div>
 
@@ -234,19 +205,19 @@ export default function NewListingPage() {
         <div className="alert-info">
           <p className="font-medium mb-1">📋 What happens next?</p>
           <ul className="text-xs space-y-1 opacity-80">
-            <li>• Your listing is submitted with status <strong>Pending Approval</strong></li>
-            <li>• Our admin team reviews it within 24–48 hours</li>
+            <li>• Your listing is saved as a <strong>Draft</strong></li>
+            <li>• Next, add at least <strong>5 photos</strong> and <strong>1 video</strong> (crop/rotate as you go)</li>
+            <li>• Then submit for review — our team approves within 24–48 hours</li>
             <li>• Once approved, it appears in the public discovery feed</li>
-            <li>• Edits to location or description will trigger re-review</li>
           </ul>
         </div>
 
         <div className="flex gap-3">
           <button type="submit" disabled={loading} className="btn-primary flex-1 py-3">
             {loading ? (
-              <><span className="spinner" /> Submitting…</>
+              <><span className="spinner" /> Saving…</>
             ) : (
-              'Submit for review'
+              'Save & add media'
             )}
           </button>
           <button type="button" onClick={() => router.back()} className="btn-secondary px-6">

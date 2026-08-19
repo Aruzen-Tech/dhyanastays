@@ -10,6 +10,7 @@ import {
   type SpotlightAdminItem,
 } from '../../../lib/api';
 import type { Listing } from '../../../lib/types';
+import MediaUploader from '../../../components/media/MediaUploader';
 
 /** Curated Stay Spotlight management — search listings, feature them, reorder. */
 export default function AdminSpotlightPage() {
@@ -223,6 +224,7 @@ export default function AdminSpotlightPage() {
               onToggle={toggleActive}
               onRemove={remove}
               onSaveText={saveText}
+              onReload={load}
             />
           ))}
         </ul>
@@ -240,6 +242,7 @@ function SpotlightRow({
   onToggle,
   onRemove,
   onSaveText,
+  onReload,
 }: {
   item: SpotlightAdminItem;
   index: number;
@@ -249,11 +252,22 @@ function SpotlightRow({
   onToggle: (item: SpotlightAdminItem) => void;
   onRemove: (id: string) => void;
   onSaveText: (id: string, patch: { badge?: string; tagline?: string }) => void;
+  onReload: () => Promise<void>;
 }) {
   const [badge, setBadge] = useState(item.badge ?? '');
   const [tagline, setTagline] = useState(item.tagline ?? '');
   const dirty = badge !== (item.badge ?? '') || tagline !== (item.tagline ?? '');
   const rowBusy = busy === item.id;
+
+  const addMedia = async (m: { url: string; mediaType: string; sortOrder: number }) => {
+    const created = await spotlightApi.addMedia(item.id, m);
+    await onReload();
+    return created;
+  };
+  const removeMedia = async (mediaId: string) => {
+    await spotlightApi.deleteMedia(item.id, mediaId);
+    await onReload();
+  };
 
   return (
     <li className={`card p-4 ${item.isActive ? '' : 'opacity-60'}`}>
@@ -352,6 +366,21 @@ function SpotlightRow({
             Remove
           </button>
         </div>
+      </div>
+
+      {/* Optional media — a cover photo/video shown on the homepage billboard */}
+      <div className="mt-4 border-t border-gray-100 dark:border-gray-800 pt-4">
+        <MediaUploader
+          items={item.media}
+          folder={`spotlight/${item.id}`}
+          onAdd={addMedia}
+          onDelete={removeMedia}
+          minImages={0}
+          minVideos={0}
+          aspect={16 / 9}
+          label="Spotlight media (optional)"
+          hint="First photo overrides the listing image on the billboard."
+        />
       </div>
     </li>
   );

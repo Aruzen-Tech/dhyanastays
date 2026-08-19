@@ -30,6 +30,7 @@ describe('AdvertisementService', () => {
           accentColor: '#123456',
           frequency: 'session',
           placement: 'explore_billboard',
+          media: [],
           // counters intentionally present on the row but must not leak:
           impressionCount: 9,
           clickCount: 2,
@@ -47,6 +48,8 @@ describe('AdvertisementService', () => {
         title: 'Monsoon Week',
         body: 'Save 20%',
         imageUrl: null,
+        videoUrl: null,
+        media: [],
         ctaLabel: 'Explore',
         ctaHref: '/experiences',
         accentColor: '#123456',

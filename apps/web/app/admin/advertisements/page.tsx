@@ -4,31 +4,28 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../context/AuthContext';
 import { adApi, type AdminAd } from '../../../lib/api';
+import MediaUploader from '../../../components/media/MediaUploader';
 
 interface FormState {
   title: string;
   body: string;
-  imageUrl: string;
   ctaLabel: string;
   ctaHref: string;
   accentColor: string;
   priority: string;
   startsAt: string;
   endsAt: string;
-  isActive: boolean;
 }
 
 const EMPTY_FORM: FormState = {
   title: '',
   body: '',
-  imageUrl: '',
   ctaLabel: '',
   ctaHref: '',
   accentColor: '',
   priority: '0',
   startsAt: '',
   endsAt: '',
-  isActive: true,
 };
 
 /** ISO string → value for <input type="datetime-local"> (local, no seconds). */
@@ -94,14 +91,12 @@ export default function AdminAdvertisementsPage() {
     setForm({
       title: ad.title,
       body: ad.body ?? '',
-      imageUrl: ad.imageUrl ?? '',
       ctaLabel: ad.ctaLabel ?? '',
       ctaHref: ad.ctaHref ?? '',
       accentColor: ad.accentColor ?? '',
       priority: String(ad.priority),
       startsAt: toLocalInput(ad.startsAt),
       endsAt: toLocalInput(ad.endsAt),
-      isActive: ad.isActive,
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -115,13 +110,11 @@ export default function AdminAdvertisementsPage() {
       const payload = {
         title: form.title.trim(),
         body: form.body,
-        imageUrl: form.imageUrl,
         ctaLabel: form.ctaLabel,
         ctaHref: form.ctaHref,
         priority: Number(form.priority) || 0,
         startsAt: form.startsAt,
         endsAt: form.endsAt,
-        isActive: form.isActive,
         ...(form.accentColor.trim() ? { accentColor: form.accentColor.trim() } : {}),
       };
       if (editingId) await adApi.update(editingId, payload);
@@ -205,14 +198,6 @@ export default function AdminAdvertisementsPage() {
             onChange={(e) => set('body', e.target.value)}
           />
 
-          <label className="block text-sm font-medium mb-1">Image URL</label>
-          <input
-            className="input mb-3"
-            placeholder="https://…/banner.jpg"
-            value={form.imageUrl}
-            onChange={(e) => set('imageUrl', e.target.value)}
-          />
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
             <div>
               <label className="block text-sm font-medium mb-1">Button label</label>
@@ -285,14 +270,10 @@ export default function AdminAdvertisementsPage() {
             </div>
           </div>
 
-          <label className="mb-4 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.isActive}
-              onChange={(e) => set('isActive', e.target.checked)}
-            />
-            Active (eligible to show)
-          </label>
+          <p className="mb-4 text-xs text-muted">
+            New ads go live immediately. Optionally add media to each ad below (the first photo
+            becomes the billboard image); use Deactivate to take one down.
+          </p>
 
           <div className="flex items-center gap-3">
             <button className="btn-primary" disabled={busy === 'save' || !form.title.trim()}>
@@ -311,12 +292,9 @@ export default function AdminAdvertisementsPage() {
           <p className="eyebrow text-brand-700 mb-2">Live preview</p>
           <div className="overflow-hidden rounded-2xl bg-white shadow-xl ring-1 ring-black/5 dark:bg-gray-900">
             <div className="h-1.5 w-full" style={{ backgroundColor: accent }} />
-            {form.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={form.imageUrl} alt="" className="aspect-[16/9] w-full object-cover" />
-            ) : (
-              <div className="aspect-[16/9] w-full bg-gradient-to-br from-brand-100 to-brand-300" />
-            )}
+            <div className="aspect-[16/9] w-full bg-gradient-to-br from-brand-100 to-brand-300 grid place-items-center text-xs text-brand-700/70">
+              Media added per-ad below
+            </div>
             <div className="p-5">
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em]" style={{ color: accent }}>
                 Featured
@@ -360,58 +338,119 @@ export default function AdminAdvertisementsPage() {
             const s = statusOf(ad);
             const ctr = ad.impressionCount > 0 ? (ad.clickCount / ad.impressionCount) * 100 : 0;
             return (
-              <li key={ad.id} className={`card p-4 ${ad.isActive ? '' : 'opacity-70'}`}>
-                <div className="flex items-start gap-4">
-                  <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-brand-100">
-                    {ad.imageUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={ad.imageUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-                    )}
-                    <span
-                      className="absolute inset-x-0 bottom-0 h-1"
-                      style={{ backgroundColor: ad.accentColor ?? '#4b5d3a' }}
-                    />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate font-medium">{ad.title}</p>
-                      <span className={`${s.cls} text-xs`}>{s.label}</span>
-                      <span className="text-xs text-muted">priority {ad.priority}</span>
-                    </div>
-                    {ad.body && <p className="mt-0.5 truncate text-xs text-muted">{ad.body}</p>}
-                    <p className="mt-1 text-xs text-muted">
-                      {ad.impressionCount.toLocaleString()} impressions · {ad.clickCount.toLocaleString()} clicks
-                      {ad.impressionCount > 0 ? ` · ${ctr.toFixed(1)}% CTR` : ''}
-                      {ad.ctaHref ? ` · → ${ad.ctaHref}` : ''}
-                    </p>
-                  </div>
-
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <button className="btn-secondary text-sm py-1.5 w-24" onClick={() => startEdit(ad)}>
-                      Edit
-                    </button>
-                    <button
-                      className="btn-secondary text-sm py-1.5 w-24"
-                      disabled={busy === ad.id}
-                      onClick={() => toggleActive(ad)}
-                    >
-                      {ad.isActive ? 'Deactivate' : 'Activate'}
-                    </button>
-                    <button
-                      className="btn-danger text-sm py-1.5 w-24"
-                      disabled={busy === ad.id}
-                      onClick={() => remove(ad)}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </li>
+              <AdRow
+                key={ad.id}
+                ad={ad}
+                status={s}
+                ctr={ctr}
+                busy={busy}
+                onEdit={startEdit}
+                onToggle={toggleActive}
+                onRemove={remove}
+                onReload={load}
+              />
             );
           })}
         </ul>
       )}
     </div>
+  );
+}
+
+function AdRow({
+  ad,
+  status,
+  ctr,
+  busy,
+  onEdit,
+  onToggle,
+  onRemove,
+  onReload,
+}: {
+  ad: AdminAd;
+  status: { label: string; cls: string };
+  ctr: number;
+  busy: string;
+  onEdit: (ad: AdminAd) => void;
+  onToggle: (ad: AdminAd) => void;
+  onRemove: (ad: AdminAd) => void;
+  onReload: () => Promise<void>;
+}) {
+  const cover = ad.media.find((m) => m.mediaType.startsWith('image'))?.url ?? null;
+
+  const addMedia = async (m: { url: string; mediaType: string; sortOrder: number }) => {
+    const created = await adApi.addMedia(ad.id, m);
+    await onReload();
+    return created;
+  };
+  const removeMedia = async (mediaId: string) => {
+    await adApi.deleteMedia(ad.id, mediaId);
+    await onReload();
+  };
+
+  return (
+    <li className={`card p-4 ${ad.isActive ? '' : 'opacity-70'}`}>
+      <div className="flex items-start gap-4">
+        <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-lg bg-brand-100">
+          {cover && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={cover} alt="" className="h-full w-full object-cover" loading="lazy" />
+          )}
+          <span
+            className="absolute inset-x-0 bottom-0 h-1"
+            style={{ backgroundColor: ad.accentColor ?? '#4b5d3a' }}
+          />
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate font-medium">{ad.title}</p>
+            <span className={`${status.cls} text-xs`}>{status.label}</span>
+            <span className="text-xs text-muted">priority {ad.priority}</span>
+          </div>
+          {ad.body && <p className="mt-0.5 truncate text-xs text-muted">{ad.body}</p>}
+          <p className="mt-1 text-xs text-muted">
+            {ad.impressionCount.toLocaleString()} impressions · {ad.clickCount.toLocaleString()} clicks
+            {ad.impressionCount > 0 ? ` · ${ctr.toFixed(1)}% CTR` : ''}
+            {ad.ctaHref ? ` · → ${ad.ctaHref}` : ''}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <button className="btn-secondary text-sm py-1.5 w-24" onClick={() => onEdit(ad)}>
+            Edit
+          </button>
+          <button
+            className="btn-secondary text-sm py-1.5 w-24"
+            disabled={busy === ad.id}
+            onClick={() => onToggle(ad)}
+          >
+            {ad.isActive ? 'Deactivate' : 'Activate'}
+          </button>
+          <button
+            className="btn-danger text-sm py-1.5 w-24"
+            disabled={busy === ad.id}
+            onClick={() => onRemove(ad)}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      {/* Media — 5 photos + 1 video required to activate */}
+      <div className="mt-4 border-t border-gray-100 dark:border-gray-800 pt-4">
+        <MediaUploader
+          items={ad.media}
+          folder={`advertisements/${ad.id}`}
+          onAdd={addMedia}
+          onDelete={removeMedia}
+          minImages={0}
+          minVideos={0}
+          aspect={16 / 9}
+          label="Advertisement media (optional)"
+          hint="First photo becomes the billboard image."
+        />
+      </div>
+    </li>
   );
 }

@@ -17,6 +17,45 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-19 — Media uploads: crop/rotate photos + video across listings, spotlight & ads
+
+Unified image+video upload with an in-browser **crop & rotate** editor, and a
+**minimum of 5 photos + 1 video** required across all three surfaces.
+
+### Fixed
+
+- **Uploads were broken**: the web client called `POST /storage/presigned` but
+  the API route is `/storage/presign` (404). Aligned the client.
+- Storage `mimeToExt` now maps video types (mp4/webm/mov/mkv/ogv); the stub
+  server serves them too.
+- **Local dev uploads now work**: added the missing `PUT /storage/stub-upload/*`
+  handler (the stub presign URL pointed at a route that didn't exist).
+- Stub asset serve now sends `Cross-Origin-Resource-Policy: cross-origin`
+  (helmet defaults to `same-origin`, which blocked the web app from embedding
+  uploaded images/video in dev → `ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`).
+- Spotlight + billboard carousels mark off-screen slides `inert` so their
+  links/CTAs can't retain focus under an `aria-hidden` ancestor (a11y warning).
+
+### Added
+
+- **`react-easy-crop`** + reusable **`MediaUploader`** (`components/media/`) —
+  add multiple photos (each opens a crop/rotate/zoom modal → canvas-exported
+  JPEG) and a video; grid with cover/delete; live "Photos x/5 · Video y/1"
+  status. Presigns → PUTs → persists per surface.
+- **Listings**: new listings start as **DRAFT**; the edit page hosts the
+  uploader and a **Submit for approval** action gated on ≥5 photos + 1 video
+  (`POST /host/listings/:id/submit`, backend-enforced). Create redirects to the
+  media step.
+- **Spotlight** (migration `0042`, `SpotlightMedia`) + **Advertisements**
+  (`AdvertisementMedia`): per-entry uploader, but media here is **optional** —
+  no minimum and no activation gate (the 5+1 rule is **listings-only**). Entries
+  are active immediately; when media is present the public feed derives the
+  card/billboard image from the uploaded cover (the video url and full media
+  array are returned too, falling back to the listing photo / legacy imageUrl).
+  The ad "Image URL" text field was replaced by the optional uploader.
+
+---
+
 ## 2026-08-18 — Advertisement Centre (Explore-page billboard)
 
 Admin-authored promo **billboard** pinned to the top of the Explore page — a

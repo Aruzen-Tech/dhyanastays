@@ -339,6 +339,10 @@ export const listingsApi = {
       method: 'DELETE',
     }),
 
+  /** Submit a draft listing for approval (backend enforces min 5 photos + 1 video). */
+  submitForApproval: (id: string) =>
+    request<Listing>(`/host/listings/${id}/submit`, { method: 'POST' }),
+
   // Seasonal rates
   addSeasonalRate: (id: string, body: { startsAt: string; endsAt: string; nightlyRate: number }) =>
     request<SeasonalRate>(`/host/listings/${id}/seasonal-rates`, {
@@ -436,12 +440,16 @@ export const listingsApi = {
 export const storageApi = {
   getPresignedUrl: (folder: string, filename: string, mimeType: string) =>
     request<{ uploadUrl: string; publicUrl: string; key: string; expiresIn: number }>(
-      '/storage/presigned',
+      '/storage/presign',
       {
         method: 'POST',
         body: JSON.stringify({ folder, filename, mimeType }),
       },
     ),
+  deleteObject: (key: string) =>
+    request<{ success: boolean }>(`/storage/object?key=${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+    }),
 };
 
 // ─── Pricing ──────────────────────────────────────────────────────────────────
@@ -2155,6 +2163,13 @@ export const ticketApi = {
 
 // ── Stay Spotlight (admin-curated homepage carousel) ─────────────────────────
 
+export interface UploadedMedia {
+  id: string;
+  url: string;
+  mediaType: string;
+  sortOrder?: number;
+}
+
 /** Public card shape consumed by the homepage Stay Spotlight carousel. */
 export interface SpotlightPublicItem {
   id: string;
@@ -2163,6 +2178,8 @@ export interface SpotlightPublicItem {
   location: string;
   description: string;
   imageUrl: string | null;
+  videoUrl: string | null;
+  media: { url: string; mediaType: string }[];
   nightlyRate: number;
   rating: number;
   reviewCount: number;
@@ -2178,6 +2195,9 @@ export interface SpotlightAdminItem {
   sortOrder: number;
   isActive: boolean;
   createdAt: string;
+  media: UploadedMedia[];
+  imageCount: number;
+  videoCount: number;
   listing: {
     id: string;
     title: string;
@@ -2195,12 +2215,14 @@ export interface SpotlightAdminItem {
 export const AD_FREQUENCIES = ['once', 'session', 'daily', 'always'] as const;
 export type AdFrequency = (typeof AD_FREQUENCIES)[number];
 
-/** Public popup payload (no counters/scheduling internals). */
+/** Public billboard payload (no counters/scheduling internals). */
 export interface PublicAd {
   id: string;
   title: string;
   body: string | null;
   imageUrl: string | null;
+  videoUrl: string | null;
+  media: { url: string; mediaType: string }[];
   ctaLabel: string | null;
   ctaHref: string | null;
   accentColor: string | null;
@@ -2225,6 +2247,9 @@ export interface AdminAd {
   priority: number;
   impressionCount: number;
   clickCount: number;
+  media: UploadedMedia[];
+  imageCount: number;
+  videoCount: number;
   createdAt: string;
 }
 
@@ -2244,13 +2269,15 @@ export interface AdvertisementInput {
 }
 
 export const adApi = {
-  /** Public: active ads for a placement (schedule-filtered, priority order). */
+  // Public feed lives at /promotions/* with neutral action names so ad-blocker
+  // filter lists don't hide these first-party promos (see AdvertisementController).
+  /** Public: active promos for a placement (schedule-filtered, priority order). */
   getActive: (placement = 'explore_billboard') =>
-    request<PublicAd[]>(`/advertisements/active?placement=${encodeURIComponent(placement)}`),
+    request<PublicAd[]>(`/promotions/active?placement=${encodeURIComponent(placement)}`),
   impression: (id: string) =>
-    request<{ ok: boolean }>(`/advertisements/${id}/impression`, { method: 'POST' }),
+    request<{ ok: boolean }>(`/promotions/${id}/view`, { method: 'POST' }),
   click: (id: string) =>
-    request<{ ok: boolean }>(`/advertisements/${id}/click`, { method: 'POST' }),
+    request<{ ok: boolean }>(`/promotions/${id}/go`, { method: 'POST' }),
   // Admin
   list: () => request<AdminAd[]>('/admin/advertisements'),
   create: (body: AdvertisementInput) =>
@@ -2262,6 +2289,13 @@ export const adApi = {
     }),
   remove: (id: string) =>
     request<{ ok: boolean }>(`/admin/advertisements/${id}`, { method: 'DELETE' }),
+  addMedia: (id: string, body: { url: string; mediaType: string; sortOrder?: number }) =>
+    request<UploadedMedia>(`/admin/advertisements/${id}/media`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deleteMedia: (id: string, mediaId: string) =>
+    request<{ ok: boolean }>(`/admin/advertisements/${id}/media/${mediaId}`, { method: 'DELETE' }),
 };
 
 export const spotlightApi = {
@@ -2290,4 +2324,11 @@ export const spotlightApi = {
       method: 'PUT',
       body: JSON.stringify({ ids }),
     }),
+  addMedia: (id: string, body: { url: string; mediaType: string; sortOrder?: number }) =>
+    request<UploadedMedia>(`/admin/spotlight/${id}/media`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deleteMedia: (id: string, mediaId: string) =>
+    request<{ ok: boolean }>(`/admin/spotlight/${id}/media/${mediaId}`, { method: 'DELETE' }),
 };

@@ -18,7 +18,7 @@ import StayToolbar from '../components/explore-stays/StayToolbar';
 import ActiveFilterChips from '../components/explore-stays/ActiveFilterChips';
 import StayCarousel from '../components/explore-stays/StayCarousel';
 import StaySpotlight from '../components/explore-stays/StaySpotlight';
-import ExploreAdBillboard from '../components/advertisement/ExploreAdBillboard';
+import ExplorePromoBillboard from '../components/promo/ExplorePromoBillboard';
 import SkeletonGrid from '../components/explore-stays/SkeletonGrid';
 import EmptyState from '../components/explore-stays/EmptyState';
 import ErrorState from '../components/explore-stays/ErrorState';
@@ -987,8 +987,8 @@ export default function HomePage() {
   return (
     <>
       {/* Admin-authored promo billboard (Advertisement Centre). Self-guards:
-          renders nothing unless there's an eligible active ad. */}
-      <ExploreAdBillboard />
+          renders nothing unless there's an eligible active promo. */}
+      <ExplorePromoBillboard />
 
       <ExploreHero
         search={search}

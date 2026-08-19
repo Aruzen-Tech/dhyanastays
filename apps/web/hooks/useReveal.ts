@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface Options {
   /** Shrink the viewport box so the reveal fires a little before the true edge. */
@@ -30,7 +30,13 @@ interface Options {
  */
 export function useReveal<T extends HTMLElement = HTMLDivElement>(options: Options = {}) {
   const { rootMargin = '0px 0px -10% 0px', threshold = 0.15 } = options;
-  const ref = useRef<T | null>(null);
+  // A state-backed callback ref (not useRef): the observer effect must re-run
+  // when the element actually mounts. Some consumers render the element
+  // conditionally (e.g. only after an async fetch), so a plain ref would still
+  // be null when the effect first ran and would never re-attach — leaving the
+  // content pinned at its opacity-0 pre-reveal state forever.
+  const [node, setNode] = useState<T | null>(null);
+  const ref = useCallback((el: T | null) => setNode(el), []);
   const [revealed, setRevealed] = useState(false);
   const [armed, setArmed] = useState(false);
 
@@ -43,9 +49,7 @@ export function useReveal<T extends HTMLElement = HTMLDivElement>(options: Optio
   }, []);
 
   useEffect(() => {
-    if (!armed || revealed) return;
-    const element = ref.current;
-    if (!element) return;
+    if (!armed || revealed || !node) return;
 
     // Very old browsers / jsdom: no observer, so just show everything.
     if (typeof IntersectionObserver === 'undefined') {
@@ -62,9 +66,9 @@ export function useReveal<T extends HTMLElement = HTMLDivElement>(options: Optio
       },
       { rootMargin, threshold },
     );
-    observer.observe(element);
+    observer.observe(node);
     return () => observer.disconnect();
-  }, [armed, revealed, rootMargin, threshold]);
+  }, [armed, revealed, node, rootMargin, threshold]);
 
   return { ref, armed, revealed };
 }

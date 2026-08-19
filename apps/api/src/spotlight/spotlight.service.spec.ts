@@ -37,12 +37,13 @@ describe('SpotlightService', () => {
     it('maps rows to the PromotedStay shape with badge/tagline/description fallbacks', async () => {
       const prisma = makePrisma();
       prisma.spotlightStay.findMany.mockResolvedValue([
-        { id: 's1', listingId: 'l1', badge: null, tagline: null, listing: listingRow() },
+        { id: 's1', listingId: 'l1', badge: null, tagline: null, media: [], listing: listingRow() },
         {
           id: 's2',
           listingId: 'l2',
           badge: 'Guest Favourite',
           tagline: 'Wake to birdsong.',
+          media: [],
           listing: listingRow({ id: 'l2', title: 'Misty Hills', city: 'Munnar', state: 'Kerala' }),
         },
       ]);

@@ -345,7 +345,10 @@ export default function StaySpotlight() {
                 <div
                   key={stay.id}
                   className="w-full shrink-0"
-                  aria-hidden={i !== index}
+                  // `inert` on off-screen slides removes their links/buttons from
+                  // the tab order and the a11y tree (so focus can't hide behind
+                  // aria-hidden). React 19 maps the boolean to the DOM attribute.
+                  inert={i !== index}
                   aria-roledescription="slide"
                   aria-label={`${i + 1} of ${count}`}
                 >

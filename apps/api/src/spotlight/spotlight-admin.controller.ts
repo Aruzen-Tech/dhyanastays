@@ -26,6 +26,19 @@ export class SpotlightAdminController {
     return this.spotlight.reorder(dto.ids);
   }
 
+  @Post(':id/media')
+  addMedia(
+    @Param('id') id: string,
+    @Body() dto: { url: string; mediaType: string; sortOrder?: number },
+  ) {
+    return this.spotlight.addMedia(id, dto);
+  }
+
+  @Delete(':id/media/:mediaId')
+  deleteMedia(@Param('id') id: string, @Param('mediaId') mediaId: string) {
+    return this.spotlight.deleteMedia(id, mediaId);
+  }
+
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateSpotlightDto) {
     return this.spotlight.update(id, dto);

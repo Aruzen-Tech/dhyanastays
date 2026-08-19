@@ -3,17 +3,35 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAdvertisementDto, UpdateAdvertisementDto } from './dto/advertisement.dto';
 
-/** The public popup payload — no counters or scheduling internals leak out. */
+/** The public billboard payload — no counters or scheduling internals leak out. */
 export interface PublicAdvertisement {
   id: string;
   title: string;
   body: string | null;
   imageUrl: string | null;
+  videoUrl: string | null;
+  media: { url: string; mediaType: string }[];
   ctaLabel: string | null;
   ctaHref: string | null;
   accentColor: string | null;
   frequency: string;
   placement: string;
+}
+
+function coverOf(media: { url: string; mediaType: string }[]): string | null {
+  return media.find((m) => m.mediaType.startsWith('image'))?.url ?? null;
+}
+function firstVideoOf(media: { url: string; mediaType: string }[]): string | null {
+  return media.find((m) => m.mediaType.startsWith('video'))?.url ?? null;
+}
+function mediaCounts(media: { mediaType: string }[]) {
+  let images = 0;
+  let videos = 0;
+  for (const m of media) {
+    if (m.mediaType.startsWith('video')) videos += 1;
+    else images += 1;
+  }
+  return { images, videos };
 }
 
 /** Empty string / whitespace → null; otherwise a Date (invalid → null). */
@@ -46,12 +64,16 @@ export class AdvertisementService {
         ],
       },
       orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+      include: { media: { orderBy: { sortOrder: 'asc' } } },
     });
     return ads.map((a) => ({
       id: a.id,
       title: a.title,
       body: a.body,
-      imageUrl: a.imageUrl,
+      // Prefer the uploaded cover image; fall back to the legacy imageUrl field.
+      imageUrl: coverOf(a.media) ?? a.imageUrl,
+      videoUrl: firstVideoOf(a.media),
+      media: a.media.map((m) => ({ url: m.url, mediaType: m.mediaType })),
       ctaLabel: a.ctaLabel,
       ctaHref: a.ctaHref,
       accentColor: a.accentColor,
@@ -60,10 +82,15 @@ export class AdvertisementService {
     }));
   }
 
-  /** Admin list — every ad with its counters + schedule, newest priority first. */
-  listAll() {
-    return this.prisma.advertisement.findMany({
+  /** Admin list — every ad with counters, schedule + media, newest priority first. */
+  async listAll() {
+    const ads = await this.prisma.advertisement.findMany({
       orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+      include: { media: { orderBy: { sortOrder: 'asc' } } },
+    });
+    return ads.map((a) => {
+      const counts = mediaCounts(a.media);
+      return { ...a, imageCount: counts.images, videoCount: counts.videos };
     });
   }
 
@@ -108,6 +135,25 @@ export class AdvertisementService {
   async remove(id: string) {
     await this.ensureExists(id);
     await this.prisma.advertisement.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  async addMedia(advertisementId: string, dto: { url: string; mediaType: string; sortOrder?: number }) {
+    await this.ensureExists(advertisementId);
+    return this.prisma.advertisementMedia.create({
+      data: {
+        advertisementId,
+        url: dto.url,
+        mediaType: dto.mediaType,
+        sortOrder: dto.sortOrder ?? 0,
+      },
+    });
+  }
+
+  async deleteMedia(advertisementId: string, mediaId: string) {
+    const row = await this.prisma.advertisementMedia.findUnique({ where: { id: mediaId } });
+    if (!row || row.advertisementId !== advertisementId) throw new NotFoundException('Media not found');
+    await this.prisma.advertisementMedia.delete({ where: { id: mediaId } });
     return { ok: true };
   }
 

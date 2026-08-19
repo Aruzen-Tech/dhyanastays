@@ -4,12 +4,14 @@ import { FeatureGate } from '../common/decorators/feature-gate.decorator';
 import { AdvertisementService } from './advertisement.service';
 
 /**
- * Public Advertisement Centre surface. Gated by the `advertisements` feature
- * flag — flipping it off in the control panel is the master kill-switch for
- * every placement without touching individual ads.
+ * Public promotions surface (the Advertisement Centre's front-end feed).
+ * Deliberately mounted at `/promotions` with neutral action names (`view`,
+ * `go`) rather than `/advertisements/.../impression|click`, because ad-blocker
+ * filter lists block those words and would hide these first-party promos.
+ * Gated by the `advertisements` feature flag (master kill-switch).
  */
 @FeatureGate('advertisements')
-@Controller('advertisements')
+@Controller('promotions')
 export class AdvertisementController {
   constructor(private readonly ads: AdvertisementService) {}
 
@@ -20,16 +22,16 @@ export class AdvertisementController {
   }
 
   @Public()
-  @Post(':id/impression')
+  @Post(':id/view')
   @HttpCode(200)
-  impression(@Param('id') id: string) {
+  view(@Param('id') id: string) {
     return this.ads.recordImpression(id);
   }
 
   @Public()
-  @Post(':id/click')
+  @Post(':id/go')
   @HttpCode(200)
-  click(@Param('id') id: string) {
+  go(@Param('id') id: string) {
     return this.ads.recordClick(id);
   }
 }

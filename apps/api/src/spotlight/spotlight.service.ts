@@ -15,6 +15,8 @@ export interface PublicSpotlightStay {
   location: string;
   description: string;
   imageUrl: string | null;
+  videoUrl: string | null;
+  media: { url: string; mediaType: string }[];
   nightlyRate: number;
   rating: number;
   reviewCount: number;
@@ -25,6 +27,23 @@ const LISTING_CARD_INCLUDE = {
   rateRules: { orderBy: { createdAt: 'asc' as const }, take: 1 },
   media: { orderBy: { sortOrder: 'asc' as const }, take: 1 },
 } satisfies Prisma.ListingInclude;
+
+/** First uploaded image url, if any. */
+function coverOf(media: { url: string; mediaType: string }[]): string | null {
+  return media.find((m) => m.mediaType.startsWith('image'))?.url ?? null;
+}
+function firstVideoOf(media: { url: string; mediaType: string }[]): string | null {
+  return media.find((m) => m.mediaType.startsWith('video'))?.url ?? null;
+}
+function mediaCounts(media: { mediaType: string }[]) {
+  let images = 0;
+  let videos = 0;
+  for (const m of media) {
+    if (m.mediaType.startsWith('video')) videos += 1;
+    else images += 1;
+  }
+  return { images, videos };
+}
 
 @Injectable()
 export class SpotlightService {
@@ -57,18 +76,25 @@ export class SpotlightService {
     const rows = await this.prisma.spotlightStay.findMany({
       where: { isActive: true, listing: { status: ListingStatus.APPROVED } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      include: { listing: { include: LISTING_CARD_INCLUDE } },
+      include: {
+        listing: { include: LISTING_CARD_INCLUDE },
+        media: { orderBy: { sortOrder: 'asc' } },
+      },
     });
     const ratings = await this.ratingsFor(rows.map((r) => r.listingId));
     return rows.map((r) => {
       const agg = ratings.get(r.listingId) ?? { rating: 0, reviewCount: 0 };
+      // Prefer the spotlight's own uploaded cover; fall back to the listing photo.
+      const cover = coverOf(r.media) ?? r.listing.media[0]?.url ?? null;
       return {
         id: r.id,
         listingId: r.listingId,
         title: r.listing.title,
         location: [r.listing.city, r.listing.state].filter(Boolean).join(', '),
         description: r.tagline?.trim() || r.listing.description,
-        imageUrl: r.listing.media[0]?.url ?? null,
+        imageUrl: cover,
+        videoUrl: firstVideoOf(r.media),
+        media: r.media.map((m) => ({ url: m.url, mediaType: m.mediaType })),
         nightlyRate: r.listing.rateRules[0]?.baseNightlyRate ?? 0,
         rating: agg.rating,
         reviewCount: agg.reviewCount,
@@ -81,11 +107,15 @@ export class SpotlightService {
   async listAll() {
     const rows = await this.prisma.spotlightStay.findMany({
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      include: { listing: { include: LISTING_CARD_INCLUDE } },
+      include: {
+        listing: { include: LISTING_CARD_INCLUDE },
+        media: { orderBy: { sortOrder: 'asc' } },
+      },
     });
     const ratings = await this.ratingsFor(rows.map((r) => r.listingId));
     return rows.map((r) => {
       const agg = ratings.get(r.listingId) ?? { rating: 0, reviewCount: 0 };
+      const counts = mediaCounts(r.media);
       return {
         id: r.id,
         listingId: r.listingId,
@@ -94,6 +124,9 @@ export class SpotlightService {
         sortOrder: r.sortOrder,
         isActive: r.isActive,
         createdAt: r.createdAt,
+        media: r.media.map((m) => ({ id: m.id, url: m.url, mediaType: m.mediaType, sortOrder: m.sortOrder })),
+        imageCount: counts.images,
+        videoCount: counts.videos,
         listing: {
           id: r.listing.id,
           title: r.listing.title,
@@ -144,6 +177,25 @@ export class SpotlightService {
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });
+  }
+
+  async addMedia(spotlightId: string, dto: { url: string; mediaType: string; sortOrder?: number }) {
+    await this.ensureExists(spotlightId);
+    return this.prisma.spotlightMedia.create({
+      data: {
+        spotlightId,
+        url: dto.url,
+        mediaType: dto.mediaType,
+        sortOrder: dto.sortOrder ?? 0,
+      },
+    });
+  }
+
+  async deleteMedia(spotlightId: string, mediaId: string) {
+    const row = await this.prisma.spotlightMedia.findUnique({ where: { id: mediaId } });
+    if (!row || row.spotlightId !== spotlightId) throw new NotFoundException('Media not found');
+    await this.prisma.spotlightMedia.delete({ where: { id: mediaId } });
+    return { ok: true };
   }
 
   async remove(id: string) {

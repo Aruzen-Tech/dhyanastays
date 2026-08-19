@@ -675,8 +675,23 @@ model SpotlightStay {
   updatedAt   DateTime @updatedAt
   listing     Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
   createdBy   User     @relation(fields: [createdById], references: [id])
+  media       SpotlightMedia[]
 
   @@index([isActive, sortOrder])
+}
+
+/// Uploaded photos/video for a spotlight feature (min 5 images + 1 video to
+/// activate). `mediaType` is the file MIME; "image/*" vs "video/*".
+model SpotlightMedia {
+  id          String        @id @default(cuid())
+  spotlightId String
+  url         String
+  mediaType   String
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  spotlight   SpotlightStay @relation(fields: [spotlightId], references: [id], onDelete: Cascade)
+
+  @@index([spotlightId, sortOrder])
 }
 
 /// Advertisement Centre — admin-authored promos shown as a sliding billboard
@@ -714,8 +729,23 @@ model Advertisement {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   createdBy       User      @relation(fields: [createdById], references: [id])
+  media           AdvertisementMedia[]
 
   @@index([placement, isActive, priority])
+}
+
+/// Uploaded photos/video for an advertisement (min 5 images + 1 video to
+/// activate). `mediaType` is the file MIME; "image/*" vs "video/*".
+model AdvertisementMedia {
+  id              String        @id @default(cuid())
+  advertisementId String
+  url             String
+  mediaType       String
+  sortOrder       Int           @default(0)
+  createdAt       DateTime      @default(now())
+  advertisement   Advertisement @relation(fields: [advertisementId], references: [id], onDelete: Cascade)
+
+  @@index([advertisementId, sortOrder])
 }
 
 model GuestNotification {

@@ -5,6 +5,7 @@ import {
   Get,
   NotFoundException,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -25,6 +26,12 @@ const STUB_MIME: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.mkv': 'video/x-matroska',
+  '.ogv': 'video/ogg',
 };
 
 @Controller('storage')
@@ -67,6 +74,26 @@ export class StorageController {
   }
 
   /**
+   * PUT /api/storage/stub-upload/*  — dev-only: receive the raw bytes the
+   * stub presigned URL points at and persist them, so browser uploads actually
+   * work in local (stub) mode. Reads the raw request stream (the ready-made
+   * body parsers skip image/video content-types, so the stream is intact).
+   */
+  @Public()
+  @Put('stub-upload/*')
+  async stubUpload(@Req() req: Request, @Res() res: Response) {
+    const key = decodeURIComponent(req.path.replace(/^.*\/storage\/stub-upload\//, ''));
+    const bytes = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      req.on('end', () => resolve(Buffer.concat(chunks)));
+      req.on('error', reject);
+    });
+    await this.storage.writeStubBytes(key, bytes);
+    res.status(200).json({ ok: true, key, size: bytes.length });
+  }
+
+  /**
    * GET /api/storage/stub/*  — dev-only: serve objects written by the stub
    * provider (e.g. rendered Stay Pass assets) so local dev is fully functional.
    * Returns 404 outside stub mode or for unknown keys.
@@ -83,6 +110,9 @@ export class StorageController {
     const ext = (flatKey.match(/\.[a-z0-9]+$/i)?.[0] ?? '').toLowerCase();
     res.setHeader('Content-Type', STUB_MIME[ext] ?? 'application/octet-stream');
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    // helmet defaults CORP to same-origin, which blocks the web app (a
+    // different origin in dev) from embedding these stub assets. Allow it.
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.send(bytes);
   }
 }

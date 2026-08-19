@@ -21,6 +21,19 @@ export class AdvertisementAdminController {
     return this.ads.create(dto, user.sub);
   }
 
+  @Post(':id/media')
+  addMedia(
+    @Param('id') id: string,
+    @Body() dto: { url: string; mediaType: string; sortOrder?: number },
+  ) {
+    return this.ads.addMedia(id, dto);
+  }
+
+  @Delete(':id/media/:mediaId')
+  deleteMedia(@Param('id') id: string, @Param('mediaId') mediaId: string) {
+    return this.ads.deleteMedia(id, mediaId);
+  }
+
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateAdvertisementDto) {
     return this.ads.update(id, dto);

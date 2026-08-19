@@ -7,37 +7,30 @@ import { EXPLORE_CONTAINER_CLASS } from '../../lib/exploreLayout';
 import { useReveal } from '../../hooks/useReveal';
 
 /*
- * Explore-page advertisement billboard — an admin-authored promo band pinned
- * to the top of the Explore page. Shares the Stay Spotlight's visual language:
- * a deep-olive campaign band, a revealing dot pattern + drifting glows, and a
- * sliding, auto-advancing carousel. Content is the active ad feed
- * (GET /advertisements/active?placement=explore_billboard); renders nothing
- * when there are no eligible ads or the `advertisements` flag gates the feed
- * off (the request 503s and is swallowed).
+ * Explore-page promotion billboard — an admin-authored promo band pinned to
+ * the top of the Explore page. Shares the Stay Spotlight's visual language: a
+ * deep-olive campaign band, a revealing dot pattern + drifting glows, and a
+ * sliding, auto-advancing carousel. Content is the active promo feed
+ * (GET /promotions/active?placement=explore_billboard).
  *
- * Motion mirrors StaySpotlight: entrance is scroll-triggered via useReveal,
- * which reports `armed: false` under prefers-reduced-motion — we reuse that one
- * signal to drop the pattern/entrance reveal, the slide transition AND the
- * autoplay. Impressions are recorded once per ad per page view (when a slide
- * first becomes active); a CTA records a click then navigates.
- *
- * Colour note (same as StaySpotlight): the band is a literal #2E3521/#1A1D14,
- * not a `bg-brand-*` token, because the brand scale inverts in dark mode.
+ * Named "promo" (not "ad"/"advertisement") on purpose: ad-blocker filter lists
+ * hide elements/requests matching those words, which would blank these
+ * first-party promotions. See AdvertisementController for the matching routes.
  */
 
 const BAND_ACCENT = '#C4CBA9';
 const AUTOPLAY_MS = 6500;
 
-/** One billboard slide — the ad artwork as backdrop with overlaid copy + CTA. */
-function AdSlide({ ad, onCta }: { ad: PublicAd; onCta: (ad: PublicAd) => void }) {
-  const accent = ad.accentColor || BAND_ACCENT;
+/** One billboard slide — the promo artwork as backdrop with overlaid copy + CTA. */
+function PromoSlide({ promo, onCta }: { promo: PublicAd; onCta: (promo: PublicAd) => void }) {
+  const accent = promo.accentColor || BAND_ACCENT;
   return (
     <div className="w-full shrink-0">
       <div className="relative min-h-[220px] overflow-hidden rounded-[1.5rem] lg:min-h-[260px]">
         {/* Backdrop */}
-        {ad.imageUrl ? (
+        {promo.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={ad.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          <img src={promo.imageUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
         ) : (
           <div className="absolute inset-0 bg-gradient-to-br from-brand-300 to-brand-600" aria-hidden="true" />
         )}
@@ -53,22 +46,22 @@ function AdSlide({ ad, onCta }: { ad: PublicAd; onCta: (ad: PublicAd) => void })
             className="text-[10px] font-semibold uppercase tracking-[0.18em]"
             style={{ color: accent }}
           >
-            Sponsored
+            Featured
           </span>
           <h3 className="text-xl font-bold leading-tight tracking-tight text-fixed-white sm:text-2xl lg:text-3xl">
-            {ad.title}
+            {promo.title}
           </h3>
-          {ad.body && (
-            <p className="max-w-md text-sm leading-relaxed text-white/85">{ad.body}</p>
+          {promo.body && (
+            <p className="max-w-md text-sm leading-relaxed text-white/85">{promo.body}</p>
           )}
-          {ad.ctaHref && (
+          {promo.ctaHref && (
             <button
               type="button"
-              onClick={() => onCta(ad)}
+              onClick={() => onCta(promo)}
               className="mt-2 inline-flex w-fit items-center gap-1.5 rounded-lg px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:scale-[1.03] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
               style={{ backgroundColor: accent }}
             >
-              {ad.ctaLabel || 'Learn more'}
+              {promo.ctaLabel || 'Learn more'}
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M5 12h13M12 5.5 18.5 12 12 18.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -86,7 +79,7 @@ function BillboardArrow({ dir, onClick, className }: { dir: 'prev' | 'next'; onC
     <button
       type="button"
       onClick={onClick}
-      aria-label={dir === 'prev' ? 'Previous ad' : 'Next ad'}
+      aria-label={dir === 'prev' ? 'Previous' : 'Next'}
       className={`grid h-10 w-10 place-items-center rounded-full bg-white/90 text-gray-900 shadow-lg ring-1 ring-black/5 backdrop-blur transition hover:scale-105 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700 ${className ?? ''}`}
     >
       <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
@@ -102,57 +95,59 @@ function BillboardArrow({ dir, onClick, className }: { dir: 'prev' | 'next'; onC
   );
 }
 
-export default function ExploreAdBillboard() {
+export default function ExplorePromoBillboard() {
   const router = useRouter();
   const { ref, armed, revealed } = useReveal<HTMLElement>();
-  const [ads, setAds] = useState<PublicAd[]>([]);
+  const [promos, setPromos] = useState<PublicAd[]>([]);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
-  const impressed = useRef<Set<string>>(new Set());
+  const viewed = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
     adApi
       .getActive('explore_billboard')
       .then((feed) => {
-        if (alive) setAds(feed);
+        // Diagnostic: shows in the browser console how many promos arrived.
+        console.log('[PromoBillboard] loaded', feed.length, 'promo(s)');
+        if (alive) setPromos(feed);
       })
-      .catch(() => {
-        /* feed unreachable or flag off → no billboard */
+      .catch((err) => {
+        console.warn('[PromoBillboard] feed request failed:', err);
       });
     return () => {
       alive = false;
     };
   }, []);
 
-  const count = ads.length;
+  const count = promos.length;
   const go = useCallback((next: number) => setIndex(((next % count) + count) % count), [count]);
   const next = useCallback(() => go(index + 1), [go, index]);
   const prev = useCallback(() => go(index - 1), [go, index]);
 
-  // Auto-advance — only with motion allowed, >1 ad, not paused.
+  // Auto-advance — only with motion allowed, >1 promo, not paused.
   useEffect(() => {
     if (!armed || paused || count <= 1) return;
     const t = setInterval(() => setIndex((i) => (i + 1) % count), AUTOPLAY_MS);
     return () => clearInterval(t);
   }, [armed, paused, count]);
 
-  // One impression per ad per page view, as each becomes the active slide.
+  // One view per promo per page load, as each becomes the active slide.
   useEffect(() => {
-    const ad = ads[index];
-    if (!ad || impressed.current.has(ad.id)) return;
-    impressed.current.add(ad.id);
-    adApi.impression(ad.id).catch(() => {});
-  }, [ads, index]);
+    const promo = promos[index];
+    if (!promo || viewed.current.has(promo.id)) return;
+    viewed.current.add(promo.id);
+    adApi.impression(promo.id).catch(() => {});
+  }, [promos, index]);
 
   const onCta = useCallback(
-    (ad: PublicAd) => {
-      if (!ad.ctaHref) return;
-      adApi.click(ad.id).catch(() => {});
-      if (/^https?:\/\//i.test(ad.ctaHref)) {
-        window.open(ad.ctaHref, '_blank', 'noopener,noreferrer');
+    (promo: PublicAd) => {
+      if (!promo.ctaHref) return;
+      adApi.click(promo.id).catch(() => {});
+      if (/^https?:\/\//i.test(promo.ctaHref)) {
+        window.open(promo.ctaHref, '_blank', 'noopener,noreferrer');
       } else {
-        router.push(ad.ctaHref);
+        router.push(promo.ctaHref);
       }
     },
     [router],
@@ -170,7 +165,7 @@ export default function ExploreAdBillboard() {
   return (
     <section
       ref={ref}
-      aria-label="Sponsored"
+      aria-label="Featured"
       aria-roledescription="carousel"
       className="relative isolate overflow-hidden bg-[#2E3521] py-7 dark:bg-[#1A1D14] lg:py-9"
     >
@@ -207,15 +202,15 @@ export default function ExploreAdBillboard() {
               className={`flex ${armed ? 'transition-transform duration-700 ease-out' : ''}`}
               style={{ transform: `translateX(-${index * 100}%)` }}
             >
-              {ads.map((ad, i) => (
+              {promos.map((promo, i) => (
                 <div
-                  key={ad.id}
+                  key={promo.id}
                   className="w-full shrink-0"
-                  aria-hidden={i !== index}
+                  inert={i !== index}
                   aria-roledescription="slide"
                   aria-label={`${i + 1} of ${count}`}
                 >
-                  <AdSlide ad={ad} onCta={onCta} />
+                  <PromoSlide promo={promo} onCta={onCta} />
                 </div>
               ))}
             </div>
@@ -233,12 +228,12 @@ export default function ExploreAdBillboard() {
         {/* Dots */}
         {count > 1 && (
           <div className="mt-4 flex items-center justify-center gap-2">
-            {ads.map((ad, i) => (
+            {promos.map((promo, i) => (
               <button
-                key={ad.id}
+                key={promo.id}
                 type="button"
                 onClick={() => go(i)}
-                aria-label={`Go to ad ${i + 1}`}
+                aria-label={`Go to ${i + 1}`}
                 aria-current={i === index}
                 className={`h-2 rounded-full transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${
                   i === index ? 'w-6 bg-fixed-white' : 'w-2 bg-white/40 hover:bg-white/70'
