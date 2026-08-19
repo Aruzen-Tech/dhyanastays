@@ -11,6 +11,211 @@ history remains fully detailed in the root `CHANGELOG.md`.
 > **Convention:** every change is recorded in both files — a one-line-per-item
 > entry in the root `CHANGELOG.md`, and a full breakdown here.
 
+## 2026-08-18 — Advertisement Centre (Explore-page billboard)
+
+**Commit:** _pending_ · **Migration:** `0041_advertisements`
+
+A fully admin-controlled advertisement system: authored promos render as a
+sliding **billboard** at the top of the Explore page (same band + dot-pattern
+reveal + slide animation as the Stay Spotlight), with scheduling, priority
+ordering, a master feature-flag kill-switch, and impression/click tracking.
+
+> Note: originally shipped as a dismissible **popup**; changed to a top-of-page
+> billboard the same day per product direction. The `ExploreAdPopup` component
+> and the per-visitor `frequency` control were removed; placement key renamed
+> `explore_popup` → `explore_billboard` (existing rows migrated + column
+> default altered in place).
+
+### Data model (`0041_advertisements`, idempotent)
+
+- `Advertisement` — `title`, `body?`, `imageUrl?`, `ctaLabel?`, `ctaHref?`,
+  `placement` (default `explore_popup`), `frequency` (`once`/`session`/`daily`/
+  `always`, default `session`), `accentColor?`, `isActive` (default true),
+  `startsAt?`/`endsAt?` (optional schedule window), `priority` (default 0),
+  `impressionCount`/`clickCount` (default 0), `createdById` (FK → `User`).
+  Index `(placement, isActive, priority)`. `User.advertisements` back-relation.
+- `CREATE TABLE IF NOT EXISTS` + guarded FK; applied locally via
+  `prisma db execute`.
+
+### API (`apps/api/src/advertisement/`)
+
+- `AdvertisementService`:
+  - `getActive(placement)` — `isActive` ads whose optional window includes now
+    (`startsAt null|≤now` AND `endsAt null|≥now`), ordered `priority desc,
+    createdAt desc`, mapped to `PublicAdvertisement` (counters/schedule stripped).
+  - `listAll()`, `create(dto, adminId)`, `update(id, dto)` (partial; only
+    provided fields written; empty strings → null; date strings parsed, blank →
+    null), `remove(id)`.
+  - `recordImpression(id)` / `recordClick(id)` — `updateMany` increment (never
+    throws on a stale client id).
+- `AdvertisementController` (`@FeatureGate('advertisements')`, `/advertisements`):
+  `@Public GET active`, `@Public POST :id/impression`, `@Public POST :id/click`.
+- `AdvertisementAdminController` (`@AdminLevelGuard(L2)`, `/admin/advertisements`):
+  `GET`, `POST`, `PATCH :id`, `DELETE :id`. DTOs class-validated (`@IsIn` for
+  frequency/placement, `@IsHexColor` accent).
+- Registered `AdvertisementModule` in `app.module.ts`.
+- New `advertisements` flag in `feature-flags.registry.ts` (new **`Marketing`**
+  category, `defaultEnabled: true`) — gates the public surface only, so the
+  admin centre stays reachable while the popup can be globally switched off.
+- `advertisement.service.spec.ts` — 5 tests (active filter/mapping + counter
+  non-leak, create trim/null/date-parse, update not-found + partial-write,
+  impression increment). **5/5 pass.**
+
+### Web
+
+- `lib/api.ts` — `adApi` (`getActive`/`impression`/`click`/`list`/`create`/
+  `update`/`remove`) + `PublicAd` / `AdminAd` / `AdvertisementInput` types +
+  `AD_FREQUENCIES`.
+- `app/admin/advertisements/page.tsx` — the Advertisement Centre: editor with
+  **live preview**, image/CTA, `datetime-local` schedule, frequency select,
+  accent colour (picker + hex), priority, active checkbox; list with
+  Live/Scheduled/Expired/Inactive status, frequency, priority, impressions/
+  clicks/CTR, edit/activate/deactivate/delete. Admin-guarded.
+- `lib/navigation.ts` — admin nav `admin-ads` (“📣 Advertisement Centre”),
+  gated on `isEnabled('advertisements')`.
+- `components/advertisement/ExploreAdBillboard.tsx` — mounted at the top of
+  `app/page.tsx` (above `ExploreHero`). Fetches `getActive('explore_billboard')`
+  and renders a sliding, auto-advancing carousel (6.5s) on the #2E3521/#1A1D14
+  band with a revealing dot pattern + drifting glows, prev/next + dots, all
+  reduced-motion-gated via `useReveal`'s `armed` flag. Records one impression
+  per ad per page view (as each becomes the active slide, deduped via a ref
+  Set) and a click + navigation on CTA (internal `router.push`, external
+  `window.open`). Renders nothing when no eligible ad or the flag gates the
+  feed off. (Replaced the initial `ExploreAdPopup` modal.)
+
+### Verification
+
+- api `tsc` clean · web `tsc` clean · `eslint src/advertisement/**` clean ·
+  spec 5/5 · migration applied locally · Prisma client regenerated.
+
+## 2026-08-18 — Stay Spotlight (admin-curated homepage carousel)
+
+**Commit:** _pending_ · **Migration:** `0040_spotlight_stays`
+
+Replaces the homepage Stay Spotlight's frontend stub (`lib/mockPromotedStays.ts`)
+with a real, admin-managed, auto-sliding carousel.
+
+### Data model (`0040_spotlight_stays`, idempotent)
+
+- `SpotlightStay` — `listingId` (`@unique`, FK → `Listing` `onDelete: Cascade`),
+  `badge?`, `tagline?`, `sortOrder` (default 0), `isActive` (default true),
+  `createdById` (FK → `User`). Indexes: unique `listingId`, `(isActive, sortOrder)`.
+- `Listing.spotlight` (`SpotlightStay?`) + `User.spotlightStays` back-relations.
+- DDL is `CREATE TABLE IF NOT EXISTS` + guarded FK adds via `pg_constraint`
+  lookups — safe to re-run. Applied locally with `prisma db execute`.
+
+### API (`apps/api/src/spotlight/`)
+
+- `SpotlightService`:
+  - `getPublicFeed()` — `isActive` rows whose listing is `APPROVED`, ordered
+    `(sortOrder asc, createdAt asc)`, joined to listing (`rateRules` take 1,
+    `media` take 1) + `review.groupBy` avg/count. Maps to the public card
+    (`id, listingId, title, location = "city, state", description = tagline ||
+    listing.description, imageUrl, nightlyRate (paise), rating (1 dp),
+    reviewCount, badge = badge || "Featured Stay"`) — identical to the web
+    `PromotedStay` shape.
+  - `listAll()` — every row (+listing summary) for the admin table.
+  - `add(dto, adminId)` — validates listing exists, rejects duplicate
+    (`listingId` unique), appends `sortOrder = max+1`.
+  - `update(id, {badge?, tagline?, isActive?})`, `remove(id)`.
+  - `reorder(ids)` — validates the id set covers every row exactly once, then
+    `$transaction` of `sortOrder = index` updates.
+- `SpotlightController` — `@Public() GET /spotlight` (`Cache-Control:
+  public, max-age=60`).
+- `SpotlightAdminController` — `@AdminLevelGuard(L2) /admin/spotlight`:
+  `GET`, `POST`, `PUT reorder`, `PATCH :id`, `DELETE :id`. DTOs validated with
+  class-validator.
+- Registered `SpotlightModule` in `app.module.ts`.
+- `spotlight.service.spec.ts` — 5 tests (feed mapping + fallbacks, duplicate
+  rejection, sortOrder append, reorder validation + index write). **5/5 pass.**
+
+### Web
+
+- `lib/api.ts` — `spotlightApi` (`getPublic`/`list`/`add`/`update`/`remove`/
+  `reorder`) + `SpotlightPublicItem` / `SpotlightAdminItem` types.
+- `app/admin/spotlight/page.tsx` — debounced listing search (`listingsApi.search`),
+  add, reorder (↑/↓, optimistic + persisted via `reorder`), show/hide, inline
+  badge + tagline edit, remove. Admin-guarded (redirects non-admins).
+- `lib/navigation.ts` — admin nav item `admin-spotlight` (“✨ Stay Spotlight”).
+- `components/explore-stays/StaySpotlight.tsx` — rewritten as a client
+  carousel: fetches `/spotlight`, renders one lead-panel slide per stay on a
+  `translateX` flex track with `transition-transform`, auto-advances every 6s
+  (pauses on hover/focus), prev/next arrows + dot indicators. Reuses
+  `useReveal`'s `armed` flag to disable entrance anim, slide transition **and**
+  autoplay under `prefers-reduced-motion`. Falls back to `PROMOTED_STAYS` when
+  the feed is empty (nothing curated / offline / error). No feature flag.
+
+### Removed (stub data)
+
+- Deleted `apps/web/lib/mockPromotedStays.ts` (fabricated featured stays) and
+  `apps/web/lib/sponsoredAds.ts` (fabricated hero partner ads, incl. dead
+  `/food` and `/stays/...` links).
+- `StaySpotlight` now types on `SpotlightPublicItem`, links each slide to
+  `/listings/<listingId>`. The green band is always reserved: a pulsing shimmer
+  panel while the feed loads, the sliding carousel once stays arrive, or a
+  "Featured stays coming soon" note when the curated feed is empty/unreachable
+  (no fabricated stays). Per-card photo still falls back to
+  `getMockListingImageUrl` for listings without uploaded `media`.
+- `HeroCarousel` dropped the `SPONSORED_ADS` branch + the `sponsored` slide
+  field / “Sponsored” + “Ad” badges + the now-unused `IconMegaphone`; it maps
+  real catalog listings only.
+- `EXPLORE_RESULTS_ANCHOR` relocated `mockPromotedStays.ts` → `lib/exploreLayout.ts`
+  (referenced by `app/page.tsx`).
+- Kept `lib/mockListingImage.ts` — the app has no real listing photos yet, so
+  removing it would blank every image surface. Scope decision confirmed with
+  the user.
+
+### Verification
+
+- api `tsc` clean · web `tsc` clean (after stub removal) ·
+  `eslint src/spotlight/**` clean · spec 5/5 · migration applied locally ·
+  Prisma client regenerated · no dangling references to the deleted modules.
+
+## 2026-08-16 — Admin CRM (Phase 2: tasks + lifecycle pipeline)
+
+**Commit:** _pending_ · **Migration:** `0039_crm_workflow`
+
+Workflow layer on the Phase 1 contact overlay.
+
+### Data model (`0039_crm_workflow`, idempotent)
+
+- `CrmLifecycleStage` — `name`, `kind` (`CrmStageKind`: GUEST/HOST/LEAD), `order`,
+  `color`; `@@unique([kind, name])`. Seeds 5 defaults per kind via `INSERT … ON
+  CONFLICT DO NOTHING`.
+- `CrmTask` — `userId?` (contact, null = standalone), `title`, `description?`,
+  `status` (`CrmTaskStatus`), `priority` (`CrmTaskPriority`), `dueAt?`,
+  `assigneeId?`, `createdById`, `completedAt?`. Staff refs are plain ids.
+- `CrmContactProfile.stageId?` → `CrmLifecycleStage` (`onDelete: SetNull`).
+- `User.crmTasks` back-relation.
+
+### Backend (`apps/api/src/crm/`)
+
+- `CrmTasksService` — `listForContact`, `list` (status/assignee filters), `create`
+  (logs `TASK_CREATED` when attached to a contact), `update`/`complete` (logs
+  `TASK_COMPLETED` on the OPEN→DONE transition), `remove`.
+- `CrmPipelineService` — stage CRUD (auto-orders new stages), `moveContact`
+  (upserts `CrmContactProfile.stageId`, logs `STAGE_CHANGED`), `board(kind)`
+  (stages + contacts grouped by `stageId` via `where: { stage: { kind } }`).
+- Controllers `CrmTasksController` / `CrmPipelineController` under `admin/crm`,
+  gated `@AdminLevelGuard(L2)` + `@FeatureGate('crm')`; registered in `CrmModule`.
+
+### Frontend (`apps/web/app/admin/crm/`)
+
+- `pipeline/page.tsx` — Kanban with native HTML5 drag-and-drop (drag a contact
+  card to a column → `moveContactStage`), per-kind tabs, add/delete stage.
+- `tasks/page.tsx` — task inbox (status filter, add/complete/delete, contact link).
+- `[id]/page.tsx` — Tasks card + pipeline-stage selector on the 360° profile.
+- `components/crm/CrmTabs.tsx` — Contacts / Pipeline / Tasks sub-nav.
+- `crmApi` — task + pipeline methods; `CrmContact360.profile.stageId` added.
+
+### Verification
+
+- `prisma validate` + `generate`; api + web `tsc` clean; api `lint` clean.
+- `crm-workflow.service.spec.ts` — 5 tests pass. Full api suite: **403 / 27 suites**.
+- Migration applied to local dev DB; 15 default stages seeded (5 × GUEST/HOST/LEAD).
+
+---
+
 ## 2026-08-11 — Admin CRM (Phase 1: foundation + 360° profiles)
 
 **Commit:** _pending_ · **Migration:** `0038_crm_foundation`

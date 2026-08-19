@@ -2,9 +2,8 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { formatINR } from '../../lib/api';
+import { formatINR, spotlightApi, type SpotlightPublicItem } from '../../lib/api';
 import { getMockListingImageUrl } from '../../lib/mockListingImage';
-import { SPONSORED_ADS } from '../../lib/sponsoredAds';
 import type { Listing } from '../../lib/types';
 import { useTilt } from '../../hooks/useTilt';
 import Skeleton from '../Skeleton';
@@ -16,18 +15,13 @@ const MAX_SLIDES = 5;
 
 interface Props {
   /** First few listings from the already-loaded catalog (allListings in
-   *  app/page.tsx) — real data, not fabricated, and not a second fetch.
-   *  Used only when there are no sponsored slots to show. */
+   *  app/page.tsx) — real data, not fabricated, and not a second fetch. */
   listings: Listing[];
   /** Real listing count, carried over from the collage this replaced. */
   stayCount?: number;
 }
 
-/**
- * One normalised slide. Sponsored slots and real stays differ in shape but
- * render identically, so both are mapped into this before the render rather
- * than branching inside the markup twice.
- */
+/** One normalised slide, mapped from a real catalog listing. */
 interface HeroSlide {
   key: string;
   eyebrow: string;
@@ -36,16 +30,6 @@ interface HeroSlide {
   offer?: string;
   image: string;
   href: string;
-  sponsored: boolean;
-}
-
-function IconMegaphone({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="M3 11v2a1 1 0 0 0 1 1h2l4 4V6L6 10H4a1 1 0 0 0-1 1Z" />
-      <path d="M14.5 8.5a5 5 0 0 1 0 7" />
-    </svg>
-  );
 }
 
 function IconOffer({ className }: { className?: string }) {
@@ -65,8 +49,7 @@ function IconArrowRight({ className }: { className?: string }) {
   );
 }
 
-/** Art with a graceful fallback — external ad imagery is the likeliest thing
- *  on this page to fail to load. */
+/** Art with a graceful fallback if the listing photo fails to load. */
 function SlideImage({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false);
 
@@ -90,13 +73,14 @@ function SlideImage({ src, alt }: { src: string; alt: string }) {
 /**
  * Hero spotlight carousel — the Explore hero's right column.
  *
- * Shows sponsored placements from lib/sponsoredAds.ts: partner, headline,
- * one line of copy, an offer flag and a call to action, over the advertiser's
- * artwork. When that array is empty it falls back to featuring real stays
- * from the catalog app/page.tsx has already fetched, so the slot is never
- * blank and never fabricates content.
+ * Promoted placements. Prefers the admin-curated Stay Spotlight feed
+ * (GET /spotlight, the same stays the dedicated Spotlight band below shows);
+ * when nothing is curated it falls back to featuring real stays from the
+ * catalog app/page.tsx has already fetched, so the slot is never blank and
+ * never fabricates content.
  *
- * Presentational only — no request of its own, no search/filter state.
+ * Reads no search/filter state. Its one request is the cached public
+ * spotlight feed.
  *
  * Slides are stacked absolutely and cross-faded rather than translated: the
  * frame then has one fixed height regardless of which slide is showing, so
@@ -106,25 +90,42 @@ export default function HeroCarousel({ listings, stayCount }: Props) {
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [autoplay, setAutoplay] = useState(false);
+  const [spotlight, setSpotlight] = useState<SpotlightPublicItem[]>([]);
   // Same pointer-tracked tilt the stay cards use, so the hero promotion and
   // the results row respond to the cursor identically.
   const { ref: tiltRef, onPointerMove, onPointerLeave } = useTilt<HTMLDivElement>();
 
+  // Admin-curated promoted placements. Empty feed → catalog fallback below.
+  useEffect(() => {
+    let alive = true;
+    spotlightApi
+      .getPublic()
+      .then((feed) => {
+        if (alive) setSpotlight(feed);
+      })
+      .catch(() => {
+        /* leave empty → fall back to catalog listings */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const slides: HeroSlide[] = useMemo(() => {
-    if (SPONSORED_ADS.length > 0) {
-      return SPONSORED_ADS.slice(0, MAX_SLIDES).map((ad, position) => ({
-        key: `ad-${position}-${ad.partner}`,
-        eyebrow: ad.partner,
-        headline: ad.headline,
-        copy: ad.copy,
-        offer: ad.offer,
-        image: ad.image,
-        href: ad.href,
-        sponsored: true,
+    // Preferred: admin-curated spotlight stays.
+    if (spotlight.length > 0) {
+      return spotlight.slice(0, MAX_SLIDES).map((stay) => ({
+        key: `spotlight-${stay.id}`,
+        eyebrow: stay.badge || stay.location,
+        headline: stay.title,
+        copy: stay.description,
+        offer: stay.nightlyRate > 0 ? `${formatINR(stay.nightlyRate)} / night` : undefined,
+        image: stay.imageUrl ?? getMockListingImageUrl(stay.listingId, 900, 560),
+        href: `/listings/${stay.listingId}`,
       }));
     }
 
-    // Fallback: real stays, presented in the same frame.
+    // Fallback: real stays from the already-loaded catalog.
     return listings.slice(0, MAX_SLIDES).map((listing) => {
       const nightlyRate = listing.rateRules?.[0]?.baseNightlyRate ?? 0;
       return {
@@ -135,10 +136,9 @@ export default function HeroCarousel({ listings, stayCount }: Props) {
         offer: nightlyRate > 0 ? `${formatINR(nightlyRate)} / night` : undefined,
         image: listing.media?.[0]?.url ?? getMockListingImageUrl(listing.id, 900, 560),
         href: `/listings/${listing.id}`,
-        sponsored: false,
       };
     });
-  }, [listings]);
+  }, [listings, spotlight]);
 
   // Rotation is motion the reader did not ask for, so it is offered only when
   // reduced motion is not requested. `autoplay` starts false, which also keeps
@@ -280,12 +280,6 @@ export default function HeroCarousel({ listings, stayCount }: Props) {
                           the artwork as the card turns. */}
                       <div className="flex items-start justify-between gap-2 [transform:translateZ(30px)]">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          {slide.sponsored && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-black/45 px-2 py-1 text-[8px] font-bold uppercase tracking-[0.1em] text-fixed-white backdrop-blur-sm">
-                              <IconMegaphone className="h-2.5 w-2.5" />
-                              Spotlight · Sponsored
-                            </span>
-                          )}
                           {slide.offer && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-1 text-[8px] font-bold uppercase tracking-[0.08em] text-on-primary">
                               <IconOffer className="h-2.5 w-2.5" />
@@ -296,7 +290,6 @@ export default function HeroCarousel({ listings, stayCount }: Props) {
 
                         {slides.length > 1 && (
                           <span className="shrink-0 text-[9px] font-bold uppercase tracking-[0.1em] text-white/60">
-                            {slide.sponsored ? 'Ad ' : ''}
                             {slideIndex + 1}/{slides.length}
                           </span>
                         )}

@@ -18,6 +18,7 @@ import StayToolbar from '../components/explore-stays/StayToolbar';
 import ActiveFilterChips from '../components/explore-stays/ActiveFilterChips';
 import StayCarousel from '../components/explore-stays/StayCarousel';
 import StaySpotlight from '../components/explore-stays/StaySpotlight';
+import ExploreAdBillboard from '../components/advertisement/ExploreAdBillboard';
 import SkeletonGrid from '../components/explore-stays/SkeletonGrid';
 import EmptyState from '../components/explore-stays/EmptyState';
 import ErrorState from '../components/explore-stays/ErrorState';
@@ -28,8 +29,7 @@ import {
   parseDiscoveryTagCandidates,
 } from '../lib/discovery-url-state';
 import { useCarouselScroll } from '../hooks/useCarouselScroll';
-import { EXPLORE_CONTAINER_CLASS } from '../lib/exploreLayout';
-import { EXPLORE_RESULTS_ANCHOR } from '../lib/mockPromotedStays';
+import { EXPLORE_CONTAINER_CLASS, EXPLORE_RESULTS_ANCHOR } from '../lib/exploreLayout';
 import type { DiscoverySort, Listing, Tag } from '../lib/types';
 import {
   DIETARY_OPTIONS,
@@ -986,6 +986,10 @@ export default function HomePage() {
 
   return (
     <>
+      {/* Admin-authored promo billboard (Advertisement Centre). Self-guards:
+          renders nothing unless there's an eligible active ad. */}
+      <ExploreAdBillboard />
+
       <ExploreHero
         search={search}
         onSearchChange={(value) => {
@@ -1019,8 +1023,7 @@ export default function HomePage() {
           just the Explore page, which keeps every other page's shared
           container untouched. */}
       {/* `id` + `scroll-mt-24` are an anchor target only (cleared for the
-          sticky navbar) — the Stay Spotlight CTAs point here while their
-          promotions have no real listing id yet. No behaviour attached. */}
+          sticky navbar). No behaviour attached. */}
       <section
         ref={resultsSectionRef}
         id={EXPLORE_RESULTS_ANCHOR}
@@ -1228,16 +1231,10 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Promoted stays — sits immediately below the stays section, so the
-          page reads results first and editorial promotion second.
-          Presentational, mock-data-driven (lib/mockPromotedStays.ts); reads no
-          search/filter/map/listing state.
-
-          Note: while these promotions have no real listingId, their CTAs fall
-          back to the #explore-results anchor, which is now *above* this
-          section — a click scrolls back up to the stays row. That is the
-          placeholder path only; it disappears the moment real listing ids
-          arrive and promotedStayHref() starts returning /listings/<id>. */}
+      {/* Stay Spotlight — sits immediately below the stays section, so the
+          page reads results first and editorial promotion second. Fetches the
+          admin-curated feed (GET /spotlight) itself and hides when empty;
+          reads no search/filter/map/listing state. */}
       <StaySpotlight />
 
       <FilterPanel

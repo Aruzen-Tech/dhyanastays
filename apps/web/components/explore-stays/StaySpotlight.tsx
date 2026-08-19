@@ -1,70 +1,44 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, type ReactNode } from 'react';
-import { formatINR } from '../../lib/api';
+import { useCallback, useEffect, useState } from 'react';
+import { formatINR, spotlightApi, type SpotlightPublicItem } from '../../lib/api';
 import { EXPLORE_CONTAINER_CLASS } from '../../lib/exploreLayout';
-import {
-  PROMOTED_STAYS,
-  promotedStayHref,
-  promotedStayImage,
-  type PromotedStay,
-} from '../../lib/mockPromotedStays';
+import { getMockListingImageUrl } from '../../lib/mockListingImage';
 import { useReveal } from '../../hooks/useReveal';
 import { IconMapPin } from './icons';
 
 /*
- * ─── Animation approach ──────────────────────────────────────────────────
- * No animation library is installed in this project (checked package.json:
- * no framer-motion, gsap, react-spring or motion), and none was added. All
- * motion here is the Tailwind keyframe system this codebase already uses —
- * `float`, `fade-in`, `slide-up`, `scale-in`, `pulse-ring` etc. live in
- * tailwind.config.ts — extended with six additive keyframes (`rise-in`,
- * `slide-in-left/right`, `float-soft`, `float-tilt`, `draw-in`). No existing
- * keyframe was changed.
+ * ─── What this is ─────────────────────────────────────────────────────────
+ * The Explore page's promoted-stay placement — an admin-curated, sliding
+ * carousel. Data comes solely from `GET /spotlight` (admin picks + orders
+ * stays in /admin/spotlight); when that feed is empty the whole section
+ * renders nothing rather than fabricating placeholder stays.
  *
- * Entrance is scroll-triggered via useReveal (IntersectionObserver, a
- * browser API). Every animation utility carries `animation-fill-mode: both`,
- * which is what makes the stagger work: an element holds its 0% frame
- * through its delay rather than flashing in and then animating.
+ * Only the per-card *photo* still has a placeholder: listings whose `media`
+ * the API hasn't populated fall back to the same curated image pool every
+ * listing card uses (getMockListingImageUrl), so a real featured stay with no
+ * uploaded photo yet doesn't show a broken image.
  *
- * Continuous drift and entrance transforms cannot share one element — a
- * single `animation` property would have to win — so floating pieces nest
- * three layers: entrance on the outer div, static tilt in the middle,
- * ambient float on the inner (see FloatLayer).
+ * ─── Motion ───────────────────────────────────────────────────────────────
+ * Slides translate horizontally on a flex track (`transition-transform`) and
+ * auto-advance on a timer that pauses on hover/focus. Entrance is
+ * scroll-triggered via useReveal. useReveal reports `armed: false` under
+ * prefers-reduced-motion; we reuse that single signal to drop the entrance
+ * animation, the slide transition AND the autoplay, so reduced-motion users
+ * get a static first card they can still step through with the controls.
  *
- * Reduced motion: useReveal reports `armed: false` for
- * prefers-reduced-motion, and every helper below then emits no animation
- * class and no opacity-0, so the section renders straight to its final
- * state. The same path covers SSR and JS-disabled, so the content is never
- * left invisible.
- *
- * ─── Colour ──────────────────────────────────────────────────────────────
- * A deep-olive campaign band drawn from the sage theme (#2E3521 light,
- * #1A1D14 dark). Both are literal values rather than `bg-brand-*` tokens on
- * purpose: the brand scale inverts, so a dark token becomes near-white in
- * dark mode and would turn this into a glaring light slab. Everything sitting
- * on the band therefore uses fixed light-sage values; everything inside the
- * white panel and the cards uses the normal inverting tokens, so those
- * surfaces adapt as usual.
+ * ─── Colour ───────────────────────────────────────────────────────────────
+ * A deep-olive campaign band from the sage theme (#2E3521 light, #1A1D14
+ * dark) — literal values, not `bg-brand-*` tokens, because the brand scale
+ * inverts and a dark token would flip to near-white in dark mode. Text on the
+ * band uses fixed light-sage values; everything inside the white slide uses
+ * the normal inverting tokens.
  */
 
-/**
- * Light sage, fixed rather than a `--brand-*` token, for the pieces that sit
- * directly on the always-dark band. A token cannot be used here for the same
- * reason the band itself is a literal value: the brand scale inverts, so the
- * light end of it becomes dark in dark mode and this text would vanish.
- * Elements inside the white panel keep the normal inverting tokens.
- */
 const BAND_ACCENT = '#C4CBA9';
-
-/*
- * The band's other two text tiers are written as literal Tailwind arbitrary
- * values rather than constants, because Tailwind only sees class strings at
- * build time and would not emit a class assembled from a variable:
- *   text-[#C8CDBA]  muted sage — supporting copy
- *   text-[#96A088]  faint sage — captions and labels
- */
+const AUTOPLAY_MS = 6000;
+const CARD_SHADOW = 'shadow-[0_18px_44px_-14px_rgba(3,20,26,0.55)]';
 
 /** Same gold star used by the stay-detail header and review rows. */
 function StarIcon({ className }: { className?: string }) {
@@ -75,8 +49,13 @@ function StarIcon({ className }: { className?: string }) {
   );
 }
 
+/** Real photo when the listing has one, curated placeholder otherwise. */
+function spotlightImage(stay: SpotlightPublicItem, width: number, height: number): string {
+  return stay.imageUrl ?? getMockListingImageUrl(stay.listingId, width, height);
+}
+
 /** Promo art with the same load-failure fallback every image surface here has. */
-function PromoImage({ stay, width, height }: { stay: PromotedStay; width: number; height: number }) {
+function PromoImage({ stay, width, height }: { stay: SpotlightPublicItem; width: number; height: number }) {
   const [failed, setFailed] = useState(false);
 
   if (failed) {
@@ -85,83 +64,12 @@ function PromoImage({ stay, width, height }: { stay: PromotedStay; width: number
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={promotedStayImage(stay, width, height)}
+      src={spotlightImage(stay, width, height)}
       alt={stay.title}
       className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.06]"
       loading="lazy"
       onError={() => setFailed(true)}
     />
-  );
-}
-
-/**
- * Middle + inner layers of a floating piece: a fixed tilt, then continuous
- * drift. The caller owns the outer layer (absolute placement + entrance).
- * `animation` is '' under reduced motion, which leaves a plain static tilt.
- */
-function FloatLayer({
-  rotate,
-  animation,
-  duration,
-  delay,
-  children,
-}: {
-  rotate: number;
-  animation: string;
-  duration: string;
-  delay: string;
-  children: ReactNode;
-}) {
-  return (
-    <div style={{ transform: `rotate(${rotate}deg)` }}>
-      <div className={animation} style={animation ? { animationDuration: duration, animationDelay: delay } : undefined}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-const CARD_SHADOW = 'shadow-[0_18px_44px_-14px_rgba(3,20,26,0.55)]';
-
-/** A supporting promotion. Floats beside the panel on desktop, sits inline below it on mobile. */
-function MiniStayCard({ stay }: { stay: PromotedStay }) {
-  return (
-    <Link
-      href={promotedStayHref(stay)}
-      className={`group block overflow-hidden rounded-2xl bg-white ring-1 ring-gray-900/10 ${CARD_SHADOW} transition-transform duration-300 hover:-translate-y-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700`}
-    >
-      <div className="relative aspect-[16/10] overflow-hidden">
-        <PromoImage stay={stay} width={520} height={340} />
-        <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-gray-900 backdrop-blur">
-          {stay.badge}
-        </span>
-      </div>
-      <div className="p-4">
-        <p className="truncate text-sm font-semibold text-gray-900 transition-colors group-hover:text-brand-700">
-          {stay.title}
-        </p>
-        <p className="mt-0.5 truncate text-xs text-gray-500">{stay.location}</p>
-        <p className="mt-2 text-sm font-bold text-gray-900">
-          {formatINR(stay.nightlyRate)}
-          <span className="text-xs font-normal text-gray-400"> / night</span>
-        </p>
-      </div>
-    </Link>
-  );
-}
-
-/** Small floating rating card for the lead stay. */
-function RatingCard({ stay }: { stay: PromotedStay }) {
-  return (
-    <div className={`flex items-center gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-gray-900/10 ${CARD_SHADOW}`}>
-      <StarIcon className="h-6 w-6 shrink-0" />
-      <div>
-        <p className="text-lg font-bold leading-none tracking-tight text-gray-900">{stay.rating.toFixed(1)}</p>
-        <p className="mt-1 whitespace-nowrap text-[11px] leading-none text-gray-500">
-          {stay.reviewCount} reviews
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -190,39 +98,151 @@ function ArrowAccent({ className, animation }: { className?: string; animation: 
   );
 }
 
+/** One full-width slide: the raised lead-stay panel (image + editorial). */
+function SpotlightSlide({ stay }: { stay: SpotlightPublicItem }) {
+  return (
+    <article className={`w-full shrink-0 overflow-hidden rounded-[1.75rem] bg-white ${CARD_SHADOW}`}>
+      <Link
+        href={`/listings/${stay.listingId}`}
+        className="group grid grid-cols-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700 focus-visible:ring-inset lg:min-h-[340px] lg:grid-cols-[1.05fr_0.95fr]"
+      >
+        {/* Content */}
+        <div className="order-2 flex flex-col justify-center p-6 sm:p-8 lg:order-1 lg:p-10">
+          <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-700">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+            {stay.badge}
+          </span>
+
+          <h3 className="mt-4 text-2xl font-bold leading-tight tracking-tight text-gray-900 transition-colors group-hover:text-brand-700 sm:text-3xl">
+            {stay.title}
+          </h3>
+
+          <p className="mt-2.5 flex items-center gap-1.5 text-sm text-gray-500">
+            <IconMapPin className="h-4 w-4 shrink-0 text-gray-400" />
+            {stay.location}
+          </p>
+
+          <p className="mt-4 max-w-md text-sm leading-relaxed text-gray-500">{stay.description}</p>
+
+          {stay.reviewCount > 0 && (
+            <div className="mt-5 flex items-center gap-2 text-sm">
+              <StarIcon className="h-4 w-4" />
+              <span className="font-semibold text-gray-900">{stay.rating.toFixed(1)}</span>
+              <span className="text-gray-400">({stay.reviewCount} reviews)</span>
+            </div>
+          )}
+
+          <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-4 border-t border-gray-100 pt-6">
+            <p className="text-2xl font-bold tracking-tight text-gray-900">
+              {formatINR(stay.nightlyRate)}
+              <span className="text-sm font-normal text-gray-400"> / night</span>
+            </p>
+            {/* Presentational — the whole panel is the link. */}
+            <span className="btn-primary px-7 py-3">Explore this stay</span>
+          </div>
+        </div>
+
+        {/* Hero image */}
+        <div className="relative order-1 aspect-[16/10] overflow-hidden lg:order-2 lg:aspect-auto">
+          <PromoImage stay={stay} width={900} height={900} />
+          <div className="absolute inset-0 bg-gradient-to-l from-black/25 via-transparent to-transparent" aria-hidden="true" />
+        </div>
+      </Link>
+    </article>
+  );
+}
+
+/** Circular prev/next control that sits on the band beside the panel. */
+function CarouselArrow({
+  dir,
+  onClick,
+  className,
+}: {
+  dir: 'prev' | 'next';
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={dir === 'prev' ? 'Previous stay' : 'Next stay'}
+      className={`grid h-11 w-11 place-items-center rounded-full bg-white/90 text-gray-900 shadow-lg ring-1 ring-black/5 backdrop-blur transition hover:bg-white hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700 ${className ?? ''}`}
+    >
+      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
+        <path
+          d={dir === 'prev' ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6'}
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
 /**
- * Stay Spotlight — the Explore page's promoted-stay placement.
- *
- * A layered campaign composition: dark full-bleed band, decorative glows, a
- * raised light panel carrying the lead stay, and floating cards that overlap
- * the panel's edge and bleed past it. Purely presentational — it renders
- * from PROMOTED_STAYS (frontend mock data, lib/mockPromotedStays.ts) and
- * reads no search, filter, map, pagination or listing state.
- *
- * The floating cards are a desktop-only arrangement; below `lg` the same
- * cards render inline underneath the panel, so nothing is lost on mobile and
- * no absolutely-positioned element can overflow a narrow viewport.
+ * Stay Spotlight — admin-curated, auto-sliding carousel of featured stays on
+ * a dark campaign band. The band is always present: a loading shimmer while
+ * the feed loads, the sliding carousel once stays arrive, or a short
+ * "coming soon" note when the curated feed is genuinely empty. See the file
+ * header for motion + colour rationale.
  */
 export default function StaySpotlight() {
   const { ref, armed, revealed } = useReveal<HTMLElement>();
-  const [feature, ...supporting] = PROMOTED_STAYS;
+  const [stays, setStays] = useState<SpotlightPublicItem[]>([]);
+  const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  if (!feature) return null;
+  // Load the live admin-curated feed. Empty/failed → "coming soon" state.
+  useEffect(() => {
+    let alive = true;
+    spotlightApi
+      .getPublic()
+      .then((feed) => {
+        if (alive) {
+          setStays(feed);
+          setIndex(0);
+        }
+      })
+      .catch(() => {
+        /* leave empty → coming-soon state below */
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const count = stays.length;
+  const go = useCallback((next: number) => setIndex(((next % count) + count) % count), [count]);
+  const next = useCallback(() => go(index + 1), [go, index]);
+  const prev = useCallback(() => go(index - 1), [go, index]);
+
+  // Auto-advance — only with motion allowed, more than one slide, not paused.
+  useEffect(() => {
+    if (!armed || paused || count <= 1) return;
+    const t = setInterval(() => setIndex((i) => (i + 1) % count), AUTOPLAY_MS);
+    return () => clearInterval(t);
+  }, [armed, paused, count]);
 
   /** Entrance classes. Empty (final state, visible) unless motion is armed. */
   const enter = (animation: string) => {
     if (!armed) return '';
     return revealed ? `opacity-0 ${animation}` : 'opacity-0';
   };
-  /** Matching delay, so a stagger reads as a sequence. */
   const at = (ms: number) => (armed && revealed ? { animationDelay: `${ms}ms` } : undefined);
-  /** Continuous drift — suppressed entirely under reduced motion. */
   const drift = (animation: string) => (armed ? animation : '');
 
   return (
     <section
       ref={ref}
       aria-labelledby="stay-spotlight-heading"
+      aria-roledescription="carousel"
       className="relative isolate overflow-hidden bg-[#2E3521] py-10 dark:bg-[#1A1D14] lg:py-14"
     >
       {/* ── Decorative layer ── */}
@@ -252,9 +272,6 @@ export default function StaySpotlight() {
         {/* ── Header ── */}
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
-            {/* The global `.eyebrow` class resolves to gold via the inverting
-                token — off-palette on this sage band, so BAND_ACCENT is used
-                with the same type treatment. */}
             <span
               className={`block text-[11px] font-semibold uppercase tracking-[0.18em] ${enter('animate-slide-up')}`}
               style={{ color: BAND_ACCENT, ...at(0) }}
@@ -284,144 +301,98 @@ export default function StaySpotlight() {
           </div>
         </div>
 
-        {/* ── Stage: raised panel + floating cards ── */}
-        <div className="relative mt-8 lg:mt-10">
+        {loading ? (
+          /* Loading shimmer — reserves the band while the feed loads. */
+          <div className="mt-8 lg:mt-10" aria-hidden="true">
+            <div className="relative overflow-hidden rounded-[1.75rem] border border-[#ffffff1f] bg-[#ffffff0d]">
+              <div className="aspect-[16/10] w-full animate-pulse bg-white/[0.06] lg:aspect-auto lg:h-[340px]" />
+            </div>
+          </div>
+        ) : count === 0 ? (
+          /* Curated feed empty (or unreachable) — keep the band, invite curation. */
+          <div className="mt-8 flex min-h-[220px] items-center justify-center rounded-[1.75rem] border border-[#ffffff1f] bg-[#ffffff0d] px-6 py-12 text-center lg:mt-10 lg:min-h-[300px]">
+            <div>
+              <p className="text-lg font-semibold text-fixed-white">Featured stays coming soon</p>
+              <p className="mt-2 text-sm text-[#C8CDBA]">
+                Our curators are handpicking standout stays for this space.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+        {/* ── Carousel ── */}
+        <div
+          className={`relative mt-8 lg:mt-10 ${enter('animate-rise-in')}`}
+          style={at(140)}
+          onMouseEnter={() => setPaused(true)}
+          onMouseLeave={() => setPaused(false)}
+          onFocusCapture={() => setPaused(true)}
+          onBlurCapture={() => setPaused(false)}
+        >
           {/* Offset frame behind the panel, echoing the reference's outer shell. */}
           <div
-            className={`pointer-events-none absolute -inset-4 hidden rounded-[2.25rem] border border-[#ffffff1f] bg-[#ffffff0d] lg:block ${enter('animate-scale-in')}`}
-            style={at(60)}
+            className="pointer-events-none absolute -inset-4 hidden rounded-[2.25rem] border border-[#ffffff1f] bg-[#ffffff0d] lg:block"
             aria-hidden="true"
           />
 
-          {/* Lead promotion */}
-          <article
-            className={`relative overflow-hidden rounded-[1.75rem] bg-white shadow-[0_40px_90px_-40px_rgba(0,0,0,0.75)] lg:mr-[14%] ${enter('animate-rise-in')}`}
-            style={at(140)}
-          >
-            <Link
-              href={promotedStayHref(feature)}
-              className="group grid grid-cols-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700 focus-visible:ring-inset lg:min-h-[320px] lg:grid-cols-[1.05fr_0.95fr]"
-            >
-              {/* Content */}
-              <div className="order-2 flex flex-col justify-center p-6 sm:p-8 lg:order-1 lg:p-10">
-                <span
-                  className={`inline-flex w-fit items-center gap-1.5 rounded-full border border-brand-100 bg-brand-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-700 ${enter('animate-slide-up')}`}
-                  style={at(300)}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
-                  {feature.badge}
-                </span>
-
-                <h3
-                  className={`mt-4 text-2xl font-bold leading-tight tracking-tight text-gray-900 transition-colors group-hover:text-brand-700 sm:text-3xl ${enter('animate-slide-up')}`}
-                  style={at(360)}
-                >
-                  {feature.title}
-                </h3>
-
-                <p
-                  className={`mt-2.5 flex items-center gap-1.5 text-sm text-gray-500 ${enter('animate-slide-up')}`}
-                  style={at(420)}
-                >
-                  <IconMapPin className="h-4 w-4 shrink-0 text-gray-400" />
-                  {feature.location}
-                </p>
-
-                <p
-                  className={`mt-4 max-w-md text-sm leading-relaxed text-gray-500 ${enter('animate-slide-up')}`}
-                  style={at(480)}
-                >
-                  {feature.description}
-                </p>
-
-                {/* Rating repeats here for mobile, where the floating card is not rendered. */}
-                <div
-                  className={`mt-5 flex items-center gap-2 text-sm lg:hidden ${enter('animate-slide-up')}`}
-                  style={at(520)}
-                >
-                  <StarIcon className="h-4 w-4" />
-                  <span className="font-semibold text-gray-900">{feature.rating.toFixed(1)}</span>
-                  <span className="text-gray-400">({feature.reviewCount} reviews)</span>
-                </div>
-
-                <div
-                  className={`mt-6 flex flex-wrap items-center gap-x-6 gap-y-4 border-t border-gray-100 pt-6 ${enter('animate-slide-up')}`}
-                  style={at(560)}
-                >
-                  <p className="text-2xl font-bold tracking-tight text-gray-900">
-                    {formatINR(feature.nightlyRate)}
-                    <span className="text-sm font-normal text-gray-400"> / night</span>
-                  </p>
-                  {/* Presentational — the whole panel is the link. */}
-                  <span className="btn-primary px-7 py-3">Explore this stay</span>
-                </div>
-              </div>
-
-              {/* Hero image */}
-              <div
-                className={`relative order-1 aspect-[16/10] overflow-hidden lg:order-2 lg:aspect-auto ${enter('animate-slide-in-right')}`}
-                style={at(240)}
-              >
-                <PromoImage stay={feature} width={900} height={900} />
-                {/* Softens the seam where the floating cards overlap the photo. */}
-                <div
-                  className="absolute inset-0 bg-gradient-to-l from-black/25 via-transparent to-transparent"
-                  aria-hidden="true"
-                />
-              </div>
-            </Link>
-          </article>
-
-          {/* ── Floating layer (desktop only) ── */}
-          {/* Click-through container; each card re-enables its own pointer
-              events so the panel underneath stays fully clickable. */}
-          <div className="pointer-events-none absolute inset-0 hidden lg:block">
+          {/* Viewport */}
+          <div className="relative overflow-hidden rounded-[1.75rem]">
             <div
-              className={`pointer-events-auto absolute right-[30%] top-[-30px] ${enter('animate-slide-in-left')}`}
-              style={at(700)}
+              className={`flex ${armed ? 'transition-transform duration-700 ease-out' : ''}`}
+              style={{ transform: `translateX(-${index * 100}%)` }}
             >
-              <FloatLayer rotate={-5} animation={drift('animate-float-soft')} duration="6.5s" delay="0s">
-                <RatingCard stay={feature} />
-              </FloatLayer>
+              {stays.map((stay, i) => (
+                <div
+                  key={stay.id}
+                  className="w-full shrink-0"
+                  aria-hidden={i !== index}
+                  aria-roledescription="slide"
+                  aria-label={`${i + 1} of ${count}`}
+                >
+                  <SpotlightSlide stay={stay} />
+                </div>
+              ))}
             </div>
-
-            {supporting[0] && (
-              <div
-                className={`pointer-events-auto absolute right-0 top-[6%] w-[25%] min-w-[220px] ${enter('animate-slide-in-right')}`}
-                style={at(820)}
-              >
-                <FloatLayer rotate={4} animation={drift('animate-float-tilt')} duration="8s" delay="0.4s">
-                  <MiniStayCard stay={supporting[0]} />
-                </FloatLayer>
-              </div>
-            )}
-
-            {supporting[1] && (
-              <div
-                className={`pointer-events-auto absolute bottom-[-56px] right-[9%] w-[23%] min-w-[205px] ${enter('animate-slide-in-right')}`}
-                style={at(940)}
-              >
-                <FloatLayer rotate={-3.5} animation={drift('animate-float-soft')} duration="7.2s" delay="1.1s">
-                  <MiniStayCard stay={supporting[1]} />
-                </FloatLayer>
-              </div>
-            )}
           </div>
+
+          {/* Prev / next — only when there's more than one stay. */}
+          {count > 1 && (
+            <>
+              <CarouselArrow
+                dir="prev"
+                onClick={prev}
+                className="absolute left-2 top-1/2 z-10 -translate-y-1/2 sm:left-3 lg:-left-5"
+              />
+              <CarouselArrow
+                dir="next"
+                onClick={next}
+                className="absolute right-2 top-1/2 z-10 -translate-y-1/2 sm:right-3 lg:-right-5"
+              />
+            </>
+          )}
         </div>
 
-        {/* ── Supporting promotions, inline below `lg` ── */}
-        {supporting.length > 0 && (
-          <div
-            className={`mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:hidden ${enter('animate-slide-up')}`}
-            style={at(640)}
-          >
-            {supporting.map((stay) => (
-              <MiniStayCard key={stay.id} stay={stay} />
+        {/* ── Dots ── */}
+        {count > 1 && (
+          <div className="mt-6 flex items-center justify-center gap-2">
+            {stays.map((stay, i) => (
+              <button
+                key={stay.id}
+                type="button"
+                onClick={() => go(i)}
+                aria-label={`Go to stay ${i + 1}`}
+                aria-current={i === index}
+                className={`h-2 rounded-full transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 ${
+                  i === index ? 'w-6 bg-fixed-white' : 'w-2 bg-white/40 hover:bg-white/70'
+                }`}
+              />
             ))}
           </div>
         )}
+          </>
+        )}
 
-        <p className="mt-8 text-[11px] text-[#96A088] lg:hidden">Promoted placements</p>
+        <p className="mt-6 text-center text-[11px] text-[#96A088] lg:hidden">Promoted placements</p>
       </div>
     </section>
   );

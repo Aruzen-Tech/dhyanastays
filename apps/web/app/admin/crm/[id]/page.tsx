@@ -9,8 +9,11 @@ import {
   formatINR,
   formatDate,
   type CrmContact360,
+  type CrmLifecycleStage,
   type CrmNote,
   type CrmTag,
+  type CrmTask,
+  type CrmTaskPriority,
   type CrmTimelineItem,
 } from '../../../../lib/api';
 
@@ -37,6 +40,11 @@ export default function CrmContactProfilePage() {
   const [noteBody, setNoteBody] = useState('');
   const [notePinned, setNotePinned] = useState(false);
   const [busy, setBusy] = useState('');
+  const [tasks, setTasks] = useState<CrmTask[]>([]);
+  const [allStages, setAllStages] = useState<CrmLifecycleStage[]>([]);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskPriority, setTaskPriority] = useState<CrmTaskPriority>('MEDIUM');
+  const [taskDue, setTaskDue] = useState('');
 
   useEffect(() => {
     if (!isLoading && !user) router.push('/auth/login');
@@ -47,16 +55,20 @@ export default function CrmContactProfilePage() {
     setLoading(true);
     setError('');
     try {
-      const [c, t, n, tags] = await Promise.all([
+      const [c, t, n, tags, tks, stgs] = await Promise.all([
         crmApi.getContact(userId),
         crmApi.getTimeline(userId),
         crmApi.listNotes(userId),
         crmApi.listTags(),
+        crmApi.listContactTasks(userId),
+        crmApi.listStages(),
       ]);
       setContact(c);
       setTimeline(t);
       setNotes(n);
       setAllTags(tags);
+      setTasks(tks);
+      setAllStages(stgs);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load contact');
     } finally {
@@ -124,6 +136,45 @@ export default function CrmContactProfilePage() {
     await load();
   };
 
+  const addTask = async () => {
+    if (!taskTitle.trim()) return;
+    setBusy('task');
+    try {
+      await crmApi.createTask({
+        title: taskTitle.trim(),
+        userId,
+        priority: taskPriority,
+        dueAt: taskDue ? new Date(taskDue).toISOString() : undefined,
+      });
+      setTaskTitle('');
+      setTaskDue('');
+      setTaskPriority('MEDIUM');
+      await load();
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const completeTask = async (id: string) => {
+    await crmApi.completeTask(id);
+    await load();
+  };
+
+  const deleteTask = async (id: string) => {
+    await crmApi.deleteTask(id);
+    await load();
+  };
+
+  const moveStage = async (stageId: string) => {
+    setBusy('stage');
+    try {
+      await crmApi.moveContactStage(userId, stageId || null);
+      await load();
+    } finally {
+      setBusy('');
+    }
+  };
+
   if (isLoading || loading) {
     return (
       <div className="container-page py-16 text-center">
@@ -146,6 +197,9 @@ export default function CrmContactProfilePage() {
   const currentTagIds = new Set(contact.tags.map((t) => t.id));
   const availableTags = allTags.filter((t) => !currentTagIds.has(t.id));
   const kpis = contact.kpis;
+  const stageKind = contact.type === 'HOST' ? 'HOST' : 'GUEST';
+  const stagesForKind = allStages.filter((s) => s.kind === stageKind);
+  const currentStageId = contact.profile?.stageId ?? '';
 
   return (
     <div className="container-page py-8">
@@ -211,6 +265,24 @@ export default function CrmContactProfilePage() {
               ))}
             </select>
           )}
+        </div>
+
+        {/* Pipeline stage */}
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-sm text-muted">Pipeline stage:</span>
+          <select
+            className="input !w-auto !py-1 text-sm"
+            value={currentStageId}
+            disabled={busy === 'stage'}
+            onChange={(e) => moveStage(e.target.value)}
+          >
+            <option value="">— None —</option>
+            {stagesForKind.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -319,6 +391,77 @@ export default function CrmContactProfilePage() {
             </ul>
           )}
         </div>
+      </div>
+
+      {/* Tasks */}
+      <div className="card p-6 mt-4">
+        <h2 className="font-semibold text-gray-900 mb-4">Tasks</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-4">
+          <input
+            className="input sm:col-span-2"
+            placeholder="New task for this contact…"
+            value={taskTitle}
+            onChange={(e) => setTaskTitle(e.target.value)}
+          />
+          <select
+            className="input"
+            value={taskPriority}
+            onChange={(e) => setTaskPriority(e.target.value as CrmTaskPriority)}
+          >
+            <option value="LOW">Low</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="HIGH">High</option>
+          </select>
+          <div className="flex gap-2">
+            <input
+              type="date"
+              className="input"
+              value={taskDue}
+              onChange={(e) => setTaskDue(e.target.value)}
+            />
+            <button
+              className="btn-primary shrink-0"
+              disabled={busy === 'task' || !taskTitle.trim()}
+              onClick={addTask}
+            >
+              Add
+            </button>
+          </div>
+        </div>
+        {tasks.length === 0 ? (
+          <p className="text-sm text-muted">No tasks yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {tasks.map((t) => (
+              <li
+                key={t.id}
+                className="flex items-center justify-between rounded-xl border border-gray-100 p-3"
+              >
+                <div>
+                  <span
+                    className={`text-sm ${t.status === 'DONE' ? 'line-through text-muted' : 'text-gray-900'}`}
+                  >
+                    {t.title}
+                  </span>
+                  <div className="text-xs text-muted">
+                    {t.priority.toLowerCase()}
+                    {t.dueAt ? ` · due ${formatDate(t.dueAt)}` : ''}
+                  </div>
+                </div>
+                <div className="flex gap-3 text-xs">
+                  {t.status !== 'DONE' && (
+                    <button className="text-brand-700 hover:underline" onClick={() => completeTask(t.id)}>
+                      Done
+                    </button>
+                  )}
+                  <button className="text-red-600 hover:underline" onClick={() => deleteTask(t.id)}>
+                    Delete
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

@@ -17,6 +17,111 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-18 — Advertisement Centre (Explore-page billboard)
+
+Admin-authored promo **billboard** pinned to the top of the Explore page — a
+sliding, reveal-animated band (same visual language as the Stay Spotlight),
+fully controlled from a new admin centre.
+
+### Added
+
+- **Migration `0041_advertisements`** (idempotent) — `Advertisement`
+  (title, body, imageUrl, ctaLabel, ctaHref, placement, accentColor,
+  isActive, startsAt/endsAt schedule window, priority, impressionCount,
+  clickCount, createdById). `User.advertisements` back-relation.
+- **`advertisement` API module** — public `GET /advertisements/active`
+  (`@Public`, schedule-filtered + priority-ordered), `POST /advertisements/:id/
+  impression` and `…/click` counters; admin CRUD under `/admin/advertisements`
+  (`@AdminLevelGuard(L2)`). Public surface gated by the new **`advertisements`
+  feature flag** (Marketing, default on) — a master kill-switch. Placement
+  `explore_billboard`. `AdvertisementService` spec 5/5.
+- **Admin page `/admin/advertisements`** (Advertisement Centre) — create/edit
+  with live preview, image + CTA, schedule (start/end), accent colour, priority
+  (rotation order), activate/deactivate, delete, and impression/click/CTR stats.
+  Nav item "📣 Advertisement Centre" (admin, flag-gated).
+- **`ExploreAdBillboard`** at the top of the Explore page — fetches the active
+  feed and renders a sliding, auto-advancing carousel on the campaign band
+  (dot-pattern reveal + drifting glows + reduced-motion-safe, mirroring
+  StaySpotlight). Records one impression per ad per view and a click on CTA
+  (internal `router.push` / external `window.open`). `adApi` + types in
+  `lib/api.ts`.
+
+---
+
+## 2026-08-18 — Stay Spotlight (admin-curated homepage carousel)
+
+Turned the homepage "Stay Spotlight" from frontend stub data into a real,
+admin-managed, auto-sliding carousel.
+
+### Added
+
+- **Migration `0040_spotlight_stays`** (idempotent) — `SpotlightStay`
+  (`listingId` unique FK → cascade, `badge`, `tagline`, `sortOrder`, `isActive`,
+  `createdById`); `Listing.spotlight` back-relation.
+- **`spotlight` API module** — public `GET /spotlight` (`@Public`, 60s cache;
+  active spotlights on APPROVED listings, joined to live listing title/location/
+  image/price + aggregated review rating/count, shaped to match the web
+  `PromotedStay` interface) + admin CRUD/reorder under `/admin/spotlight`
+  (`@AdminLevelGuard(L2)`): list, add (search-picked listing, dedupe, append),
+  PATCH (badge/tagline/isActive), DELETE, `PUT reorder`. `SpotlightService`
+  spec 5/5.
+- **Admin page `/admin/spotlight`** — search listings, add, reorder (↑/↓,
+  persisted), show/hide, edit badge + tagline, remove. Nav item
+  "✨ Stay Spotlight" (admin).
+- **`StaySpotlight` is now data-driven + sliding** — fetches `GET /spotlight`,
+  renders an auto-advancing carousel (prev/next + dots, pause on hover/focus,
+  reduced-motion-safe). `spotlightApi` + `SpotlightPublicItem`/`SpotlightAdminItem`
+  in `lib/api.ts`.
+
+### Changed
+
+- **Hero "promoted placements" carousel now features the curated spotlight** —
+  `HeroCarousel` prefers the `GET /spotlight` feed for its slides (same stays as
+  the Stay Spotlight band), falling back to catalog listings when nothing is
+  curated.
+
+### Removed
+
+- **Frontend stub data** — deleted `lib/mockPromotedStays.ts` (fake featured
+  stays) and `lib/sponsoredAds.ts` (fake hero-carousel partner ads with dead
+  links). Stay Spotlight now shows only the real curated feed and hides when
+  empty; `HeroCarousel` features real catalog stays only (dropped the
+  `sponsored` slide path). `EXPLORE_RESULTS_ANCHOR` moved to `lib/exploreLayout.ts`.
+  The curated placeholder-*photo* fallback (`lib/mockListingImage.ts`) is kept —
+  it's load-bearing until the API returns real `media`.
+
+---
+
+## 2026-08-16 — Admin CRM (Phase 2: tasks + lifecycle pipeline)
+
+Second slice of the admin CRM — workflow. Builds on Phase 1's contact overlay.
+
+### Added
+
+- **Migration `0039_crm_workflow`** (idempotent) — `CrmLifecycleStage`
+  (per-kind ordered pipeline stages) + `CrmTask` (follow-ups, optionally attached
+  to a contact) + enums (`CrmStageKind`, `CrmTaskStatus`, `CrmTaskPriority`);
+  `stageId` on `CrmContactProfile`. Seeds 5 default stages each for
+  guest / host / lead.
+- **Tasks** — CRUD + assignment + complete, with `TASK_CREATED`/`TASK_COMPLETED`
+  logged to the contact timeline. Endpoints under `/admin/crm/tasks` +
+  `/admin/crm/contacts/:id/tasks`.
+- **Pipeline** — lifecycle stages CRUD, move-contact-between-stages (logs
+  `STAGE_CHANGED`), and a grouped Kanban board endpoint.
+- **Admin UI** — a **Kanban board** (`/admin/crm/pipeline`, drag contacts between
+  stages, per-kind), a **Tasks inbox** (`/admin/crm/tasks`), a **Tasks** section +
+  **stage selector** on the 360° profile, and a shared CRM sub-nav
+  (Contacts / Pipeline / Tasks). All gated by `@AdminLevelGuard(L2)` +
+  `@FeatureGate('crm')`.
+
+### Verification
+
+- `prisma validate` + `generate`; api & web `tsc` clean; api `lint` clean.
+- New `crm-workflow.service.spec.ts` — **5 tests** (task activity logging, stage
+  move + activity, board grouping). Full api suite green — **403 tests, 27 suites**.
+
+---
+
 ## 2026-08-11 — Admin CRM (Phase 1: foundation + 360° profiles)
 
 First slice of the advanced admin CRM. Unified contacts (guests **and** hosts)
