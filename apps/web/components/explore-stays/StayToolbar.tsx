@@ -2,9 +2,7 @@
 
 import { useState } from 'react';
 import type { DiscoverySort } from '../../lib/types';
-import { IconCheck, IconChevronDown, IconColumns, IconGrid, IconMap, IconSliders } from './icons';
-
-type ViewMode = 'grid' | 'map' | 'split';
+import { IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconSliders } from './icons';
 
 const SORT_OPTIONS: { value: DiscoverySort | ''; label: string }[] = [
   { value: '', label: 'Recommended' },
@@ -16,27 +14,59 @@ const SORT_OPTIONS: { value: DiscoverySort | ''; label: string }[] = [
 interface Props {
   filterSort: DiscoverySort | '';
   setFilterSort: (value: DiscoverySort | '') => void;
-  viewMode: ViewMode;
-  setViewMode: (value: ViewMode) => void;
   activeFilterCount: number;
   onOpenFilters: () => void;
   focusRingClassName: string;
+  /** Stay-carousel paging, hosted here so the controls share a line with
+   *  Filters and Sort instead of occupying a row of their own. Omitted when
+   *  there is nothing to page (loading, empty, error). */
+  canScrollPrev?: boolean;
+  canScrollNext?: boolean;
+  onScrollPrev?: () => void;
+  onScrollNext?: () => void;
+}
+
+function ArrowButton({
+  label,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className="flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 transition-all duration-200 hover:border-gray-300 hover:text-brand-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/40 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-35"
+    >
+      {children}
+    </button>
+  );
 }
 
 /**
- * Sort control, view-mode toggle (grid/map/split — same three modes and
- * same setViewMode as before), and the "Filters" trigger that opens
- * FilterPanel. All existing behavior, new presentation.
+ * Sort control, the "Filters" trigger that opens FilterPanel, and the stay
+ * carousel's previous/next buttons — one row, no second control strip.
+ *
+ * The grid/map/split view toggle was removed from this row; app/page.tsx
+ * still renders those branches, so restoring the control is a UI-only change.
  */
 export default function StayToolbar({
-  filterSort, setFilterSort, viewMode, setViewMode,
+  filterSort, setFilterSort,
   activeFilterCount, onOpenFilters, focusRingClassName,
+  canScrollPrev, canScrollNext, onScrollPrev, onScrollNext,
 }: Props) {
   const [sortOpen, setSortOpen] = useState(false);
   const activeSortLabel = SORT_OPTIONS.find((o) => o.value === filterSort)?.label ?? 'Recommended';
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
       {/* Filter trigger — opens FilterPanel; visible at every breakpoint now
           that there's no more permanently-visible desktop rail. */}
       <button
@@ -89,42 +119,26 @@ export default function StayToolbar({
           )}
         </div>
 
-        {/* View mode */}
-        <div className="flex items-center rounded-full bg-gray-100 p-1" role="group" aria-label="Listing view">
-          <button
-            onClick={() => setViewMode('grid')}
-            aria-label="Grid view"
-            aria-pressed={viewMode === 'grid'}
-            title="Grid view"
-            className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
-              viewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            } ${focusRingClassName}`}
-          >
-            <IconGrid />
-          </button>
-          <button
-            onClick={() => setViewMode('map')}
-            aria-label="Map view"
-            aria-pressed={viewMode === 'map'}
-            title="Map view"
-            className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
-              viewMode === 'map' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            } ${focusRingClassName}`}
-          >
-            <IconMap />
-          </button>
-          <button
-            onClick={() => setViewMode('split')}
-            aria-label="Split view"
-            aria-pressed={viewMode === 'split'}
-            title="Split view"
-            className={`hidden md:flex w-9 h-9 items-center justify-center rounded-full transition-colors ${
-              viewMode === 'split' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            } ${focusRingClassName}`}
-          >
-            <IconColumns />
-          </button>
-        </div>
+        {/* Stay-carousel paging — rendered only when the page supplies
+            handlers, so the row stays clean while results are loading. */}
+        {onScrollPrev && onScrollNext && (
+          <div className="flex items-center gap-1.5 pl-1">
+            <ArrowButton
+              label="Show previous stays"
+              disabled={!canScrollPrev}
+              onClick={onScrollPrev}
+            >
+              <IconChevronLeft className="h-4 w-4" />
+            </ArrowButton>
+            <ArrowButton
+              label="Show more stays"
+              disabled={!canScrollNext}
+              onClick={onScrollNext}
+            >
+              <IconChevronRight className="h-4 w-4" />
+            </ArrowButton>
+          </div>
+        )}
       </div>
     </div>
   );

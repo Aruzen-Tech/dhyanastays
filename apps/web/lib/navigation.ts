@@ -62,16 +62,7 @@ export function buildNavItems({ role, kind, isEnabled }: BuildNavItemsInput): Na
 
   if (role === 'GUEST') {
     items.push({ id: 'guest-bookings', href: '/dashboard', label: 'My Bookings', activeMatch: 'exact' });
-    if (isEnabled('sos')) {
-      items.push({
-        id: 'guest-sos',
-        href: '/sos',
-        label: '🆘 SOS',
-        activeMatch: 'exact',
-        emphasis: 'danger',
-        title: 'Emergency SOS',
-      });
-    }
+    // SOS is surfaced as an always-reachable floating button (SosFab), not a nav item.
     items.push({ id: 'guest-wishlist', href: '/guest/wishlist', label: 'Wishlist', activeMatch: 'exact' });
     if (isEnabled('stay_pass')) {
       items.push({ id: 'guest-passport', href: '/passport', label: 'Passport', activeMatch: 'exact' });
@@ -112,6 +103,10 @@ export function buildNavItems({ role, kind, isEnabled }: BuildNavItemsInput): Na
     items.push(
       { id: 'admin-dashboard', href: '/admin', label: 'Dashboard', activeMatch: 'exact' },
       { id: 'admin-approvals', href: '/admin/listings', label: 'Approvals', activeMatch: 'exact' },
+      { id: 'admin-spotlight', href: '/admin/spotlight', label: '✨ Stay Spotlight', activeMatch: 'exact' },
+      ...(isEnabled('advertisements')
+        ? [{ id: 'admin-ads', href: '/admin/advertisements', label: '📣 Advertisement Centre', activeMatch: 'prefix' } as NavItem]
+        : []),
       { id: 'admin-bookings', href: '/admin/bookings', label: 'Bookings', activeMatch: 'exact' },
       { id: 'admin-analytics', href: '/admin/analytics', label: 'Analytics', activeMatch: 'exact' },
       { id: 'admin-control-panel', href: '/admin/control-panel', label: '🎛 Control Panel', activeMatch: 'exact' },

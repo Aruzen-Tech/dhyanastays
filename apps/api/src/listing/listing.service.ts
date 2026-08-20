@@ -50,7 +50,9 @@ export class ListingService {
           state: dto.state,
           ...(dto.latitude !== undefined && { latitude: dto.latitude }),
           ...(dto.longitude !== undefined && { longitude: dto.longitude }),
-          status: ListingStatus.PENDING_APPROVAL,
+          // Starts as a DRAFT — the host adds media then submits for approval
+          // (submitListingForApproval enforces the min 5 photos + 1 video).
+          status: ListingStatus.DRAFT,
         },
       });
       await tx.rateRule.create({
@@ -70,18 +72,62 @@ export class ListingService {
       maxGuests: dto.maxGuests,
     });
 
-    // Admin notification: new listing pending approval
-    void this.prisma.adminNotification.create({
-      data: {
-        type: 'LISTING_PENDING_APPROVAL',
-        title: 'New listing awaiting approval',
-        message: `"${dto.title}" in ${dto.city}, ${dto.state} needs review.`,
-        metadata: { listingId: listing.id, hostId: host.id },
-      },
-    }).catch(() => {});
-
     return this.prisma.listing.findUnique({
       where: { id: listing.id },
+      include: { rateRules: true, media: true },
+    });
+  }
+
+  /** Minimum media a listing must carry before it can be submitted for review. */
+  static readonly MIN_LISTING_IMAGES = 5;
+  static readonly MIN_LISTING_VIDEOS = 1;
+
+  /**
+   * Host submits a DRAFT / REJECTED / CHANGES_REQUESTED listing for approval.
+   * Gated on the media minimum (≥5 photos + ≥1 video); on success it moves to
+   * PENDING_APPROVAL and notifies admins.
+   */
+  async submitListingForApproval(userId: string, listingId: string) {
+    const listing = await this.prisma.listing.findUnique({
+      where: { id: listingId },
+      include: { host: true, media: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    if (listing.host.userId !== userId) {
+      throw new ForbiddenException('Cannot submit a listing you do not own');
+    }
+    if (listing.status === ListingStatus.APPROVED || listing.status === ListingStatus.PENDING_APPROVAL) {
+      throw new BadRequestException('Listing is already submitted or approved');
+    }
+
+    const images = listing.media.filter((m) => m.mediaType.startsWith('image')).length;
+    const videos = listing.media.filter((m) => m.mediaType.startsWith('video')).length;
+    if (images < ListingService.MIN_LISTING_IMAGES || videos < ListingService.MIN_LISTING_VIDEOS) {
+      throw new BadRequestException(
+        `Add at least ${ListingService.MIN_LISTING_IMAGES} photos and ${ListingService.MIN_LISTING_VIDEOS} video before submitting (currently ${images} photos, ${videos} video).`,
+      );
+    }
+
+    await this.prisma.listing.update({
+      where: { id: listingId },
+      data: { status: ListingStatus.PENDING_APPROVAL, needsReapproval: false },
+    });
+
+    void this.prisma.adminNotification
+      .create({
+        data: {
+          type: 'LISTING_PENDING_APPROVAL',
+          title: 'New listing awaiting approval',
+          message: `"${listing.title}" in ${listing.city}, ${listing.state} needs review.`,
+          metadata: { listingId: listing.id, hostId: listing.hostId },
+        },
+      })
+      .catch(() => {});
+
+    await this.writeAudit(userId, 'LISTING_SUBMIT', 'listing', listingId, { images, videos });
+
+    return this.prisma.listing.findUnique({
+      where: { id: listingId },
       include: { rateRules: true, media: true },
     });
   }

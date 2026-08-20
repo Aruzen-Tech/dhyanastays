@@ -13,7 +13,9 @@ interface Props {
  */
 export default function ExperienceHero({ count }: Props) {
   return (
-    <div className="border-b border-gray-100 bg-surface">
+    /* border-gray-200: gray-100 is nearly identical to the new --surface, so
+       a divider on a page-coloured section needs the next step up. */
+    <div className="border-b border-gray-200 bg-surface">
       <div className="container-page py-10 lg:py-12">
         <span className="mb-3 block text-xs font-semibold uppercase tracking-[0.28em] text-gray-400">
           Experiences

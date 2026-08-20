@@ -3,34 +3,68 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   CSS Custom Properties — "Deep Petrol" theme (Finpay-inspired refinement)
-   Light mode: deep navy-leaning petrol-teal accents, literal white page background, antique gold
-   Dark mode:  soft seafoam/petrol-mint accents, near-black surfaces, brightened gold
+   CSS Custom Properties — "Sage" theme
+   Light mode: warm sage off-white page (#F3F4EF), sage/olive accent (#97A177),
+               deep-sage text tones, antique gold
+   Dark mode:  near-black surfaces, light-sage accents (scale inverted),
+               brightened gold
+
+   Two tokens govern the whole palette: --surface (page background) and
+   --primary (button/CTA accent). Change them here, not in components.
 ───────────────────────────────────────────────────────────────────────────── */
 
 @layer base {
   :root {
-    /* Brand scale — deep petrol/navy-teal in light mode */
-    --brand-50:  234 242 243;
-    --brand-100: 210 228 231;
-    --brand-200: 166 201 208;
-    --brand-300: 121 174 184;
-    --brand-400:  77 147 161;
-    --brand-500:  42 118 134;
-    --brand-600:  23  91 105;
-    --brand-700:  14  59  71;   /* primary — deep petrol */
-    --brand-800:  10  44  53;
-    --brand-900:   6  30  36;
+    /* Brand scale — sage/olive in light mode. Steps 50/200/400/500 are the
+       reference palette verbatim (#E7E8DC, #CFD5BD, #B3BA98, #97A177); the
+       rest are interpolated in the same hue family.
 
-    /* Secondary — burnt terracotta (the previous primary), now a warm
-       counterpoint accent to the cool petrol primary */
+       Note where the accent sits: #97A177 is --brand-500, NOT --brand-700.
+       This codebase uses `text-brand-700` 307 times against only 45 fills, so
+       brand-700 is overwhelmingly a *text* colour. #97A177 on the #F3F4EF
+       page measures 2.47:1 — putting it at 700 would have taken all 307 of
+       those below the readability floor in one edit. brand-700 therefore
+       stays dark enough to read (5.59:1 on the page, 6.18:1 on a card), and
+       the accent lives in --primary below. */
+    --brand-50:  231 232 220;
+    --brand-100: 221 226 206;
+    --brand-200: 207 213 189;
+    --brand-300: 193 200 171;
+    --brand-400: 179 186 152;
+    --brand-500: 151 161 119;   /* #97A177 — reference accent */
+    --brand-600: 130 141  99;
+    --brand-700:  92 101  68;   /* deep sage — text, borders, focus rings */
+    --brand-800:  70  78  51;
+    --brand-900:  47  53  34;
+
+    /* ── Primary action colour ──────────────────────────────────────────
+       The application's button/CTA accent, kept separate from the brand
+       scale so a fill colour and a text colour can be tuned independently.
+
+       --on-primary is deep charcoal-green, not white: white on #97A177 is
+       2.73:1 and fails outright. Dark text on it measures 6.01:1. Every
+       interaction state below holds >= 4.5:1 against --on-primary. */
+    --primary:        151 161 119;   /* #97A177 */
+    --primary-hover:  135 145 106;   /* #87916A — 4.92:1 */
+    --primary-active: 130 141  99;   /* #828D63 — 4.65:1 */
+    --on-primary:      28  33  22;   /* #1C2116 — 6.01:1 on default */
+
+    /* Secondary — burnt terracotta, a warm counterpoint used sparingly.
+       Kept as-is: it is an intentional component-level accent (alt tags),
+       not part of the primary/background system. */
     --secondary: 143 68 35;
 
     /* Luxury accent — antique gold (decorative use) */
     --gold: 166 129 72;
 
-    /* Page surface — literal white */
-    --surface: 255 255 255;
+    /* Page surface — warm sage off-white (#F3F4EF).
+       Single source of truth for the application background: `body` applies
+       it via `bg-surface`, and Tailwind exposes it as the `surface` colour, so
+       every page and future component inherits from here rather than from a
+       hardcoded value. Deliberately distinct from --white (still literal
+       white), which is what cards, panels and popovers sit on — that
+       separation is what now lets them read as raised above the page. */
+    --surface: 243 244 239;
 
     /* Gray scale — clean neutral slate */
     --white:     255 255 255;
@@ -53,8 +87,24 @@
     --glass-border: rgba(17, 24, 39, 0.08);
     --glass-shadow: 0 8px 32px 0 rgba(17, 24, 39, 0.08);
 
-    /* Nav glass — clean, near-solid white (see .glass-nav below: no blur) */
-    --nav-bg: rgba(255, 255, 255, 0.98);
+    /* Frosted card surface — glassy but readable */
+    --card-bg: rgba(255, 255, 255, 0.72);
+    --card-border: rgba(17, 24, 39, 0.07);
+    --card-hover-border: rgba(92, 101, 68, 0.22);
+    --card-shadow: 0 1px 3px rgba(17,24,39,0.05), 0 10px 30px -14px rgba(17,24,39,0.14);
+    --card-shadow-hover: 0 16px 48px -14px rgba(92,101,68,0.22);
+    --card-highlight: rgba(255, 255, 255, 0.6);
+
+    /* Aurora ambient tints (soft, decorative — gives glass its depth) */
+    --aurora-1: rgba(151, 161, 119, 0.10);
+    --aurora-2: rgba(166, 129, 72, 0.08);
+    --aurora-3: rgba(130, 141, 99, 0.09);
+
+    /* Nav glass — near-solid, tracking --surface (see .glass-nav below: no
+       blur). Held to the page colour rather than white so the sticky header
+       reads as part of the page it sits on; a white bar over the sage
+       background would announce itself as a separate slab on every scroll. */
+    --nav-bg: rgba(243, 244, 239, 0.98);
     --nav-border: rgba(17, 24, 39, 0.08);
 
     /* Overlay — modal/dialog scrim (additive, not yet consumed by any component) */
@@ -65,20 +115,35 @@
     --warning: 217 119 6;
     --error:   220 38 38;
     --info:    37 99 235;
+
+    /* Categorical (non-status) accent — violet. Labels a *kind* of record the
+       way --info does, rather than a state. Same hue .badge-purple already
+       ships, promoted to a token so it inverts in dark mode. */
+    --violet: 147 51 234;
   }
 
   .dark {
-    /* Brand scale — soft seafoam/petrol-mint in dark mode */
-    --brand-50:   8  20  22;
-    --brand-100: 13  32  35;
-    --brand-200: 19  54  59;
-    --brand-300: 27  79  85;
-    --brand-400: 39 118 124;
-    --brand-500: 79 166 173;
-    --brand-600: 130 197 201;
-    --brand-700: 163 222 223;   /* primary — soft seafoam petrol-mint */
-    --brand-800: 196 235 236;
-    --brand-900: 226 247 247;
+    /* Brand scale — sage, inverted for dark surfaces (same convention the
+       petrol scale used: 700 is the LIGHT end here, so `text-brand-700`
+       reads on a near-black page and `bg-brand-700` takes dark text). */
+    --brand-50:   26  29  20;
+    --brand-100:  36  40  24;
+    --brand-200:  51  58  36;
+    --brand-300:  69  78  49;
+    --brand-400:  92 101  68;
+    --brand-500: 130 141  99;
+    --brand-600: 151 161 119;
+    --brand-700: 179 186 152;   /* primary — light sage */
+    --brand-800: 207 213 189;
+    --brand-900: 231 232 220;
+
+    /* Primary action — inverted like the scale above, so buttons stay light
+       on a dark page exactly as they did before. 8.45:1 against
+       --on-primary. */
+    --primary:        179 186 152;   /* #B3BA98 */
+    --primary-hover:  196 203 169;   /* #C4CBA9 */
+    --primary-active: 207 213 189;   /* #CFD5BD */
+    --on-primary:      26  29  20;   /* #1A1D14 */
 
     /* Secondary — brightened terracotta/amber for dark surfaces */
     --secondary: 237 199 160;
@@ -103,12 +168,25 @@
     --gray-900: 249 250 251;   /* primary text */
 
     /* Ambient wash — soft petrol-mint glow */
-    --ambient: radial-gradient(1200px 480px at 50% -8%, rgba(79, 166, 173, 0.06), transparent 62%);
+    --ambient: radial-gradient(1200px 480px at 50% -8%, rgba(179, 186, 152, 0.06), transparent 62%);
 
     /* Glass tints */
     --glass-bg: rgba(17, 24, 39, 0.85);
     --glass-border: rgba(255, 255, 255, 0.08);
     --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+
+    /* Frosted card surface — dark */
+    --card-bg: rgba(23, 29, 38, 0.60);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --card-hover-border: rgba(179, 186, 152, 0.24);
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 10px 30px -14px rgba(0,0,0,0.6);
+    --card-shadow-hover: 0 16px 48px -14px rgba(0,0,0,0.7);
+    --card-highlight: rgba(255, 255, 255, 0.10);
+
+    /* Aurora ambient tints — richer in dark */
+    --aurora-1: rgba(179, 186, 152, 0.12);
+    --aurora-2: rgba(209, 174, 118, 0.08);
+    --aurora-3: rgba(39, 118, 124, 0.12);
 
     /* Nav glass — clean, near-solid (see .glass-nav below: no blur) */
     --nav-bg: rgba(11, 15, 20, 0.96);
@@ -122,6 +200,10 @@
     --warning: 251 191 36;
     --error:   248 113 113;
     --info:    96 165 250;
+
+    /* Categorical accent — violet, brightened for dark surfaces (matches
+       .dark .badge-purple) */
+    --violet: 192 132 252;
   }
 
   /* Smooth theme transitions — only on color-related properties */
@@ -153,6 +235,22 @@
     background-attachment: fixed;
   }
 
+  /* Soft, slowly-drifting aurora behind all content — gives glass surfaces depth. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: -10%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(38rem 38rem at 12% 6%, var(--aurora-1), transparent 60%),
+      radial-gradient(32rem 32rem at 88% 10%, var(--aurora-2), transparent 60%),
+      radial-gradient(44rem 44rem at 62% 96%, var(--aurora-3), transparent 62%);
+    background-repeat: no-repeat;
+    animation: aurora 24s ease-in-out infinite alternate;
+    will-change: transform;
+  }
+
   * {
     box-sizing: border-box;
   }
@@ -180,12 +278,32 @@
 
   /* ── Buttons ───────────────────────────────────────────────────────────── */
 
+  /* The single definition every primary/CTA/search/submit/apply button in the
+     app resolves to (171 call sites), so the accent is changed here and
+     nowhere else. `text-on-primary` rather than `text-white` — see the token
+     block in globals for why white cannot be used on this fill. */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
-           bg-brand-700 text-white font-semibold text-sm
-           hover:bg-brand-800 active:scale-[0.97]
+           bg-primary text-on-primary font-semibold text-sm
+           hover:bg-primary-hover active:bg-primary-active active:scale-[0.97]
            transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed
            shadow-sm hover:shadow-md;
+    position: relative;
+    overflow: hidden;
+  }
+  /* Light sheen that sweeps across on hover */
+  .btn-primary::after {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 45%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+    transform: translateX(-160%) skewX(-18deg);
+    pointer-events: none;
+  }
+  .btn-primary:hover::after { animation: sheen 0.7s ease; }
+  .btn-primary:hover:not(:disabled) {
+    box-shadow: 0 10px 24px -8px rgba(var(--primary), 0.5);
   }
 
   .btn-secondary {
@@ -231,17 +349,23 @@
   /* ── Cards ─────────────────────────────────────────────────────────────── */
 
   .card {
-    @apply bg-white rounded-xl border border-gray-200 overflow-hidden;
-    box-shadow: 0 1px 4px 0 rgba(17,24,39,0.05), 0 1px 2px -1px rgba(17,24,39,0.04);
-    transition: box-shadow 0.2s ease, transform 0.2s ease, background-color 0.25s ease, border-color 0.25s ease;
+    @apply rounded-xl overflow-hidden;
+    background: var(--card-bg);
+    backdrop-filter: blur(11px) saturate(140%);
+    -webkit-backdrop-filter: blur(11px) saturate(140%);
+    border: 1px solid var(--card-border);
+    box-shadow: var(--card-shadow), inset 0 1px 0 var(--card-highlight);
+    transition: box-shadow 0.25s ease, transform 0.25s ease, background-color 0.25s ease, border-color 0.25s ease;
   }
+  .card:hover { border-color: var(--card-hover-border); }
 
   .card-hover {
     @apply card cursor-pointer;
   }
   .card-hover:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 40px -8px rgba(17,24,39,0.10);
+    transform: translateY(-3px);
+    box-shadow: var(--card-shadow-hover), inset 0 1px 0 var(--card-highlight);
+    border-color: var(--card-hover-border);
   }
 
   /* ── Glass Effects ─────────────────────────────────────────────────────── */
@@ -297,7 +421,8 @@
   /* ── Section container ─────────────────────────────────────────────────── */
 
   .container-page {
-    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+    @apply w-full px-4 sm:px-6 lg:px-8;
+    animation: page-fade 0.5s ease-out both;
   }
 
   /* ── Page heading ──────────────────────────────────────────────────────── */
@@ -663,6 +788,72 @@
   .text-fixed-black { color: #000000 !important; }
   .bg-fixed-white   { background-color: #ffffff !important; }
   .bg-fixed-black   { background-color: #000000 !important; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Motion — keyframes + interactive utilities (app-wide glassy polish)
+───────────────────────────────────────────────────────────────────────────── */
+
+@keyframes aurora {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(-1.5%, 1.5%, 0) scale(1.06); }
+  100% { transform: translate3d(1.5%, -1%, 0) scale(1.03); }
+}
+
+@keyframes sheen {
+  0%   { transform: translateX(-160%) skewX(-18deg); }
+  100% { transform: translateX(320%)  skewX(-18deg); }
+}
+
+@keyframes page-fade {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--brand-500), 0); }
+  50%      { box-shadow: 0 0 24px 1px rgba(var(--brand-500), 0.22); }
+}
+
+@layer utilities {
+  /* Opt-in lift-on-hover for any element (tiles, list rows, link cards). */
+  .hover-lift {
+    transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--card-shadow-hover);
+  }
+
+  /* Opt-in soft glowing pulse (CTAs, live indicators). */
+  .animate-glow { animation: glow-pulse 2.4s ease-in-out infinite; }
+
+  /* Reveal children with a staggered rise — add to a grid/list wrapper. */
+  .reveal-children > * { animation: slide-up 0.5s ease-out both; }
+  .reveal-children > *:nth-child(2) { animation-delay: 60ms; }
+  .reveal-children > *:nth-child(3) { animation-delay: 120ms; }
+  .reveal-children > *:nth-child(4) { animation-delay: 180ms; }
+  .reveal-children > *:nth-child(5) { animation-delay: 240ms; }
+  .reveal-children > *:nth-child(6) { animation-delay: 300ms; }
+}
+
+/* Respect users who prefer reduced motion — strip ambient + entrance motion. */
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none !important; }
+  .container-page,
+  .reveal-children > *,
+  .animate-glow,
+  .btn-primary:hover::after {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Print: strip app chrome so invoices etc. print clean (Save as PDF). */

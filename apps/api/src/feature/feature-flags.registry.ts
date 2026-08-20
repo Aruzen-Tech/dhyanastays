@@ -17,7 +17,8 @@ export type FeatureCategory =
   | 'Loyalty & Growth'
   | 'Messaging'
   | 'Investor'
-  | 'CRM';
+  | 'CRM'
+  | 'Marketing';
 
 export type FeatureAudience = 'guest' | 'host' | 'admin' | 'investor';
 
@@ -167,8 +168,30 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     description:
       'Admin CRM: unified contact profiles (360°), tags, notes, segments, tasks/pipeline, outreach and analytics.',
     category: 'CRM',
-    defaultEnabled: false, // dark launch — flip on in the control panel
+    defaultEnabled: true, // Phases 1–2 built + tested — on by default
     audience: ['admin'],
+  },
+
+  // ── Marketing ─────────────────────────────────────────────────────────────
+  {
+    key: 'advertisements',
+    label: 'Advertisement Centre',
+    description:
+      'Admin-authored promotional popups on the Explore page (scheduled, targeted by placement, with impression/click tracking). Turning this off is the master kill-switch for all placements.',
+    category: 'Marketing',
+    defaultEnabled: true,
+    audience: ['guest', 'admin'],
+  },
+
+  // ── Assistant ─────────────────────────────────────────────────────────────
+  {
+    key: 'in_app_assistant',
+    label: 'In-app Assistant',
+    description:
+      'Role-aware navigator: instant feature search + AI chat that guides admins, hosts and guests to the right page. Degrades to keyword search without an AI key.',
+    category: 'AI & Concierge',
+    defaultEnabled: true,
+    audience: ['guest', 'host', 'admin', 'investor'],
   },
 ];
 
