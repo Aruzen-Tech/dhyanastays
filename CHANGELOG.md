@@ -17,6 +17,40 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-08-20 — Host Dashboard analytics backend
+
+Extended the Host Dashboard analytics backend with host-scoped statistics, revenue analytics, and listing performance reporting.
+
+### Added
+
+- **Dashboard statistics** — added host-level listing, booking, revenue, payout, occupancy, and upcoming check-in metrics.
+- **Revenue analytics** — added revenue aggregation by day, week, and month for the authenticated host's listings.
+- **Listing performance** — added per-listing booking, revenue, base-rate, booked-day, and 30-day occupancy metrics.
+
+### Verification
+
+- Added service-level coverage for Host Dashboard analytics calculations and host-scoped data access.
+- Host Analytics service: **22/22 tests passed**.
+
+## 2026-08-20 — Host Dashboard backend: bookings & notifications
+
+Extended and validated the Host Dashboard backend for host-scoped booking and
+notification management.
+
+### Added
+
+- **Host bookings** — paginated booking retrieval with optional status
+  filtering, host ownership scoping, listing/guest/payment details, and total
+  result count.
+- **Host notifications** — host-scoped notification retrieval with unread
+  filtering, individual read handling, and bulk mark-as-read support.
+
+### Verification
+
+- Added service-level coverage for Host Dashboard booking and notification
+  flows.
+- Host Analytics service: **11/11 tests passed**.
+
 ## 2026-08-19 — Media uploads: crop/rotate photos + video across listings, spotlight & ads
 
 Unified image+video upload with an in-browser **crop & rotate** editor, and a

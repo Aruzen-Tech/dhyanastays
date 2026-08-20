@@ -11,6 +11,93 @@ history remains fully detailed in the root `CHANGELOG.md`.
 > **Convention:** every change is recorded in both files — a one-line-per-item
 > entry in the root `CHANGELOG.md`, and a full breakdown here.
 
+## 2026-08-20 — Host Dashboard analytics backend
+
+**Commit:** _pending_ · **Migration:** none
+
+Extended and validated the Host Dashboard analytics backend with host-level statistics, revenue reporting, and per-listing performance metrics.
+
+### Backend (`apps/api/src/host-analytics/`)
+
+- `HostAnalyticsService.getStats(userId)` — provides host-level dashboard metrics including total listings, active listings, confirmed bookings, booking revenue, paid-out earnings, 30-day occupancy, and upcoming check-ins.
+- `HostAnalyticsService.getRevenue(userId, from, to, groupBy)` — provides revenue and booking counts grouped by day, week, or month for listings belonging to the authenticated host.
+- `HostAnalyticsService.getListingPerformance(userId)` — provides per-listing booking counts, revenue, base nightly rate, 30-day booked days, and occupancy rate.
+- Analytics queries are scoped to the authenticated host through the host/listing relationship.
+- Revenue calculations use the booking `priceSnapshot.total` value and the configured revenue-bearing booking statuses.
+- Listing occupancy is calculated from bookings overlapping the rolling 30-day period.
+
+### Tests
+
+- Added service-level coverage for:
+  - dashboard statistics and confirmed booking totals;
+  - paid payout aggregation;
+  - empty host analytics state;
+  - daily, weekly, and monthly revenue grouping;
+  - revenue-bearing booking status filtering;
+  - per-listing base rate handling;
+  - listing revenue calculations;
+  - 30-day booked-day calculation;
+  - 30-day occupancy calculation; and
+  - host-scoped listing access.
+
+### Verification
+
+- Test command:
+  `pnpm --filter @dhyana/api exec jest src/host-analytics/host-analytics.service.spec.ts --runInBand`
+- **1/1 test suite passed.**
+- **22/22 tests passed.**
+- **0 tests failed.**
+
+## 2026-08-20 — Host Dashboard backend: bookings & notifications
+
+**Commit:** _pending_ · **Migration:** none
+
+Extended and validated the Host Dashboard backend for host-scoped booking and
+notification management.
+
+### Backend (`apps/api/src/host-analytics/`)
+
+- `HostAnalyticsService.getBookings(userId, page, limit, status?)` — retrieves
+  bookings belonging to listings owned by the authenticated host, with optional
+  status filtering, descending creation-date ordering, pagination, and total
+  count. The response includes listing summary, guest identity, and payment
+  details required by the Host Dashboard.
+- `HostAnalyticsService.getNotifications(userId, unreadOnly)` — retrieves up
+  to 50 notifications belonging to the authenticated host, ordered by creation
+  time, with optional unread-only filtering.
+- `HostAnalyticsService.markNotificationRead(userId, id)` — validates host
+  ownership before marking an individual notification as read and remains
+  idempotent when the notification is already read.
+- `HostAnalyticsService.markAllNotificationsRead(userId)` — marks all unread
+  notifications belonging to the authenticated host as read and returns the
+  number of affected notifications.
+- Host ownership is enforced through the host relation for booking queries and
+  direct `hostId` scoping for notification queries, preventing cross-host
+  access.
+
+### Tests
+
+- Extended `apps/api/src/host-analytics/host-analytics.service.spec.ts` with
+  coverage for:
+  - paginated host booking retrieval;
+  - booking status filtering;
+  - non-host booking access;
+  - host notification retrieval;
+  - unread notification filtering;
+  - non-host notification access;
+  - bulk notification read handling;
+  - individual notification read handling;
+  - cross-host notification access rejection; and
+  - idempotent notification read handling.
+
+### Verification
+
+- Test command:
+  `pnpm --filter @dhyana/api exec jest src/host-analytics/host-analytics.service.spec.ts --runInBand`
+- **1/1 test suite passed.**
+- **11/11 tests passed.**
+- **0 tests failed.**
+
 ## 2026-08-18 — Advertisement Centre (Explore-page billboard)
 
 **Commit:** _pending_ · **Migration:** `0041_advertisements`
