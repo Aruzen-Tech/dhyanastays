@@ -13,6 +13,7 @@ enum UserRole {
   GUEST
   HOST
   ADMIN
+  INFLUENCER
 }
 
 // ─── Phase 1: expanded identity model ────────────────────────────────────────
@@ -158,6 +159,7 @@ model User {
   staffRole      StaffRole?
   ownerProfile   OwnerProfile?
   investorProfile InvestorProfile?
+  influencerProfile InfluencerProfile?
   listings       Listing[]
   holds          Hold[]
   bookings       Booking[]
@@ -1859,6 +1861,347 @@ model CollectionAward {
   awardedAt DateTime @default(now())
 
   @@id([guestId, setId])
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── Influencer Domain ────────────────────────────────────────────────────
+// Backend foundation for the Influencer Dashboard (see influencer.docx).
+// Money fields follow the project convention: Int minor units (paise).
+// Percentages are stored as basis points (Int, 1000 = 10.00%) to avoid float
+// rounding in commission math.
+// ═══════════════════════════════════════════════════════════════════════════
+
+enum InfluencerVerificationStatus {
+  APPLIED
+  UNDER_REVIEW
+  APPROVED
+  ACTIVE
+  REJECTED
+}
+
+enum InfluencerCampaignStatus {
+  DRAFT
+  AVAILABLE
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+/// An influencer's relationship to one campaign — separate from the campaign
+/// itself (one campaign, many influencer applications).
+enum InfluencerCampaignApplicationStatus {
+  INVITED
+  APPLIED
+  APPROVED
+  REJECTED
+  ASSIGNED
+  COMPLETED
+}
+
+enum InfluencerContentType {
+  INSTAGRAM_POST
+  REEL
+  YOUTUBE_VIDEO
+  STORY
+  BLOG
+  PHOTOGRAPHS
+}
+
+enum InfluencerContentStatus {
+  DRAFT
+  SUBMITTED
+  REVIEW
+  APPROVED
+  PUBLISHED
+}
+
+enum InfluencerTrackingLinkType {
+  GENERAL
+  PROPERTY
+  EXPERIENCE
+  DESTINATION
+  CAMPAIGN
+}
+
+enum InfluencerCommissionRuleType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  CAMPAIGN_BASED
+  PERFORMANCE_TIER
+}
+
+enum InfluencerCommissionStatus {
+  PENDING
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+/// Distinct from the existing host-facing PayoutStatus (NOT_ELIGIBLE/ELIGIBLE/
+/// SCHEDULED/PAID/ON_HOLD/REVERSED) — that state machine models host listing
+/// payouts and doesn't have PROCESSING/FAILED states the docx requires here.
+/// Kept as a separate enum rather than overloading an unrelated lifecycle.
+enum InfluencerPayoutStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  PAID
+  FAILED
+}
+
+/// Public creator profile + verification state. One per User, mirrors the
+/// existing Host model's 1:1-with-User shape.
+model InfluencerProfile {
+  id                      String                       @id @default(cuid())
+  userId                  String                       @unique
+  creatorName             String?
+  bio                     String?
+  socialLinks             Json                         @default("{}")
+  location                String?
+  contentCategories       String[]                     @default([])
+  languages               String[]                     @default([])
+  audienceLocation        Json?
+  audienceSize            Int?
+  verificationStatus      InfluencerVerificationStatus @default(APPLIED)
+  adminComments           String?
+  payoutAccountRef        String?
+  payoutEnabled           Boolean                      @default(false)
+  minPayoutThresholdMinor Int                          @default(100000) // ₹1,000
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+
+  user                User                            @relation(fields: [userId], references: [id])
+  applications        InfluencerCampaignApplication[]
+  content             InfluencerContent[]
+  promoCodes          InfluencerPromoCode[]
+  trackingLinks       InfluencerTrackingLink[]
+  bookingAttributions InfluencerBookingAttribution[]
+  commissions         InfluencerCommission[]
+  payouts             InfluencerPayout[]
+}
+
+/// Admin-managed campaign catalog. Influencers apply via
+/// InfluencerCampaignApplication — this model is not influencer-writable.
+model InfluencerCampaign {
+  id                   String                   @id @default(cuid())
+  title                String
+  brief                String
+  destination          String?
+  // Plain reference IDs, not Prisma relations: attaching a @relation here
+  // would require adding a reverse-relation field inside the Listing and
+  // Experience models (a hard Prisma requirement for any declared relation).
+  // Experience must not be touched at all, and Listing changes should stay
+  // minimal — application code resolves these via a plain findUnique instead
+  // of a schema-level join.
+  targetListingId      String?
+  targetExperienceId   String?
+  promotionalOffer     Json?
+  requiredContentTypes InfluencerContentType[]  @default([])
+  deadline             DateTime?
+  status               InfluencerCampaignStatus @default(DRAFT)
+  createdById          String
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  applications    InfluencerCampaignApplication[]
+  content         InfluencerContent[]
+  promoCodes      InfluencerPromoCode[]
+  trackingLinks   InfluencerTrackingLink[]
+  commissionRules InfluencerCommissionRule[]
+
+  @@index([status])
+}
+
+model InfluencerCampaignApplication {
+  id           String                              @id @default(cuid())
+  campaignId   String
+  influencerId String
+  status       InfluencerCampaignApplicationStatus @default(APPLIED)
+  appliedAt    DateTime                            @default(now())
+  reviewedAt   DateTime?
+  reviewedBy   String?
+  reviewNotes  String?
+  createdAt    DateTime                            @default(now())
+  updatedAt    DateTime                            @updatedAt
+
+  campaign   InfluencerCampaign @relation(fields: [campaignId], references: [id])
+  influencer InfluencerProfile  @relation(fields: [influencerId], references: [id])
+
+  @@unique([campaignId, influencerId])
+  @@index([influencerId, status])
+}
+
+model InfluencerContent {
+  id            String                  @id @default(cuid())
+  influencerId  String
+  campaignId    String?
+  type          InfluencerContentType
+  url           String
+  caption       String?
+  status        InfluencerContentStatus @default(DRAFT)
+  submittedAt   DateTime?
+  reviewedAt    DateTime?
+  reviewedBy    String?
+  revisionNotes String?
+  publishedAt   DateTime?
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  influencer InfluencerProfile   @relation(fields: [influencerId], references: [id])
+  campaign   InfluencerCampaign? @relation(fields: [campaignId], references: [id])
+
+  @@index([influencerId, status])
+}
+
+/// One influencer can hold several codes (a general code + campaign-specific
+/// codes) — not strictly 1:1, per docx §5 "Campaign association".
+model InfluencerPromoCode {
+  id           String    @id @default(cuid())
+  code         String    @unique
+  influencerId String
+  campaignId   String?
+  discountBps  Int? // basis points off the booking, if any
+  isActive     Boolean   @default(true)
+  validFrom    DateTime  @default(now())
+  validUntil   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  influencer   InfluencerProfile              @relation(fields: [influencerId], references: [id])
+  campaign     InfluencerCampaign?            @relation(fields: [campaignId], references: [id])
+  attributions InfluencerBookingAttribution[]
+
+  @@index([influencerId])
+}
+
+model InfluencerTrackingLink {
+  id                 String                     @id @default(cuid())
+  slug               String                     @unique
+  influencerId       String
+  type               InfluencerTrackingLinkType
+  targetListingId    String?
+  targetExperienceId String?
+  destination        String?
+  campaignId         String?
+  qrCodeUrl          String?
+  clickCount         Int                        @default(0)
+  createdAt          DateTime                   @default(now())
+
+  influencer   InfluencerProfile              @relation(fields: [influencerId], references: [id])
+  campaign     InfluencerCampaign?            @relation(fields: [campaignId], references: [id])
+  clicks       InfluencerLinkClick[]
+  attributions InfluencerBookingAttribution[]
+
+  @@index([influencerId])
+}
+
+/// Raw click event — kept separate from the denormalized clickCount counter
+/// on InfluencerTrackingLink so click history/analytics can be queried
+/// without recomputing from booking data.
+model InfluencerLinkClick {
+  id             String   @id @default(cuid())
+  trackingLinkId String
+  occurredAt     DateTime @default(now())
+  ipHash         String?
+  userAgent      String?
+
+  trackingLink InfluencerTrackingLink @relation(fields: [trackingLinkId], references: [id])
+
+  @@index([trackingLinkId, occurredAt])
+}
+
+/// Links a platform Booking to the influencer who generated it. Deliberately
+/// does NOT modify the Booking model — this is a one-way reference so the
+/// booking module stays untouched. bookingValueMinor/travelStartsAt/
+/// travelEndsAt are snapshotted at attribution time so influencer-facing
+/// reporting doesn't need booking-table joins that could leak guest fields.
+model InfluencerBookingAttribution {
+  id                String   @id @default(cuid())
+  bookingId         String   @unique
+  // Snapshotted from Booking.listingId at attribution time (plain reference,
+  // same non-relation rationale as bookingId below) so top-performing-
+  // property analytics don't need a Booking join per query.
+  listingId         String?
+  influencerId      String
+  promoCodeId       String?
+  trackingLinkId    String?
+  bookingValueMinor Int
+  travelStartsAt    DateTime
+  travelEndsAt      DateTime
+  attributedAt      DateTime @default(now())
+
+  influencer   InfluencerProfile       @relation(fields: [influencerId], references: [id])
+  promoCode    InfluencerPromoCode?    @relation(fields: [promoCodeId], references: [id])
+  trackingLink InfluencerTrackingLink? @relation(fields: [trackingLinkId], references: [id])
+  // bookingId is intentionally NOT a Prisma @relation — declaring one would
+  // require a reverse-relation field inside the Booking model, touching the
+  // booking module. Application code resolves the booking via a plain
+  // prisma.booking.findUnique({ where: { id: bookingId } }) instead.
+  commission   InfluencerCommission?
+
+  @@index([influencerId, attributedAt])
+}
+
+/// Admin-configured commission rules. Influencers may only read these
+/// (never modify) — enforced at the controller/service layer, not schema.
+model InfluencerCommissionRule {
+  id               String                       @id @default(cuid())
+  type             InfluencerCommissionRuleType
+  percentageBps    Int? // PERCENTAGE / CAMPAIGN_BASED
+  fixedAmountMinor Int? // FIXED_AMOUNT
+  tierConfig       Json? // PERFORMANCE_TIER: [{minBookings,maxBookings,percentageBps}]
+  campaignId       String? // set when type = CAMPAIGN_BASED
+  isActive         Boolean                      @default(true)
+  createdById      String
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  campaign    InfluencerCampaign?    @relation(fields: [campaignId], references: [id])
+  commissions InfluencerCommission[]
+
+  @@index([isActive])
+}
+
+model InfluencerCommission {
+  id                   String                     @id @default(cuid())
+  influencerId         String
+  bookingAttributionId String                     @unique
+  ruleId               String
+  amountMinor          Int
+  status               InfluencerCommissionStatus @default(PENDING)
+  approvedAt           DateTime?
+  paidAt               DateTime?
+  cancelledReason      String?
+  payoutId             String?
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  influencer         InfluencerProfile            @relation(fields: [influencerId], references: [id])
+  bookingAttribution InfluencerBookingAttribution @relation(fields: [bookingAttributionId], references: [id])
+  rule               InfluencerCommissionRule     @relation(fields: [ruleId], references: [id])
+  payout             InfluencerPayout?            @relation(fields: [payoutId], references: [id])
+
+  @@index([influencerId, status])
+}
+
+model InfluencerPayout {
+  id               String                 @id @default(cuid())
+  influencerId     String
+  amountMinor      Int
+  status           InfluencerPayoutStatus @default(PENDING)
+  requestedAt      DateTime               @default(now())
+  approvedAt       DateTime?
+  processedAt      DateTime?
+  paidAt           DateTime?
+  failureReason    String?
+  payoutAccountRef String?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  influencer  InfluencerProfile      @relation(fields: [influencerId], references: [id])
+  commissions InfluencerCommission[]
+
+  @@index([influencerId, status])
 }
 
 // ── CRM (admin) — Phase 1 foundation ─────────────────────────────────────────
