@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useScrollLock } from '../../hooks/useScrollLock';
 import { IconMapPin, IconX } from '../explore-stays/icons';
@@ -75,14 +75,36 @@ interface Props {
 export default function StayImageModal({ open, onClose, slots, title, city, state, description, propertyType }: Props) {
   useScrollLock(open);
 
+  // Single-photo full-screen viewer (opened by clicking a photo in the grid).
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const closeViewer = useCallback(() => setViewerIndex(null), []);
+  const viewerStep = useCallback(
+    (delta: number) =>
+      setViewerIndex((p) => (p === null ? p : (p + delta + slots.length) % slots.length)),
+    [slots.length],
+  );
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        // Escape closes the single-photo viewer first, then the gallery.
+        if (viewerIndex !== null) closeViewer();
+        else onClose();
+      } else if (viewerIndex !== null && e.key === 'ArrowLeft') {
+        viewerStep(-1);
+      } else if (viewerIndex !== null && e.key === 'ArrowRight') {
+        viewerStep(1);
+      }
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [open, onClose]);
+  }, [open, onClose, viewerIndex, closeViewer, viewerStep]);
+
+  // Close the viewer whenever the gallery itself closes.
+  useEffect(() => {
+    if (!open) setViewerIndex(null);
+  }, [open]);
 
   if (!open) return null;
 
@@ -138,13 +160,86 @@ export default function StayImageModal({ open, onClose, slots, title, city, stat
         <div className="min-h-0 flex-1 overflow-y-auto p-5 pt-16 sm:p-7 sm:pt-16 lg:p-8 lg:pt-16">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             {slots.map((slot, i) => (
-              <div key={i} className="group aspect-square overflow-hidden rounded-xl">
+              <button
+                key={i}
+                type="button"
+                onClick={() => setViewerIndex(i)}
+                aria-label={`View photo ${i + 1} full size`}
+                className="group aspect-square cursor-zoom-in overflow-hidden rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700"
+              >
                 <GridImage slot={slot} />
-              </div>
+              </button>
             ))}
           </div>
         </div>
       </div>
+
+      {/* Single-photo full-screen viewer, above the gallery grid. */}
+      {viewerIndex !== null && slots[viewerIndex] && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/90 p-4"
+          onClick={(e) => {
+            // Don't let the click bubble to the gallery backdrop (which closes it).
+            e.stopPropagation();
+            closeViewer();
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Photo ${viewerIndex + 1} of ${slots.length}`}
+        >
+          <button
+            type="button"
+            onClick={closeViewer}
+            aria-label="Close photo"
+            className="absolute right-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"
+          >
+            <IconX className="h-4 w-4" />
+          </button>
+
+          {slots.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  viewerStep(-1);
+                }}
+                aria-label="Previous photo"
+                className="absolute left-4 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"
+              >
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  viewerStep(1);
+                }}
+                aria-label="Next photo"
+                className="absolute right-4 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"
+              >
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </>
+          )}
+
+          <div className="flex max-h-full flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={slots[viewerIndex].url}
+              alt={slots[viewerIndex].alt || `Photo ${viewerIndex + 1}`}
+              className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain"
+            />
+            <p className="mt-3 text-sm text-white/80">
+              {viewerIndex + 1} / {slots.length}
+            </p>
+          </div>
+        </div>
+      )}
     </div>,
     document.body,
   );

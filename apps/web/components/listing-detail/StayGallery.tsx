@@ -6,7 +6,7 @@ import type { ListingMedia } from '../../lib/types';
 import StayImageGrid, { type GallerySlot } from './StayImageGrid';
 import StayImageModal from './StayImageModal';
 
-const GRID_SIZE = 5;
+const MIN_SLOTS = 5;
 
 interface Props {
   listingId: string;
@@ -19,49 +19,49 @@ interface Props {
 }
 
 /**
- * Same "real photo once the API populates it, mock in the meantime" rule
- * every other gallery in this app follows (lib/mockListingImage.ts) —
- * extended per-slot rather than per-listing, since this composition needs
- * up to 5 teaser images. Real photos (listing.media, in order) fill the
- * first slots; any remaining slots get a deterministic mock photo so the
- * grid always looks complete today. Once the API starts returning 5+ real
- * photos for a listing, every teaser slot is real automatically.
- *
- * modalSlots is the *full* set the "view all" lightbox opens to: every real
- * photo when there are more than 5 (not just the teaser's first 5), or the
- * same mock-filled set as the teaser when there's nothing more to show.
+ * Listing gallery. Photos (image/* media) fill the grid; a video (video/*
+ * media) becomes the inline "cover video" shown beside the cover photo. Real
+ * photos come first; when a listing has fewer than MIN_SLOTS the remainder is
+ * padded with the same deterministic mock set the rest of the app uses
+ * (lib/mockListingImage.ts), so the teaser always looks complete.
  */
 export default function StayGallery({ listingId, title, city, state, description, propertyType, media }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
-  const realMedia = media ?? [];
 
-  const teaserRealSlots: GallerySlot[] = realMedia
-    .slice(0, GRID_SIZE)
-    .map((m) => ({ url: m.url, alt: title, real: true }));
-  const mockNeeded = GRID_SIZE - teaserRealSlots.length;
+  const allMedia = media ?? [];
+  const imageMedia = allMedia.filter((m) => m.mediaType.startsWith('image'));
+  const videoUrl = allMedia.find((m) => m.mediaType.startsWith('video'))?.url ?? null;
+
+  const realSlots: GallerySlot[] = imageMedia.map((m) => ({ url: m.url, alt: title, real: true }));
+  const mockNeeded = Math.max(0, MIN_SLOTS - realSlots.length);
   const mockSlots: GallerySlot[] =
     mockNeeded > 0
       ? getMockGalleryImageUrls(listingId, mockNeeded, 700, 700).map((url) => ({ url, alt: title, real: false }))
       : [];
-  const teaserSlots = [...teaserRealSlots, ...mockSlots];
+  const imageSlots = [...realSlots, ...mockSlots];
 
-  const modalSlots: GallerySlot[] =
-    realMedia.length > GRID_SIZE
-      ? realMedia.map((m) => ({ url: m.url, alt: title, real: true }))
-      : teaserSlots;
+  const cover = imageSlots[0];
+  const rest = imageSlots.slice(1);
+  // With a video, the cover row is [photo | video] and everything after the
+  // cover photo drops below. Without one, the 2nd photo fills the cover row's
+  // right tile, so the row below starts from the 3rd photo.
+  const secondCover = videoUrl ? null : rest[0] ?? null;
+  const below = videoUrl ? rest : rest.slice(1);
 
   return (
     <>
       <StayImageGrid
-        slots={teaserSlots}
-        realCount={realMedia.length}
-        totalCount={modalSlots.length}
+        cover={cover}
+        videoUrl={videoUrl}
+        secondCover={secondCover}
+        below={below}
+        totalCount={imageSlots.length}
         onOpenGallery={() => setModalOpen(true)}
       />
       <StayImageModal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        slots={modalSlots}
+        slots={imageSlots}
         title={title}
         city={city}
         state={state}

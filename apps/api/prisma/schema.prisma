@@ -251,6 +251,8 @@ model Listing {
   experienceTags      String[]             @default([])
   propertyType        String?
   dietaryOptions      String[]             @default([])
+  /** Host-provided YouTube link — embedded in the "Property video" area. */
+  youtubeUrl          String?
   stayThemeId         String?              // Stay Pass visual identity (§Stay Pass module)
   /** Host opt-in: allow guests to reserve now and pay the full amount at the property. */
   payOnArrivalEnabled Boolean              @default(false)

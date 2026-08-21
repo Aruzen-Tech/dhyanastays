@@ -512,6 +512,7 @@ export default function ListingDetailPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 pb-24 sm:px-6 sm:py-10 lg:px-10 lg:pb-10 xl:px-12">
+      {/* Photos + the inline cover video are split from media inside StayGallery. */}
       <StayGallery
         listingId={listing.id}
         title={listing.title}
@@ -968,11 +969,7 @@ export default function ListingDetailPage() {
             `mt-8 grid grid-cols-1 gap-6 lg:mt-10 ${listing.latitude && listing.longitude ? 'lg:grid-cols-2' : ''}`
       */}
       <div className="mt-8 grid grid-cols-1 gap-6 lg:mt-10 lg:grid-cols-2">
-        <StayVideoSection
-          listingId={listing.id}
-          title={listing.title}
-          posterUrl={listing.media?.[0]?.url}
-        />
+        <StayVideoSection title={listing.title} youtubeUrl={listing.youtubeUrl} />
         {(() => {
           const PREVIEW_LAT = 20.5937; // fallback only — center of India, not a real listing coordinate
           const PREVIEW_LNG = 78.9629;

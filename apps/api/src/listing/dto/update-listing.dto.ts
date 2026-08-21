@@ -122,6 +122,12 @@ export class UpdateListingDto {
   @IsIn(PROPERTY_TYPES)
   propertyType?: string;
 
+  /** YouTube link shown in the "Property video" area (empty string clears it). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  youtubeUrl?: string;
+
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(20)

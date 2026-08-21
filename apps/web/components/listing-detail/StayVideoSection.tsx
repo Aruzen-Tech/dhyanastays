@@ -1,31 +1,27 @@
 'use client';
 
-import { getMockListingImageUrl } from '../../lib/mockListingImage';
-
 /**
- * Placeholder property video — provided directly by the user to stand in
- * until real per-listing videos exist. No such field exists on the Listing
- * type yet (checked lib/types.ts), so this is a frontend-only mock, same
- * "real data now, mock in the meantime" pattern as lib/mockListingImage.ts.
- * Once a real Listing.videoUrl (or similar) field starts flowing in via the
- * `videoUrl` prop below, it takes priority automatically — nothing else
- * here needs to change.
+ * "Property video" area — an embedded YouTube player sourced from the host's
+ * `Listing.youtubeUrl`. The guest can watch inline or click through to the
+ * Dhyana Stays YouTube channel from the player. Renders nothing when no
+ * YouTube link is set (the short promo video lives in the photo gallery as a
+ * cover, not here).
  */
-const MOCK_VIDEO_URL = 'https://www.youtube.com/watch?v=mJVuZiK9a6I';
 
 /** 'https://www.youtube.com/watch?v=ID' or 'https://youtu.be/ID' -> embed URL.
- * Returns null for anything else (a direct video file URL), which renders
- * via the native <video> tag instead. */
+ * Also handles /shorts/ID and /embed/ID. Returns null for anything else. */
 function getYouTubeEmbedUrl(url: string): string | null {
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(url.trim());
     if (parsed.hostname === 'youtu.be') {
       const id = parsed.pathname.slice(1);
       return id ? `https://www.youtube.com/embed/${id}` : null;
     }
     if (parsed.hostname.endsWith('youtube.com')) {
-      const id = parsed.searchParams.get('v');
-      return id ? `https://www.youtube.com/embed/${id}` : null;
+      const v = parsed.searchParams.get('v');
+      if (v) return `https://www.youtube.com/embed/${v}`;
+      const m = parsed.pathname.match(/^\/(?:embed|shorts)\/([\w-]+)/);
+      return m ? `https://www.youtube.com/embed/${m[1]}` : null;
     }
     return null;
   } catch {
@@ -34,38 +30,26 @@ function getYouTubeEmbedUrl(url: string): string | null {
 }
 
 interface Props {
-  listingId: string;
   title: string;
-  /** Real photo if one exists yet, same source the gallery's main tile
-   * uses — so the video poster isn't a random unrelated image. */
-  posterUrl?: string;
-  /** Real per-listing video once that field exists; falls back to the mock above. */
-  videoUrl?: string;
+  /** Host-provided YouTube link. Section hides when empty / not a YouTube URL. */
+  youtubeUrl?: string | null;
 }
 
-export default function StayVideoSection({ listingId, title, posterUrl, videoUrl }: Props) {
-  const resolvedVideo = videoUrl ?? MOCK_VIDEO_URL;
-  const embedUrl = getYouTubeEmbedUrl(resolvedVideo);
-  const resolvedPoster = posterUrl ?? getMockListingImageUrl(listingId, 1280, 720);
+export default function StayVideoSection({ title, youtubeUrl }: Props) {
+  const embedUrl = youtubeUrl ? getYouTubeEmbedUrl(youtubeUrl) : null;
+  if (!embedUrl) return null;
 
   return (
     <div className="card shadow-none border-0 flex h-full flex-col p-6 lg:p-7">
       <h2 className="mb-4 font-semibold text-gray-900">Property video</h2>
-
       <div className="h-72 overflow-hidden rounded-xl bg-gray-900 lg:h-80">
-        {embedUrl ? (
-          <iframe
-            src={embedUrl}
-            title={`${title} — property video`}
-            className="h-full w-full"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          />
-        ) : (
-          <video src={resolvedVideo} controls className="h-full w-full" poster={resolvedPoster}>
-            Your browser doesn&apos;t support embedded video.
-          </video>
-        )}
+        <iframe
+          src={embedUrl}
+          title={`${title} — property video`}
+          className="h-full w-full"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
       </div>
     </div>
   );
