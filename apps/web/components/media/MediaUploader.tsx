@@ -1,7 +1,8 @@
 'use client';
 
 import Cropper, { type Area } from 'react-easy-crop';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { storageApi } from '../../lib/api';
 import { getCroppedBlob } from '../../lib/cropImage';
 
@@ -171,6 +172,26 @@ export default function MediaUploader({
     }
   };
 
+  // ── Full-size preview (lightbox) ──────────────────────────────────────────
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const closePreview = useCallback(() => setPreviewIndex(null), []);
+  const previewStep = useCallback(
+    (delta: number) =>
+      setPreviewIndex((p) => (p === null ? p : (p + delta + items.length) % items.length)),
+    [items.length],
+  );
+
+  useEffect(() => {
+    if (previewIndex === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closePreview();
+      else if (e.key === 'ArrowLeft') previewStep(-1);
+      else if (e.key === 'ArrowRight') previewStep(1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [previewIndex, closePreview, previewStep]);
+
   const imagesOk = images >= minImages;
   const videosOk = videos >= minVideos;
 
@@ -251,19 +272,34 @@ export default function MediaUploader({
                 key={m.id}
                 className="group relative h-28 overflow-hidden rounded-xl bg-gray-100 dark:bg-gray-800"
               >
-                {isVid ? (
-                  <>
+                {/* Click the thumbnail to open the full-size preview. */}
+                <button
+                  type="button"
+                  onClick={() => setPreviewIndex(i)}
+                  aria-label={`Preview media ${i + 1}`}
+                  className="absolute inset-0 cursor-zoom-in"
+                >
+                  {isVid ? (
                     <video src={m.url} className="h-full w-full object-cover" muted playsInline />
-                    <span className="absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                      ▶ Video
-                    </span>
-                  </>
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.url} alt={`Media ${i + 1}`} className="h-full w-full object-cover" />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.url} alt={`Media ${i + 1}`} className="h-full w-full object-cover" />
+                  )}
+                  {/* Hover affordance */}
+                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-transparent transition group-hover:bg-black/30 group-hover:text-white">
+                    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                      <circle cx="11" cy="11" r="7" />
+                      <path d="m21 21-4.3-4.3M11 8v6M8 11h6" strokeLinecap="round" />
+                    </svg>
+                  </span>
+                </button>
+                {isVid && (
+                  <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                    ▶ Video
+                  </span>
                 )}
                 {isCover && (
-                  <span className="absolute bottom-1.5 left-1.5 rounded bg-brand-700 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  <span className="pointer-events-none absolute bottom-1.5 left-1.5 rounded bg-brand-700 px-1.5 py-0.5 text-[10px] font-semibold text-white">
                     Cover
                   </span>
                 )}
@@ -271,7 +307,7 @@ export default function MediaUploader({
                   type="button"
                   onClick={() => removeItem(m.id)}
                   aria-label="Remove"
-                  className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100"
+                  className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100"
                 >
                   ×
                 </button>
@@ -281,9 +317,99 @@ export default function MediaUploader({
         </div>
       )}
 
-      {/* Crop / rotate modal */}
-      {cropSrc && (
-        <div className="fixed inset-0 z-[80] flex flex-col bg-black/80 p-4">
+      {/* Full-size preview lightbox — portaled to <body>. */}
+      {previewIndex !== null &&
+        items[previewIndex] &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-black/90 p-4"
+            onClick={closePreview}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Media preview"
+          >
+            <button
+              type="button"
+              onClick={closePreview}
+              aria-label="Close preview"
+              className="absolute right-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+              </svg>
+            </button>
+
+            {items.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    previewStep(-1);
+                  }}
+                  aria-label="Previous"
+                  className="absolute left-4 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"
+                >
+                  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    previewStep(1);
+                  }}
+                  aria-label="Next"
+                  className="absolute right-4 top-1/2 z-10 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"
+                >
+                  <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </>
+            )}
+
+            {/* Media — stopPropagation so clicking it doesn't close. Sized to
+                nearly the whole viewport so the picture shows at full size. */}
+            <div
+              className="flex max-h-full w-full max-w-full flex-col items-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isVideoType(items[previewIndex].mediaType) ? (
+                <video
+                  src={items[previewIndex].url}
+                  controls
+                  autoPlay
+                  className="max-h-[88vh] max-w-[92vw] rounded-lg"
+                />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={items[previewIndex].url}
+                  alt={`Media ${previewIndex + 1}`}
+                  className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain"
+                />
+              )}
+              <p className="mt-3 text-sm text-white/80">
+                {previewIndex + 1} / {items.length}
+                {!isVideoType(items[previewIndex].mediaType) &&
+                  items.filter((x) => isImageType(x.mediaType))[0]?.id === items[previewIndex].id
+                  ? ' · Cover'
+                  : ''}
+              </p>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {/* Crop / rotate modal — portaled to <body> so a transformed/glass
+          ancestor can't trap this fixed overlay inside its own box. */}
+      {cropSrc &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-[80] flex flex-col bg-black/80 p-4">
           <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden rounded-2xl bg-gray-900">
             <div className="flex items-center justify-between px-4 py-3">
               <p className="text-sm font-semibold text-white">
@@ -368,8 +494,9 @@ export default function MediaUploader({
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
     </div>
   );
 }

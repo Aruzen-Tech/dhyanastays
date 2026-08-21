@@ -29,6 +29,7 @@ export default function EditListingPage() {
     maxGuests: '',
     minNights: '',
     cleaningFee: '',
+    youtubeUrl: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -93,6 +94,7 @@ export default function EditListingPage() {
           maxGuests: rr ? String(rr.maxGuests) : '',
           minNights: rr ? String(rr.minNights) : '',
           cleaningFee: rr ? String(rr.cleaningFee / 100) : '',
+          youtubeUrl: found.youtubeUrl ?? '',
         });
         setFacetExperience(found.experienceTags ?? []);
         setFacetPropertyType(found.propertyType ?? '');
@@ -137,6 +139,7 @@ export default function EditListingPage() {
         ...(form.maxGuests && { maxGuests: Number(form.maxGuests) }),
         ...(form.minNights && { minNights: Number(form.minNights) }),
         ...(form.cleaningFee !== '' && { cleaningFee: Math.round(Number(form.cleaningFee) * 100) }),
+        youtubeUrl: form.youtubeUrl.trim(),
         payOnArrivalEnabled: payOnArrival,
       });
       setSuccess(true);
@@ -536,9 +539,23 @@ export default function EditListingPage() {
           minImages={5}
           minVideos={1}
           aspect={4 / 3}
-          label="Photos & video"
-          hint="Crop/rotate photos as you add them."
+          maxVideoMB={500}
+          label="Photos & cover video"
+          hint="Crop/rotate photos as you add them. The video (≤500MB) becomes the cover video."
         />
+
+        <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
+          <label className="block text-sm font-medium mb-1">Property video (YouTube link)</label>
+          <input
+            className="input"
+            placeholder="https://www.youtube.com/watch?v=…"
+            value={form.youtubeUrl}
+            onChange={(e) => setForm((prev) => ({ ...prev, youtubeUrl: e.target.value }))}
+          />
+          <p className="mt-1 text-xs text-muted">
+            Embedded in the “Property video” area on the listing page. Save (button above) to apply.
+          </p>
+        </div>
 
         {/* Submit for approval */}
         {(() => {

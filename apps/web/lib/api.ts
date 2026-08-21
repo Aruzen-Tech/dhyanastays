@@ -320,6 +320,7 @@ export const listingsApi = {
     experienceTags: string[];
     propertyType: string | null;
     dietaryOptions: string[];
+    youtubeUrl: string;
     payOnArrivalEnabled: boolean;
   }>) =>
     request<Listing>(`/host/listings/${id}`, {

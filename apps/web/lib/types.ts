@@ -188,6 +188,8 @@ export interface Listing {
   experienceTags?: string[];
   propertyType?: string | null;
   dietaryOptions?: string[];
+  /** Host-provided YouTube link shown in the Property video area. */
+  youtubeUrl?: string | null;
   createdAt: string;
   updatedAt: string;
   rateRules?: RateRule[];
