@@ -163,12 +163,19 @@ export class StorageService {
     const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
     const service = 's3';
     const region = this.provider === 'r2' ? 'auto' : this.region;
+    const isR2 = this.provider === 'r2';
 
-    const host = this.provider === 'r2'
-      ? new URL(this.endpoint).host + `/${this.bucket}`
+    // R2 uses PATH-style (bucket in the URI, host = the account endpoint only).
+    // AWS S3 here uses VIRTUAL-HOSTED style (bucket as a subdomain). The Host
+    // header signed must exactly match what the browser sends (domain only) —
+    // putting the bucket in the host string breaks the signature (403).
+    const host = isR2
+      ? new URL(this.endpoint).host
       : `${this.bucket}.s3.${region}.amazonaws.com`;
 
-    const baseUrl = this.provider === 'r2'
+    const canonicalUri = isR2 ? `/${this.bucket}/${key}` : `/${key}`;
+
+    const baseUrl = isR2
       ? `${this.endpoint.replace(/\/$/, '')}/${this.bucket}/${key}`
       : `https://${this.bucket}.s3.${region}.amazonaws.com/${key}`;
 
@@ -185,7 +192,7 @@ export class StorageService {
 
     const canonicalRequest = [
       'PUT',
-      `/${key}`,
+      canonicalUri,
       queryParams.toString(),
       `content-type:${contentType}\nhost:${host}\n`,
       'content-type;host',
@@ -213,19 +220,23 @@ export class StorageService {
     const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
     const region = this.provider === 'r2' ? 'auto' : this.region;
     const service = 's3';
+    const isR2 = this.provider === 'r2';
 
-    const host = this.provider === 'r2'
-      ? new URL(this.endpoint).host + `/${this.bucket}`
+    // R2 = path-style (bucket in URI, host = endpoint only); S3 = virtual-hosted.
+    const host = isR2
+      ? new URL(this.endpoint).host
       : `${this.bucket}.s3.${region}.amazonaws.com`;
 
-    const url = this.provider === 'r2'
+    const canonicalUri = isR2 ? `/${this.bucket}/${key}` : `/${key}`;
+
+    const url = isR2
       ? `${this.endpoint.replace(/\/$/, '')}/${this.bucket}/${key}`
       : `https://${this.bucket}.s3.${region}.amazonaws.com/${key}`;
 
     const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
     const canonicalRequest = [
       'DELETE',
-      `/${key}`,
+      canonicalUri,
       '',
       `host:${host}\nx-amz-date:${amzDate}\n`,
       'host;x-amz-date',
