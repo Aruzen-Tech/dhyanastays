@@ -190,6 +190,8 @@ export interface Listing {
   dietaryOptions?: string[];
   /** Host-provided YouTube link shown in the Property video area. */
   youtubeUrl?: string | null;
+  /** Host-provided Instagram reel/post link — alternative gallery cover video. */
+  instagramUrl?: string | null;
   createdAt: string;
   updatedAt: string;
   rateRules?: RateRule[];

@@ -253,6 +253,9 @@ model Listing {
   dietaryOptions      String[]             @default([])
   /** Host-provided YouTube link — embedded in the "Property video" area. */
   youtubeUrl          String?
+  /** Host-provided Instagram reel/post link — an alternative to an uploaded
+   *  cover video; embedded as the gallery cover video when no file is uploaded. */
+  instagramUrl        String?
   stayThemeId         String?              // Stay Pass visual identity (§Stay Pass module)
   /** Host opt-in: allow guests to reserve now and pay the full amount at the property. */
   payOnArrivalEnabled Boolean              @default(false)

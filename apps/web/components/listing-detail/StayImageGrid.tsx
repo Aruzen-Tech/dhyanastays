@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import InstagramEmbed from './InstagramEmbed';
 
 export interface GallerySlot {
   url: string;
@@ -31,6 +32,8 @@ interface Props {
   cover: GallerySlot;
   /** The cover video (short promo) shown inline next to the cover photo. */
   videoUrl?: string | null;
+  /** Instagram post/reel permalink — the cover video when no file is uploaded. */
+  instagramPermalink?: string | null;
   /** Poster for the cover video (the cover photo). */
   posterUrl?: string;
   /** When there's no cover video, a second photo fills the cover row's right tile. */
@@ -54,6 +57,7 @@ const BELOW_MAX = 4;
 export default function StayImageGrid({
   cover,
   videoUrl,
+  instagramPermalink,
   posterUrl,
   secondCover,
   below,
@@ -68,49 +72,71 @@ export default function StayImageGrid({
 
   return (
     <div>
-      {/* Cover medias — photo + video side by side */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={onOpenGallery}
-          aria-label={`View all ${totalCount} photos`}
-          className="group relative aspect-[4/3] overflow-hidden rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/40 focus-visible:ring-offset-2"
-        >
-          <GridImage slot={cover} />
-          {totalCount > 1 && (
-            <span className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">
-              View all {totalCount} photo{totalCount === 1 ? '' : 's'}
-            </span>
-          )}
-        </button>
-
-        {videoUrl ? (
-          <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-gray-900">
-            <video
-              src={videoUrl}
-              poster={posterUrl}
-              controls
-              playsInline
-              preload="metadata"
-              className="h-full w-full object-cover"
-            />
-            <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
-              ▶ Property video
-            </span>
+      {/* Cover medias */}
+      {instagramPermalink && !videoUrl ? (
+        // Cover photo + the native Instagram post card embedded inline.
+        <div className="grid grid-cols-1 items-stretch gap-3 lg:grid-cols-[1fr_minmax(0,340px)]">
+          <button
+            type="button"
+            onClick={onOpenGallery}
+            aria-label={`View all ${totalCount} photos`}
+            className="group relative aspect-[4/3] min-h-[280px] overflow-hidden rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/40 focus-visible:ring-offset-2 lg:aspect-auto lg:h-auto"
+          >
+            <GridImage slot={cover} />
+            {totalCount > 1 && (
+              <span className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">
+                View all {totalCount} photo{totalCount === 1 ? '' : 's'}
+              </span>
+            )}
+          </button>
+          <div className="overflow-hidden rounded-2xl">
+            <InstagramEmbed permalink={instagramPermalink} />
           </div>
-        ) : secondCover ? (
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <button
             type="button"
             onClick={onOpenGallery}
             aria-label={`View all ${totalCount} photos`}
             className="group relative aspect-[4/3] overflow-hidden rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/40 focus-visible:ring-offset-2"
           >
-            <GridImage slot={secondCover} />
+            <GridImage slot={cover} />
+            {totalCount > 1 && (
+              <span className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1.5 text-xs font-medium text-white backdrop-blur">
+                View all {totalCount} photo{totalCount === 1 ? '' : 's'}
+              </span>
+            )}
           </button>
-        ) : (
-          <div className="hidden rounded-2xl bg-gradient-to-br from-brand-100 to-brand-50 sm:block" aria-hidden="true" />
-        )}
-      </div>
+
+          {videoUrl ? (
+            <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-gray-900">
+              <video
+                src={videoUrl}
+                poster={posterUrl}
+                controls
+                playsInline
+                preload="metadata"
+                className="h-full w-full object-cover"
+              />
+              <span className="pointer-events-none absolute left-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
+                ▶ Property video
+              </span>
+            </div>
+          ) : secondCover ? (
+            <button
+              type="button"
+              onClick={onOpenGallery}
+              aria-label={`View all ${totalCount} photos`}
+              className="group relative aspect-[4/3] overflow-hidden rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-700/40 focus-visible:ring-offset-2"
+            >
+              <GridImage slot={secondCover} />
+            </button>
+          ) : (
+            <div className="hidden rounded-2xl bg-gradient-to-br from-brand-100 to-brand-50 sm:block" aria-hidden="true" />
+          )}
+        </div>
+      )}
 
       {/* Remaining photos */}
       {belowShown.length > 0 && (

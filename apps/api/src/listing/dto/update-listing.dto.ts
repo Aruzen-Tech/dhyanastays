@@ -128,6 +128,12 @@ export class UpdateListingDto {
   @MaxLength(300)
   youtubeUrl?: string;
 
+  /** Instagram reel/post link — alternative cover video (empty clears it). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  instagramUrl?: string;
+
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(20)
