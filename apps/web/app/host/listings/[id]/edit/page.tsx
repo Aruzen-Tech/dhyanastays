@@ -2,10 +2,17 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '../../../../../context/AuthContext';
 import { listingsApi, formatDate, formatINR } from '../../../../../lib/api';
 import type { AvailabilityBlock, Listing, ListingMedia, SeasonalRate, Tag } from '../../../../../lib/types';
 import MediaUploader, { countMedia } from '../../../../../components/media/MediaUploader';
+
+// Leaflet touches `window`, so the map picker must be client-only.
+const LocationPicker = dynamic(
+  () => import('../../../../../components/listing-detail/LocationPicker'),
+  { ssr: false, loading: () => <div className="h-80 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800" /> },
+);
 import {
   DIETARY_OPTIONS,
   EXPERIENCE_TAGS,
@@ -30,6 +37,7 @@ export default function EditListingPage() {
     minNights: '',
     cleaningFee: '',
     youtubeUrl: '',
+    instagramUrl: '',
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -49,6 +57,9 @@ export default function EditListingPage() {
   const [media, setMedia] = useState<ListingMedia[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitMsg, setSubmitMsg] = useState('');
+
+  // Map location (property coordinates)
+  const [coords, setCoords] = useState<{ lat: number | null; lng: number | null }>({ lat: null, lng: null });
 
   // Seasonal rates state
   const [seasonalRates, setSeasonalRates] = useState<SeasonalRate[]>([]);
@@ -95,7 +106,9 @@ export default function EditListingPage() {
           minNights: rr ? String(rr.minNights) : '',
           cleaningFee: rr ? String(rr.cleaningFee / 100) : '',
           youtubeUrl: found.youtubeUrl ?? '',
+          instagramUrl: found.instagramUrl ?? '',
         });
+        setCoords({ lat: found.latitude ?? null, lng: found.longitude ?? null });
         setFacetExperience(found.experienceTags ?? []);
         setFacetPropertyType(found.propertyType ?? '');
         setFacetDietary(found.dietaryOptions ?? []);
@@ -140,6 +153,10 @@ export default function EditListingPage() {
         ...(form.minNights && { minNights: Number(form.minNights) }),
         ...(form.cleaningFee !== '' && { cleaningFee: Math.round(Number(form.cleaningFee) * 100) }),
         youtubeUrl: form.youtubeUrl.trim(),
+        instagramUrl: form.instagramUrl.trim(),
+        ...(coords.lat != null && coords.lng != null
+          ? { latitude: coords.lat, longitude: coords.lng }
+          : {}),
         payOnArrivalEnabled: payOnArrival,
       });
       setSuccess(true);
@@ -557,10 +574,27 @@ export default function EditListingPage() {
           </p>
         </div>
 
+        <div className="border-t border-gray-100 dark:border-gray-800 pt-4">
+          <label className="block text-sm font-medium mb-1">
+            Cover video — Instagram link <span className="text-muted font-normal">(alternative to uploading)</span>
+          </label>
+          <input
+            className="input"
+            placeholder="https://www.instagram.com/reel/…"
+            value={form.instagramUrl}
+            onChange={(e) => setForm((prev) => ({ ...prev, instagramUrl: e.target.value }))}
+          />
+          <p className="mt-1 text-xs text-muted">
+            Use this instead of uploading a video — the Instagram reel/post embeds as the cover video
+            beside the cover photo. An uploaded video takes priority if you have both.
+          </p>
+        </div>
+
         {/* Submit for approval */}
         {(() => {
           const { images, videos } = countMedia(media);
-          const canSubmit = images >= 5 && videos >= 1;
+          const hasCoverVideo = videos >= 1 || form.instagramUrl.trim().length > 0;
+          const canSubmit = images >= 5 && hasCoverVideo;
           const status = listing?.status;
           const submittable =
             status === 'DRAFT' || status === 'REJECTED' || status === 'CHANGES_REQUESTED';
@@ -593,13 +627,49 @@ export default function EditListingPage() {
               </div>
               {!canSubmit && submittable && (
                 <p className="mt-2 text-xs text-amber-600">
-                  Add at least 5 photos and 1 video to submit ({images}/5 photos, {videos}/1 video).
+                  Add at least 5 photos and a cover video — upload one or paste an Instagram link
+                  ({images}/5 photos, {hasCoverVideo ? 'cover video ✓' : 'no cover video'}).
                 </p>
               )}
               {submitMsg && <p className="mt-2 text-sm">{submitMsg}</p>}
             </div>
           );
         })()}
+      </div>
+
+      {/* ── Location on the map ── */}
+      <div className="card p-6 mt-6 space-y-3">
+        <h2 className="font-semibold text-gray-900 dark:text-white">Location on the map</h2>
+        <p className="text-xs text-muted">
+          Click the map to drop a pin on your property, then drag it to fine-tune. This is the exact
+          spot guests see on the listing page. Use <strong>Save changes</strong> (top) to apply.
+        </p>
+        <LocationPicker
+          lat={coords.lat}
+          lng={coords.lng}
+          city={form.city}
+          state={form.state}
+          onChange={(lat, lng) => setCoords({ lat, lng })}
+          height="360px"
+        />
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          {coords.lat != null && coords.lng != null ? (
+            <span className="text-gray-600 dark:text-gray-300">
+              Pinned at {coords.lat.toFixed(5)}, {coords.lng.toFixed(5)}
+            </span>
+          ) : (
+            <span className="text-amber-600">No pin set yet — click the map to place one.</span>
+          )}
+          {coords.lat != null && (
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={() => setCoords({ lat: null, lng: null })}
+            >
+              Clear pin
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Seasonal rates ── */}

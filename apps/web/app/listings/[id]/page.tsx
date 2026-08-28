@@ -521,6 +521,7 @@ export default function ListingDetailPage() {
         description={listing.description}
         propertyType={listing.propertyType}
         media={listing.media}
+        instagramUrl={listing.instagramUrl}
       />
 
       <div className="mt-8 grid grid-cols-1 gap-10 lg:mt-10 lg:grid-cols-3">

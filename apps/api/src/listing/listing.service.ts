@@ -102,9 +102,12 @@ export class ListingService {
 
     const images = listing.media.filter((m) => m.mediaType.startsWith('image')).length;
     const videos = listing.media.filter((m) => m.mediaType.startsWith('video')).length;
-    if (images < ListingService.MIN_LISTING_IMAGES || videos < ListingService.MIN_LISTING_VIDEOS) {
+    // The cover-video requirement is satisfied by an uploaded video OR an
+    // Instagram reel/post link (the alternative option).
+    const hasCoverVideo = videos >= ListingService.MIN_LISTING_VIDEOS || !!listing.instagramUrl?.trim();
+    if (images < ListingService.MIN_LISTING_IMAGES || !hasCoverVideo) {
       throw new BadRequestException(
-        `Add at least ${ListingService.MIN_LISTING_IMAGES} photos and ${ListingService.MIN_LISTING_VIDEOS} video before submitting (currently ${images} photos, ${videos} video).`,
+        `Add at least ${ListingService.MIN_LISTING_IMAGES} photos and a cover video (upload one or paste an Instagram link) before submitting (currently ${images} photos, ${videos} uploaded video${listing.instagramUrl?.trim() ? ' + Instagram link' : ''}).`,
       );
     }
 

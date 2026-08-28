@@ -321,6 +321,9 @@ export const listingsApi = {
     propertyType: string | null;
     dietaryOptions: string[];
     youtubeUrl: string;
+    instagramUrl: string;
+    latitude: number;
+    longitude: number;
     payOnArrivalEnabled: boolean;
   }>) =>
     request<Listing>(`/host/listings/${id}`, {
