@@ -94,6 +94,21 @@ export default function AdminPayoutAccountsPage() {
     }
   };
 
+  const onboard = async (row: PayoutAccountReview) => {
+    setBusy(row.hostId);
+    setError('');
+    setNotice('');
+    try {
+      const res = await payoutsApi.onboardToRoute(row.hostId);
+      setNotice(`Onboarded to Route — linked account ${res.linkedAccountId}.`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not onboard this host to Route');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const hold = async (row: PayoutAccountReview) => {
     const reason = window.prompt('Reason for the payout hold (leave blank to lift it):') ?? null;
     if (reason === null) return;
@@ -184,6 +199,14 @@ export default function AdminPayoutAccountsPage() {
                     <div>
                       <span className="text-muted">PAN:</span> ••••{r.panLast4}
                     </div>
+                    <div>
+                      <span className="text-muted">Route:</span>{' '}
+                      {r.linkedAccountId ? (
+                        <span className="text-green-700">{r.linkedAccountId}</span>
+                      ) : (
+                        <span className="text-amber-700">not onboarded</span>
+                      )}
+                    </div>
                     {r.rejectionReason && (
                       <div className="text-red-600">Rejected: {r.rejectionReason}</div>
                     )}
@@ -211,6 +234,15 @@ export default function AdminPayoutAccountsPage() {
                       onClick={() => reject(r)}
                     >
                       Reject
+                    </button>
+                  )}
+                  {r.status === 'VERIFIED' && !r.linkedAccountId && (
+                    <button
+                      className="btn-secondary text-sm py-1.5"
+                      disabled={busy === r.hostId}
+                      onClick={() => onboard(r)}
+                    >
+                      Onboard to Route
                     </button>
                   )}
                   <button

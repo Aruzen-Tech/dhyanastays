@@ -114,6 +114,15 @@ export function makeEngine(prisma: PrismaClient): EngineServices {
     stateMachine,
     signer,
   );
+  // Route settlement is flag-gated (off here) — stub it so the harness stays
+  // focused on the booking/payment path.
+  const routePayout = {
+    applyTransferEvent: async () => undefined,
+    reverseForRefund: async () => null,
+    createDueTransfers: async () => ({ created: 0, skipped: 0, failed: 0 }),
+    reconcileOpenTransfers: async () => 0,
+  } as never;
+
   const payment = new PaymentService(
     prismaSvc,
     booking,
@@ -122,6 +131,7 @@ export function makeEngine(prisma: PrismaClient): EngineServices {
     signer,
     payLater,
     stateMachine,
+    routePayout,
   );
 
   return { prisma, pricing, hold, booking, payment, ledger, signer, razorpay };

@@ -51,6 +51,18 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     audience: ['guest'],
   },
   {
+    key: 'payout_route',
+    label: 'Route settlements (RBI escrow)',
+    description:
+      'Settle host payouts through the payment aggregator’s escrow (Razorpay Route) instead of ' +
+      'manual bank transfers. Required for RBI Payment Aggregator compliance — when ON, funds ' +
+      'never pool in the platform account and manual "mark paid" is disabled.',
+    category: 'Bookings & Payments',
+    defaultEnabled: false, // rollout-gated: enable once Route onboarding is approved
+    audience: ['admin', 'host'],
+    critical: true,
+  },
+  {
     key: 'add_ons',
     label: 'Booking Add-ons',
     description: 'Optional services (spa, transport, meals) attached to a booking at checkout.',

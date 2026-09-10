@@ -143,6 +143,8 @@ export class PayoutAccountService {
       hostName: r.host.user.fullName,
       hostEmail: r.host.user.email,
       ...this.mask(r),
+      // Route onboarding state — an aggregator account id, not sensitive.
+      linkedAccountId: r.linkedAccountId,
     }));
   }
 

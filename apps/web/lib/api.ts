@@ -726,6 +726,13 @@ export const payoutsApi = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
+  /** Admin: onboard a verified host onto Route (idempotent). */
+  onboardToRoute: (hostId: string) =>
+    request<{ hostId: string; linkedAccountId: string | null }>(
+      `/admin/payouts/hosts/${hostId}/linked-account`,
+      { method: 'POST' },
+    ),
+
   /** Admin: place (reason) or lift (no reason) an administrative payout hold. */
   setHold: (hostId: string, reason?: string) =>
     request<{ hostId: string; payoutsBlockedReason: string | null; linesAffected: number }>(

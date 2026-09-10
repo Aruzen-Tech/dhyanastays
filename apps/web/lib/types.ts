@@ -554,6 +554,8 @@ export interface PayoutAccountReview extends PayoutAccount {
   hostId: string;
   hostName: string;
   hostEmail: string;
+  /** Razorpay Route linked-account id — null until the host is onboarded. */
+  linkedAccountId: string | null;
 }
 
 export interface RefundValidation {

@@ -527,6 +527,18 @@ model PayoutLine {
   /// Why the line is ON_HOLD (host not payout-ready). Cleared on release.
   holdReason         String?
   batchId            String?
+
+  // ── Route settlement (payment-aggregator escrow) ──
+  /// Razorpay Route transfer id. Unique, so a retried job can never double-pay.
+  transferId         String?      @unique
+  /// Raw PA status: created | pending | processed | failed | reversed.
+  transferStatus     String?
+  transferFailure    String?
+  /// When the PA reports the transfer settled to the host's account.
+  settledAt          DateTime?
+  /// Amount reversed back from the host (refund-after-payout), in paise.
+  reversedAmount     Int          @default(0)
+
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
   host               Host         @relation(fields: [hostId], references: [id])
@@ -534,6 +546,7 @@ model PayoutLine {
   batch              PayoutBatch? @relation(fields: [batchId], references: [id])
 
   @@index([hostId, status])
+  @@index([transferStatus])
 }
 
 // ── Host payout account + KYC (RBI PA/PG readiness) ──────────────────────────

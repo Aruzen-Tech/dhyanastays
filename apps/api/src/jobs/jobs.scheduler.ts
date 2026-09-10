@@ -11,6 +11,7 @@ import {
   QUEUE_NOTIFICATION_OUTBOX,
   QUEUE_PAYMENT_RECON,
   QUEUE_PAYOUT_ELIGIBILITY,
+  QUEUE_ROUTE_TRANSFER,
   QUEUE_PAY_LATER_DUNNING,
   QUEUE_TICKET_RENDER,
   QUEUE_WEEKLY_PAYOUT,
@@ -58,7 +59,36 @@ export class JobsScheduler {
     private readonly autoCompleteQueue: Queue,
     @InjectQueue(QUEUE_TICKET_RENDER)
     private readonly ticketRenderQueue: Queue,
+    @InjectQueue(QUEUE_ROUTE_TRANSFER)
+    private readonly routeTransferQueue: Queue,
   ) {}
+
+  /**
+   * Route settlement: split captured payments to hosts linked accounts every
+   * 10 minutes. The transfer is created held in escrow and auto-released at
+   * check-in + 24h, so this only needs to be prompt, not instant.
+   */
+  @Cron('0 */10 * * * *')
+  async scheduleRouteTransfers() {
+    await this.routeTransferQueue.add('create', { mode: 'create' }, {
+      jobId: bucketJobId('route-transfer-create', 10 * MINUTE),
+      removeOnComplete: 100, removeOnFail: 50, attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
+  }
+
+  /**
+   * Route reconciliation: hourly sweep of transfers that have not reached a
+   * terminal state, so a missed webhook cannot strand a host payout.
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async scheduleRouteReconcile() {
+    await this.routeTransferQueue.add('reconcile', { mode: 'reconcile' }, {
+      jobId: bucketJobId('route-transfer-reconcile', HOUR),
+      removeOnComplete: 100, removeOnFail: 50, attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
+  }
 
   /**
    * Expire stale holds every minute.

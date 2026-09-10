@@ -18,6 +18,7 @@ import { InitPaymentDto, PaymentTypeDto } from './dto/init-payment.dto';
 import { PriceSnapshot } from '../pricing/dto/quote.dto';
 import { PayLaterService } from '../pay-later/pay-later.service';
 import { BookingStateMachine } from '../booking/state-machine';
+import { RoutePayoutService } from '../payout/route-payout.service';
 import { withSerializableRetry } from '../common/services/serializable-retry';
 
 @Injectable()
@@ -34,6 +35,7 @@ export class PaymentService {
     @Inject(forwardRef(() => PayLaterService))
     private readonly payLaterService: PayLaterService,
     private readonly stateMachine: BookingStateMachine,
+    private readonly routePayoutService: RoutePayoutService,
   ) {}
 
   /**
@@ -229,6 +231,11 @@ export class PaymentService {
       await this.handlePaymentFailed(event);
     } else if (eventType === 'refund.processed') {
       await this.handleRefundProcessed(event);
+    } else if (eventType.startsWith('transfer.')) {
+      // Route settlement: the payment aggregator is the source of truth for
+      // whether host money actually moved, so we only ever advance a payout
+      // line from an entity it sent us.
+      await this.handleTransferEvent(event);
     } else {
       this.logger.log(`Unhandled webhook event: ${eventType}`);
     }
@@ -401,6 +408,23 @@ export class PaymentService {
     });
   }
 
+  /**
+   * Route transfer lifecycle (transfer.processed / .failed / .reversed).
+   * Delegated to RoutePayoutService, which applies the state idempotently.
+   */
+  private async handleTransferEvent(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    event: Record<string, any>,
+  ) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const entity = event['payload']?.['transfer']?.['entity'] as Record<string, any>;
+    if (!entity?.['id']) {
+      this.logger.error('Malformed transfer webhook', event);
+      return;
+    }
+    await this.routePayoutService.applyTransferEvent(entity as never);
+  }
+
   private async handleRefundProcessed(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     event: Record<string, any>,
@@ -440,6 +464,26 @@ export class PaymentService {
         amountInr: Math.round(amountPaise / 100),
       },
     );
+
+    // Claw back the host's share if we already transferred it. Best-effort: a
+    // failed reversal must not fail the webhook (Razorpay would retry the whole
+    // refund event), so it is logged and left to the reconciliation sweep.
+    try {
+      const reversal = await this.routePayoutService.reverseForRefund(
+        payment.bookingId,
+        amountPaise,
+        null,
+      );
+      if (reversal?.reversed) {
+        this.logger.log(
+          `Reversed ${reversal.reversed} paise from the host after refund on booking ${payment.bookingId}`,
+        );
+      }
+    } catch (err) {
+      this.logger.error(
+        `Route reversal failed for booking ${payment.bookingId}: ${String(err)}`,
+      );
+    }
   }
 
   /**

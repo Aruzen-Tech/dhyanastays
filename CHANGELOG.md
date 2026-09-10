@@ -17,6 +17,66 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-09-10 — Razorpay Route settlement (RBI PA/PG compliance, step 2)
+
+Moves host settlement onto the payment aggregator's escrow. With `payout_route`
+on, guest money never pools in the platform's own account: Razorpay (the
+RBI-authorised PA) holds it in the mandated escrow and settles each host's split
+directly. Ships behind a **default-off** flag — enable per environment once
+Route onboarding is approved.
+
+### Added
+
+- **Migration `0049_payout_route_transfers`** (idempotent) — `PayoutLine` gains
+  `transferId` (**UNIQUE** — a retried job can never create a second transfer for
+  the same line, i.e. never double-pay), `transferStatus`, `transferFailure`,
+  `settledAt`, `reversedAmount`.
+- **Feature flag `payout_route`** (Bookings & Payments, critical,
+  `defaultEnabled: false`).
+- **`RouteService`** — Route REST client (linked accounts, transfers, hold
+  release, reversals, transfer fetch) with the same stub-mode pattern as
+  `RazorpayService`.
+- **`RoutePayoutService`** — the settlement orchestration:
+  - `ensureLinkedAccount` — idempotent onboarding of a VERIFIED host.
+  - `createDueTransfers` — splits each captured payment to the host's linked
+    account **held until check-in + 24h**, so Razorpay releases and settles
+    automatically. A line is *claimed* with a conditional update **before** the
+    network call, so concurrent workers can't double-transfer.
+  - `applyTransferEvent` — idempotent state application; the PA is the source of
+    truth, and the ledger `PAYOUT_SENT` is written once on the real
+    money-moved transition. A failed transfer parks the line `ON_HOLD`.
+  - `reconcileOpenTransfers` — hourly sweep so a missed webhook can't strand a
+    payout.
+  - `reverseForRefund` — actually claws money back (capped at the un-reversed
+    remainder), replacing the ledger-only carry-forward note.
+- **Webhooks** — `transfer.*` events handled in the existing signed/deduped
+  Razorpay webhook. `refund.processed` now triggers a Route reversal
+  (best-effort, so a reversal failure can't fail the webhook).
+- **Jobs** — `route-transfer` queue: `create` every 10 min, `reconcile` hourly.
+  Deliberately outside the capture transaction — no network I/O inside a
+  SERIALIZABLE booking transaction.
+- **Admin** — `POST /admin/payouts/hosts/:hostId/linked-account` + an "Onboard
+  to Route" action and Route status in the KYC review queue.
+
+### Changed
+
+- **The manual rail is closed when Route is on** — `runWeeklyBatch` and
+  `markBatchPaid` now refuse, because moving escrowed money by hand is exactly
+  what the PA/PG guidelines prohibit.
+
+### Notes
+
+- `RoutePayoutService.ensureLinkedAccount` creates the account entity; attaching
+  settlement (bank) details and activating the Route product is a further step in
+  Razorpay's product-configuration flow — confirm the exact calls for your
+  onboarded API version before enabling the flag in production.
+- Specs: `route-payout.service.spec` (14 tests — flag gating, escrow hold, the
+  claim/double-pay guard, retry on failure, idempotent events, reversal capping,
+  linked-account onboarding) plus a manual-rail-closed guard test. Suite 464/464,
+  and the full Nest DI graph was verified to boot.
+
+---
+
 ## 2026-09-10 — Payout KYC capture + payout guards (RBI PA/PG readiness, step 1)
 
 First step of bringing the payout model in line with RBI's Payment Aggregator

@@ -34,6 +34,8 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
 
 const audit = () => ({ log: jest.fn().mockResolvedValue(undefined) });
 const ledger = () => ({ record: jest.fn().mockResolvedValue(undefined) });
+// Route settlement off — these tests cover the manual rail's guards.
+const features = (routeOn = false) => ({ isEnabled: jest.fn().mockResolvedValue(routeOn) });
 const crypto = () => ({
   encrypt: jest.fn((v: string) => `enc(${v})`),
   decrypt: jest.fn(),
@@ -88,7 +90,7 @@ describe('PayoutService payout guards', () => {
       { id: 'l1', hostId: 'h1', bookingId: 'b1', amount: 10_000, host: READY },
       { id: 'l2', hostId: 'h2', bookingId: 'b2', amount: 5_000, host: { ...READY, payoutAccount: null } },
     ]);
-    const svc = new PayoutService(prisma as never, audit() as never, ledger() as never);
+    const svc = new PayoutService(prisma as never, audit() as never, ledger() as never, features() as never);
 
     const res = await svc.runWeeklyBatch('admin1');
 
@@ -115,7 +117,7 @@ describe('PayoutService payout guards', () => {
     prisma.payoutLine.findMany.mockResolvedValue([
       { id: 'l1', hostId: 'h1', bookingId: 'b1', amount: 10_000, host: { ...READY, payoutEnabled: false } },
     ]);
-    const svc = new PayoutService(prisma as never, audit() as never, ledger() as never);
+    const svc = new PayoutService(prisma as never, audit() as never, ledger() as never, features() as never);
 
     await expect(svc.runWeeklyBatch('admin1')).rejects.toBeInstanceOf(BadRequestException);
     // …but the line is still parked so it can't be picked up later.
@@ -135,7 +137,7 @@ describe('PayoutService payout guards', () => {
     prisma.host.findMany.mockResolvedValue([
       { id: 'h1', ...READY, payoutsBlockedReason: 'fraud review' },
     ]);
-    const svc = new PayoutService(prisma as never, audit() as never, ledger() as never);
+    const svc = new PayoutService(prisma as never, audit() as never, ledger() as never, features() as never);
 
     await expect(svc.markBatchPaid('batch1', 'admin1')).rejects.toThrow(/no longer payout-eligible/);
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -150,9 +152,26 @@ describe('PayoutService payout guards', () => {
       lines: [{ id: 'l1', hostId: 'h1', bookingId: 'b1', amount: 10_000 }],
     });
     prisma.host.findMany.mockResolvedValue([{ id: 'h1', ...READY }]);
-    const svc = new PayoutService(prisma as never, audit() as never, ledger() as never);
+    const svc = new PayoutService(prisma as never, audit() as never, ledger() as never, features() as never);
 
     await expect(svc.markBatchPaid('batch1', 'admin1')).resolves.toMatchObject({ status: 'PAID' });
+  });
+
+  // With Route on, guest money sits in the aggregator's escrow — moving it by
+  // hand would put the platform back in the position RBI's PA/PG guidelines
+  // prohibit, so the manual rail must be closed entirely.
+  it('closes the manual rail once Route settlement is enabled', async () => {
+    const prisma = makePrisma();
+    const routeOn = features(true);
+    const svc = new PayoutService(
+      prisma as never, audit() as never, ledger() as never, routeOn as never,
+    );
+
+    await expect(svc.runWeeklyBatch('admin1')).rejects.toThrow(/Route settlement is on/);
+    await expect(svc.markBatchPaid('batch1', 'admin1')).rejects.toThrow(/Route settlement is on/);
+    // Refused before touching any data.
+    expect(prisma.payoutLine.findMany).not.toHaveBeenCalled();
+    expect(prisma.payoutBatch.findUnique).not.toHaveBeenCalled();
   });
 });
 

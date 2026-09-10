@@ -7,6 +7,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../common/services/audit.service';
 import { LedgerService } from '../common/services/ledger.service';
+import { FeatureFlagService } from '../feature/feature-flag.service';
+import { PAYOUT_ROUTE_FLAG } from './route-payout.service';
 import {
   evaluatePayoutReadiness,
   HOST_PAYOUT_STATE_SELECT,
@@ -24,7 +26,23 @@ export class PayoutService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly ledgerService: LedgerService,
+    private readonly features: FeatureFlagService,
   ) {}
+
+  /**
+   * The manual rail (weekly batch + "mark paid") pools guest money in the
+   * platform's own account, which RBI's PA/PG guidelines don't permit. Once
+   * Route settlement is live, that rail must be closed — money moves only
+   * through the aggregator's escrow.
+   */
+  private async assertManualRailAllowed(action: string): Promise<void> {
+    if (await this.features.isEnabled(PAYOUT_ROUTE_FLAG)) {
+      throw new BadRequestException(
+        `${action} is disabled while Route settlement is on — payouts settle from the ` +
+          `payment aggregator's escrow automatically and must not be moved manually.`,
+      );
+    }
+  }
 
   /**
    * Mark payout lines as ELIGIBLE when check-in + 24h has passed.
@@ -67,6 +85,8 @@ export class PayoutService {
     hostCount: number;
     withheld: { lineCount: number; totalAmount: number; hostCount: number };
   }> {
+    await this.assertManualRailAllowed('Running a weekly payout batch');
+
     const eligibleLines = await this.prisma.payoutLine.findMany({
       where: { status: 'ELIGIBLE' },
       include: { host: { select: HOST_PAYOUT_STATE_SELECT } },
@@ -202,6 +222,8 @@ export class PayoutService {
    * Admin-only.
    */
   async markBatchPaid(batchId: string, actorId: string) {
+    await this.assertManualRailAllowed('Marking a batch paid');
+
     const batch = await this.prisma.payoutBatch.findUnique({
       where: { id: batchId },
       include: { lines: true },

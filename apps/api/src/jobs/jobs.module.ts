@@ -35,8 +35,10 @@ import {
   QUEUE_PAYMENT_RECON,
   QUEUE_AUTO_COMPLETE,
   QUEUE_TICKET_RENDER,
+  QUEUE_ROUTE_TRANSFER,
 } from './jobs.constants';
 import { TicketRenderProcessor } from './ticket-render.processor';
+import { RouteTransferProcessor } from './route-transfer.processor';
 import { StayPassModule } from '../stay-pass/stay-pass.module';
 
 export {
@@ -69,6 +71,7 @@ export {
       { name: QUEUE_PAYMENT_RECON },
       { name: QUEUE_AUTO_COMPLETE },
       { name: QUEUE_TICKET_RENDER },
+      { name: QUEUE_ROUTE_TRANSFER },
     ),
     HoldModule,
     BookingModule,
@@ -94,6 +97,7 @@ export {
     PaymentReconProcessor,
     AutoCompleteProcessor,
     TicketRenderProcessor,
+    RouteTransferProcessor,
     JobsScheduler,
   ],
 })

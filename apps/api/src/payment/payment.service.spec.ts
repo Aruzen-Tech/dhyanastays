@@ -9,6 +9,14 @@ import { RazorpayService } from './razorpay.service';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
+/** Route settlement is flag-gated and off in these tests. */
+function makeRoutePayoutMock() {
+  return {
+    applyTransferEvent: jest.fn().mockResolvedValue(undefined),
+    reverseForRefund: jest.fn().mockResolvedValue(null),
+  };
+}
+
 function makeAuditMock() {
   return { log: jest.fn().mockResolvedValue(undefined) };
 }
@@ -180,6 +188,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
        
@@ -229,6 +238,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
       const result = await service.initPayment('guest-1', {
@@ -261,6 +271,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
       await expect(
@@ -293,6 +304,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
        
@@ -326,6 +338,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
       await expect(
@@ -353,6 +366,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
       await expect(
@@ -418,6 +432,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
       const result = await service.handleWebhook(capturedEvent, 'valid-sig');
@@ -480,6 +495,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
       await service.handleWebhook(capturedEvent, 'valid-sig');
@@ -541,6 +557,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
       await service.handleWebhook(capturedEvent, 'valid-sig');
@@ -585,6 +602,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
       await service.handleWebhook(failedEvent, 'valid-sig');
@@ -610,6 +628,7 @@ describe('PaymentService', () => {
         makeSnapshotSignerMock() as any,
         makePayLaterMock() as any,
         { transition: jest.fn().mockResolvedValue({}) } as any,
+        makeRoutePayoutMock() as any,
       );
 
       const result = await service.handleWebhook(unknownEvent, 'valid-sig');

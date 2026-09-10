@@ -10,4 +10,5 @@ export const QUEUE_INVESTOR_DISTRIBUTION = 'investor-distribution';
 export const QUEUE_PAYMENT_RECON = 'payment-recon';
 export const QUEUE_AUTO_COMPLETE = 'auto-complete';
 export const QUEUE_TICKET_RENDER = 'ticket-render';
+export const QUEUE_ROUTE_TRANSFER = 'route-transfer';
 export const QUEUE_DEAD_LETTER = 'dead-letter';

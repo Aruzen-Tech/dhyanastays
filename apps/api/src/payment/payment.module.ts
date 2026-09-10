@@ -4,9 +4,14 @@ import { PaymentService } from './payment.service';
 import { RazorpayService } from './razorpay.service';
 import { BookingModule } from '../booking/booking.module';
 import { PayLaterModule } from '../pay-later/pay-later.module';
+import { PayoutModule } from '../payout/payout.module';
 
 @Module({
-  imports: [forwardRef(() => BookingModule), forwardRef(() => PayLaterModule)],
+  imports: [
+    forwardRef(() => BookingModule),
+    forwardRef(() => PayLaterModule),
+    PayoutModule,
+  ],
   providers: [PaymentService, RazorpayService],
   controllers: [PaymentController],
   exports: [PaymentService],

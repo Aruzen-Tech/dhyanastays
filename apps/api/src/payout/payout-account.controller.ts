@@ -4,6 +4,7 @@ import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { PayoutAccountService } from './payout-account.service';
+import { RoutePayoutService } from './route-payout.service';
 import {
   SetPayoutHoldDto,
   SubmitPayoutAccountDto,
@@ -17,7 +18,10 @@ import {
  */
 @Controller()
 export class PayoutAccountController {
-  constructor(private readonly accounts: PayoutAccountService) {}
+  constructor(
+    private readonly accounts: PayoutAccountService,
+    private readonly routePayout: RoutePayoutService,
+  ) {}
 
   // ── Host ──
   /** Host: own payout account (masked) + why payouts are or aren't unlocked. */
@@ -69,5 +73,16 @@ export class PayoutAccountController {
   @Get('admin/payouts/hosts/:hostId/readiness')
   readiness(@Param('hostId') hostId: string) {
     return this.accounts.readiness(hostId);
+  }
+
+  /**
+   * Admin: onboard a verified host onto Route (create their linked account).
+   * Idempotent — returns the existing id if the host is already onboarded.
+   */
+  @AdminLevelGuard(AdminLevel.L2)
+  @Post('admin/payouts/hosts/:hostId/linked-account')
+  async onboard(@Param('hostId') hostId: string) {
+    const linkedAccountId = await this.routePayout.ensureLinkedAccount(hostId);
+    return { hostId, linkedAccountId };
   }
 }
