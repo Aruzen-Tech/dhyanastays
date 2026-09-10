@@ -17,7 +17,140 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
-## 2026-08-19 — Media uploads: crop/rotate photos + video across listings, spotlight & ads
+## 2026-09-10 — Payout KYC capture + payout guards (RBI PA/PG readiness, step 1)
+
+First step of bringing the payout model in line with RBI's Payment Aggregator
+guidelines: a host may no longer be paid without verified KYC. Prerequisite for
+moving settlement onto a PA-operated escrow (Razorpay Route) — no fund-flow
+change yet.
+
+### Added
+
+- **Migration `0048_host_payout_kyc`** (idempotent) — `HostPayoutAccount`
+  (1:1 with Host: method BANK_ACCOUNT|UPI, legal name, bank/UPI destination,
+  PAN, status SUBMITTED|VERIFIED|REJECTED, plus `linkedAccountId` reserved for
+  Route). Adds `Host.payoutsBlockedReason` and `PayoutLine.holdReason`.
+- **`PayoutCryptoService`** (global) — account number and PAN are stored as
+  **AES-256-GCM** ciphertext and surfaced only as `*Last4`. Duplicate detection
+  uses a **keyed HMAC** fingerprint, not a bare hash: Indian account numbers and
+  PANs are low-entropy, so an unkeyed digest would be brute-forceable from a DB
+  leak. Encryption and MAC use domain-separated subkeys. New env
+  `PAYOUT_ENCRYPTION_KEY` — **required in production**.
+- **KYC capture API** — `GET/POST /host/payouts/account` (host, masked),
+  `GET /admin/payouts/accounts`, `POST /admin/payouts/accounts/:hostId/verify`,
+  `POST /admin/payouts/hosts/:hostId/hold`,
+  `GET /admin/payouts/hosts/:hostId/readiness`. DTOs enforce Indian IFSC / PAN /
+  account / VPA formats. Re-submitting always resets to SUBMITTED, disables
+  payouts and **holds queued lines** — a changed destination must be re-verified.
+- **Payout guards** — one shared rule (`payout-readiness.ts`,
+  `evaluatePayoutReadiness`) used everywhere: host verified + payouts enabled +
+  account VERIFIED + no admin hold. `runWeeklyBatch` now batches **only** payable
+  lines (explicit ids, no blanket status match) and parks the rest `ON_HOLD` with
+  a reason; `markBatchPaid` re-checks readiness and refuses if a host lost
+  eligibility after scheduling; `dryRunBatch` reports a `blocked` breakdown so
+  withheld money is visible before running.
+- **UI** — host `/host/payouts/account` (capture form with confirm-account,
+  live validation, status + rejection reason, "payouts on hold" explainer) and
+  admin `/admin/payouts/accounts` (review queue: verify / reject with reason /
+  place-lift hold). Dry-run modal now shows withheld money. `payoutsApi` +
+  types in `lib/api.ts`/`types.ts`.
+- Specs: `payout-crypto.service.spec` (round-trip, tamper rejection, keyed
+  fingerprint) + `payout-guards.spec` (readiness matrix, batch withholding,
+  mark-paid refusal, KYC capture masking/re-gating) — 21 new tests; suite 450/450.
+
+---
+
+## 2026-08-30 — CRM Phase 4: analytics dashboard + automation triggers
+
+The engagement layer's payoff — a read-only analytics view over the whole CRM,
+and an if-this-then-that automation engine that acts on lifecycle events.
+
+### Added
+
+- **Analytics API** — `GET /admin/crm/analytics` (`CrmAnalyticsService`):
+  on-demand aggregation (no new storage) — contact totals (guests/hosts/owned/
+  unowned/DNC), **need-attention** (in a stage, no contact in 30d), pipeline &
+  tag & owner-load distributions, a 14-day outreach/calls trend, and task health
+  (open/overdue/due-soon/completed-30d/by-priority).
+- **Analytics page** — `/admin/crm/analytics`: KPI stat cards, horizontal bar
+  lists (pipeline / tags / owners) and a two-series engagement mini-chart.
+- **Migration `0047_crm_automation`** (idempotent) — `CrmAutomationRule`
+  (`trigger` STAGE_CHANGED|TAG_ADDED, optional stage/tag filter, `action`
+  CREATE_TASK|SEND_OUTREACH|ADD_TAG|ASSIGN_OWNER, `config` Json, fire counters).
+- **Automation engine** (`CrmAutomationService`) — `fire(trigger, ctx)` runs
+  every matching enabled rule, **best-effort + isolated** (a failing rule is
+  logged, never breaks the user action) and **non-cascading** (actions write
+  directly and never re-enter `fire`; won't re-add the triggering tag). Wired
+  into `CrmPipelineService.moveContact` (STAGE_CHANGED, only on landing in a
+  stage) and `CrmTagsService.assign` (TAG_ADDED). **Bulk actions deliberately
+  don't trigger** (avoids storms). SEND_OUTREACH routes through
+  `CrmOutreachService`, so do-not-contact is still honoured.
+- **Automation API** — `GET/POST/PATCH/DELETE /admin/crm/automations` (config
+  validated per action).
+- **Automations page** — `/admin/crm/automations`: a when→then rule builder
+  (trigger + optional filter → action + action-specific config), a
+  human-readable rule list with pause/resume, delete, and fire counts. Two new
+  CRM tabs (Analytics, Automations). `crmApi` + types in `lib/api.ts`.
+- Specs: `CrmAutomationService` 6/6 (stage-filter matching, outreach routing,
+  no-cascade guard, error isolation); CRM suite now 27/27. All L2-guarded,
+  behind the `crm` flag.
+
+---
+
+## 2026-08-30 — CRM Phase 3 (part 2): outreach, templates + interaction logging
+
+Second slice of the CRM engagement layer — actually reaching contacts, and
+recording the touches back onto their timeline.
+
+### Added
+
+- **Migration `0046_crm_message_templates`** (idempotent) — `CrmMessageTemplate`
+  stores a reusable subject/body (`createdById` a plain staff id per CRM
+  convention).
+- **Outreach API** — `POST /admin/crm/outreach` (`CrmOutreachService`/
+  controller): email/SMS to a single contact, a set of selected ids (≤500), or a
+  saved segment. Sends via the existing `OutboxService` (`kind: 'crm.outreach'`,
+  marketing → respects opt-outs + retries), **hard-skips do-not-contact** and
+  contacts missing the channel, interpolates `{{name}}`/`{{firstName}}`, then
+  writes one `OUTREACH_SENT` activity and bumps `lastContactedAt` per reached
+  contact. Returns `{ total, sent, skipped:{doNotContact,noEmail,noPhone} }`.
+- **Interaction logging** — `POST /admin/crm/contacts/:id/log`
+  (call/meeting/email/whatsapp/other + summary) → `CALL_LOGGED` activity +
+  `lastContactedAt` bump, so manual touches show in the merged timeline.
+- **Templates API** — `GET/POST/PATCH/DELETE /admin/crm/templates`.
+- **Compose UI** — reusable portaled `OutreachComposer` (channel picker,
+  template insert/save, subject + body, live skip report) launched from the
+  contact detail **Message** button, the contacts **bulk bar** (selected ids),
+  and a **✉ on each segment chip** (message the whole segment). Contact detail
+  also gains an inline **Log** row. `crmApi.sendOutreach/logInteraction/
+  {list,save,update,delete}Template` + `CrmMessageTemplate`/`CrmOutreachResult`
+  types. All L2-guarded, behind the `crm` flag. `CrmOutreachService` spec 4/4
+  (engagement suite now 10/10).
+
+---
+
+## 2026-08-22 — CRM Phase 3 (part 1): saved segments + bulk actions
+
+First slice of the CRM engagement layer — targeting and acting on many
+contacts at once.
+
+### Added
+
+- **Migration `0045_crm_segments`** (idempotent) — `CrmSegment` stores a saved
+  contacts filter (name + type/q/tagId/ownerId/sort; `createdById` a plain
+  staff id per CRM convention).
+- **Segments API** — `GET/POST/PATCH/DELETE /admin/crm/segments`
+  (`CrmSegmentsService`/controller). A segment just replays the contacts-list
+  filter, so "apply" re-runs the existing query.
+- **Bulk actions API** — `POST /admin/crm/bulk/{tag,owner,stage}`
+  (`CrmBulkService`/controller): tag / assign-owner / move-stage across up to
+  500 contacts at once. Each validates the ids against real users, applies
+  idempotently (tag `createMany skipDuplicates`; profile upserts in a txn), and
+  logs one `CrmActivity` per contact. `CrmBulkService` spec 6/6.
+- **Contacts page** — row checkboxes + select-all-on-page, a bulk-action bar
+  (add tag, move to stage, assign to me / clear owner), and a saved-segments
+  bar (save current filter, click a chip to apply, delete). `crmApi` +
+  `CrmSegment` type in `lib/api.ts`. All L2-guarded, behind the `crm` flag.
 
 Unified image+video upload with an in-browser **crop & rotate** editor, and a
 **minimum of 5 photos + 1 video** required across all three surfaces.

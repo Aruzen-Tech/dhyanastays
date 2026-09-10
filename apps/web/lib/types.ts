@@ -497,11 +497,63 @@ export interface PayoutDryRunHost {
   amount: number;
 }
 
+/** A host whose eligible money is withheld pending KYC / an admin hold. */
+export interface PayoutBlockedHost extends PayoutDryRunHost {
+  reason: string;
+}
+
 export interface PayoutDryRun {
+  /** Payable totals — hosts that pass every payout guard. */
   lineCount: number;
   totalAmount: number;
   hostCount: number;
   breakdown: PayoutDryRunHost[];
+  /** Eligible-but-withheld money (un-verified KYC, admin hold, …). */
+  blocked: {
+    lineCount: number;
+    totalAmount: number;
+    hostCount: number;
+    breakdown: PayoutBlockedHost[];
+  };
+}
+
+// ── Host payout account + KYC ───────────────────────────────────────────────
+
+export type PayoutMethod = 'BANK_ACCOUNT' | 'UPI';
+export type PayoutAccountStatus = 'SUBMITTED' | 'VERIFIED' | 'REJECTED';
+
+export type PayoutBlockCode =
+  | 'HOST_NOT_VERIFIED'
+  | 'PAYOUTS_DISABLED'
+  | 'NO_PAYOUT_ACCOUNT'
+  | 'ACCOUNT_NOT_VERIFIED'
+  | 'ADMIN_HOLD';
+
+export interface PayoutReadiness {
+  ready: boolean;
+  blocks: PayoutBlockCode[];
+  summary: string;
+}
+
+/** Masked payout account — the API never returns full identifiers. */
+export interface PayoutAccount {
+  method: PayoutMethod;
+  legalName: string;
+  bankName: string | null;
+  ifsc: string | null;
+  accountLast4: string | null;
+  upiVpa: string | null;
+  panLast4: string | null;
+  status: PayoutAccountStatus;
+  rejectionReason: string | null;
+  verifiedAt: string | null;
+  updatedAt: string;
+}
+
+export interface PayoutAccountReview extends PayoutAccount {
+  hostId: string;
+  hostName: string;
+  hostEmail: string;
 }
 
 export interface RefundValidation {

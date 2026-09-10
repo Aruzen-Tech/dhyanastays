@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CrmActivityType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CrmAutomationService } from './crm-automation.service';
 import { CreateTagDto } from './dto/tag.dto';
 
 @Injectable()
 export class CrmTagsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly automation: CrmAutomationService,
+  ) {}
 
   async list() {
     const tags = await this.prisma.crmTag.findMany({
@@ -56,6 +60,7 @@ export class CrmTagsService {
         metadata: { tagId },
       },
     });
+    await this.automation.fire('TAG_ADDED', { userId, tagId, actorId });
     return { ok: true };
   }
 

@@ -4,6 +4,7 @@ import { AuditService } from './services/audit.service';
 import { LedgerService } from './services/ledger.service';
 import { PriceSnapshotSignerService } from './services/price-snapshot-signer.service';
 import { CapabilitiesService } from './services/capabilities.service';
+import { PayoutCryptoService } from './services/payout-crypto.service';
 
 @Global()
 @Module({
@@ -13,6 +14,7 @@ import { CapabilitiesService } from './services/capabilities.service';
     AccessControlService,
     PriceSnapshotSignerService,
     CapabilitiesService,
+    PayoutCryptoService,
   ],
   exports: [
     AuditService,
@@ -20,6 +22,7 @@ import { CapabilitiesService } from './services/capabilities.service';
     AccessControlService,
     PriceSnapshotSignerService,
     CapabilitiesService,
+    PayoutCryptoService,
   ],
 })
 export class CommonModule {}

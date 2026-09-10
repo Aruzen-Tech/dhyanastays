@@ -64,9 +64,16 @@ describe('CrmPipelineService', () => {
   it('moveContact upserts the profile stage and logs STAGE_CHANGED', async () => {
     const prisma = makePrisma();
     prisma.crmLifecycleStage.findUnique.mockResolvedValue({ name: 'Active' });
-    const service = new CrmPipelineService(prisma as never);
+    const automation = { fire: jest.fn().mockResolvedValue(undefined) };
+    const service = new CrmPipelineService(prisma as never, automation as never);
 
     await service.moveContact('u1', 'stage-2', 'admin1');
+
+    expect(automation.fire).toHaveBeenCalledWith('STAGE_CHANGED', {
+      userId: 'u1',
+      stageId: 'stage-2',
+      actorId: 'admin1',
+    });
 
     expect(prisma.crmContactProfile.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: 'u1' }, update: { stageId: 'stage-2' } }),
@@ -87,7 +94,8 @@ describe('CrmPipelineService', () => {
       { userId: 'u2', stageId: 's2', ownerId: null, user: { fullName: 'Bo', email: 'b@x.com', role: 'GUEST' } },
       { userId: 'u3', stageId: 's1', ownerId: null, user: { fullName: 'Cy', email: 'c@x.com', role: 'GUEST' } },
     ]);
-    const service = new CrmPipelineService(prisma as never);
+    const automation = { fire: jest.fn().mockResolvedValue(undefined) };
+    const service = new CrmPipelineService(prisma as never, automation as never);
 
     const board = await service.board('GUEST' as never);
 

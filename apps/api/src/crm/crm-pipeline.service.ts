@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CrmActivityType, CrmStageKind } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { CrmAutomationService } from './crm-automation.service';
 import { CreateStageDto, UpdateStageDto } from './dto/stage.dto';
 
 @Injectable()
 export class CrmPipelineService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly automation: CrmAutomationService,
+  ) {}
 
   listStages(kind?: CrmStageKind) {
     return this.prisma.crmLifecycleStage.findMany({
@@ -75,6 +79,8 @@ export class CrmPipelineService {
         metadata: { stageId },
       },
     });
+    // Fire automation only when landing in a stage (not on backlog removal).
+    if (stageId) await this.automation.fire('STAGE_CHANGED', { userId, stageId, actorId });
     return { ok: true };
   }
 

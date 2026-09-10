@@ -16,6 +16,9 @@ import {
   type CrmTaskPriority,
   type CrmTimelineItem,
 } from '../../../../lib/api';
+import OutreachComposer from '../../../../components/crm/OutreachComposer';
+
+type LogChannel = 'call' | 'meeting' | 'email' | 'whatsapp' | 'other';
 
 const KIND_META: Record<CrmTimelineItem['kind'], { color: string; label: string }> = {
   crm: { color: '#8b5cf6', label: 'CRM' },
@@ -45,6 +48,9 @@ export default function CrmContactProfilePage() {
   const [taskTitle, setTaskTitle] = useState('');
   const [taskPriority, setTaskPriority] = useState<CrmTaskPriority>('MEDIUM');
   const [taskDue, setTaskDue] = useState('');
+  const [composing, setComposing] = useState(false);
+  const [logChannel, setLogChannel] = useState<LogChannel>('call');
+  const [logSummary, setLogSummary] = useState('');
 
   useEffect(() => {
     if (!isLoading && !user) router.push('/auth/login');
@@ -175,6 +181,19 @@ export default function CrmContactProfilePage() {
     }
   };
 
+  const logInteraction = async () => {
+    if (!logSummary.trim()) return;
+    setBusy('log');
+    try {
+      await crmApi.logInteraction(userId, { channel: logChannel, summary: logSummary.trim() });
+      setLogSummary('');
+      setLogChannel('call');
+      await load();
+    } finally {
+      setBusy('');
+    }
+  };
+
   if (isLoading || loading) {
     return (
       <div className="container-page py-16 text-center">
@@ -226,9 +245,19 @@ export default function CrmContactProfilePage() {
               {formatDate(contact.createdAt)}
             </div>
           </div>
-          <button className="btn-secondary" disabled={busy === 'dnc'} onClick={toggleDnc}>
-            {contact.profile?.doNotContact ? 'Allow contact' : 'Mark do-not-contact'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              className="btn-primary"
+              disabled={contact.profile?.doNotContact}
+              title={contact.profile?.doNotContact ? 'Contact has opted out' : undefined}
+              onClick={() => setComposing(true)}
+            >
+              Message
+            </button>
+            <button className="btn-secondary" disabled={busy === 'dnc'} onClick={toggleDnc}>
+              {contact.profile?.doNotContact ? 'Allow contact' : 'Mark do-not-contact'}
+            </button>
+          </div>
         </div>
 
         {/* Tags */}
@@ -283,6 +312,37 @@ export default function CrmContactProfilePage() {
               </option>
             ))}
           </select>
+        </div>
+
+        {/* Log an interaction */}
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+          <span className="text-sm text-muted">Log:</span>
+          <select
+            className="input !w-auto !py-1 text-sm"
+            value={logChannel}
+            onChange={(e) => setLogChannel(e.target.value as LogChannel)}
+          >
+            <option value="call">Call</option>
+            <option value="meeting">Meeting</option>
+            <option value="email">Email</option>
+            <option value="whatsapp">WhatsApp</option>
+            <option value="other">Other</option>
+          </select>
+          <input
+            className="input flex-1 min-w-[200px] !py-1 text-sm"
+            placeholder="What happened? (e.g. Called re: booking, will confirm Friday)"
+            value={logSummary}
+            onChange={(e) => setLogSummary(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && logInteraction()}
+            maxLength={500}
+          />
+          <button
+            className="btn-secondary text-sm !py-1"
+            disabled={busy === 'log' || !logSummary.trim()}
+            onClick={logInteraction}
+          >
+            Log
+          </button>
         </div>
       </div>
 
@@ -463,6 +523,17 @@ export default function CrmContactProfilePage() {
           </ul>
         )}
       </div>
+
+      {composing && (
+        <OutreachComposer
+          target={{ kind: 'contact', userId, label: contact.fullName }}
+          onClose={() => setComposing(false)}
+          onSent={() => {
+            setComposing(false);
+            void load();
+          }}
+        />
+      )}
     </div>
   );
 }

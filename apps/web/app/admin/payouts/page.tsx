@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import StatusBadge from '../../../components/StatusBadge';
@@ -66,6 +67,30 @@ function DryRunModal({
             ))
           )}
         </div>
+
+        {/* Withheld — eligible money the payout guards will NOT release */}
+        {preview.blocked && preview.blocked.lineCount > 0 && (
+          <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-800">
+              {formatINR(preview.blocked.totalAmount)} withheld across{' '}
+              {preview.blocked.hostCount} host{preview.blocked.hostCount !== 1 ? 's' : ''}
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5 mb-2">
+              These lines are eligible but the host cannot legally be paid yet. They will be put
+              on hold, not paid.
+            </p>
+            <ul className="space-y-1 max-h-32 overflow-y-auto">
+              {preview.blocked.breakdown.map((row) => (
+                <li key={row.hostId} className="text-xs text-amber-900 flex justify-between gap-3">
+                  <span className="truncate">
+                    {row.hostName || row.hostEmail} — {row.reason}
+                  </span>
+                  <span className="font-medium shrink-0">{formatINR(row.amount)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="flex justify-end gap-3">
           <button onClick={onCancel} disabled={running} className="btn-ghost text-sm py-2 px-4">
@@ -268,6 +293,9 @@ export default function AdminPayoutsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <Link href="/admin/payouts/accounts" className="btn-secondary text-sm py-2 px-4">
+            KYC review
+          </Link>
           <button
             onClick={() => {
               if (eligible.length === 0) return;

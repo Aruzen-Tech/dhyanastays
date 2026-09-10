@@ -65,6 +65,11 @@ import type {
   FacetVocabulary,
   LoyaltyInfo,
   PayoutDryRun,
+  PayoutAccount,
+  PayoutAccountReview,
+  PayoutAccountStatus,
+  PayoutMethod,
+  PayoutReadiness,
   RefundValidation,
   StaffApplication,
   StaffMember,
@@ -682,6 +687,51 @@ export const payoutsApi = {
 
   dryRun: () =>
     request<PayoutDryRun>('/admin/payouts/dry-run'),
+
+  // ── Payout account + KYC ──
+  /** Host: own masked account + why payouts are (or aren't) unlocked. */
+  getMyAccount: () =>
+    request<{ account: PayoutAccount | null; readiness: PayoutReadiness }>(
+      '/host/payouts/account',
+    ),
+
+  /** Host: submit or replace the payout destination (always re-verified). */
+  submitAccount: (body: {
+    method: PayoutMethod;
+    legalName: string;
+    accountNumber?: string;
+    ifsc?: string;
+    bankName?: string;
+    upiVpa?: string;
+    pan: string;
+  }) =>
+    request<{ account: PayoutAccount; duplicateDetected: boolean; linesHeld: number }>(
+      '/host/payouts/account',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  /** Admin: KYC review queue. */
+  listAccounts: (status?: PayoutAccountStatus) =>
+    request<PayoutAccountReview[]>(
+      `/admin/payouts/accounts${status ? `?status=${status}` : ''}`,
+    ),
+
+  /** Admin: approve or reject a host's payout account. */
+  reviewAccount: (
+    hostId: string,
+    body: { status: 'VERIFIED' | 'REJECTED'; rejectionReason?: string },
+  ) =>
+    request<PayoutAccount & { linesReleased: number }>(
+      `/admin/payouts/accounts/${hostId}/verify`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  /** Admin: place (reason) or lift (no reason) an administrative payout hold. */
+  setHold: (hostId: string, reason?: string) =>
+    request<{ hostId: string; payoutsBlockedReason: string | null; linesAffected: number }>(
+      `/admin/payouts/hosts/${hostId}/hold`,
+      { method: 'POST', body: JSON.stringify(reason ? { reason } : {}) },
+    ),
 };
 
 // ─── Platform Control Panel — feature flags + host settings ──────────────────
@@ -1509,6 +1559,99 @@ export interface CrmLifecycleStage {
   color: string;
 }
 
+/** A saved contacts filter (Phase 3). */
+export interface CrmSegment {
+  id: string;
+  name: string;
+  type: string | null;
+  q: string | null;
+  tagId: string | null;
+  ownerId: string | null;
+  sort: string | null;
+  createdAt: string;
+}
+
+/** A reusable outreach template (Phase 3). */
+export interface CrmMessageTemplate {
+  id: string;
+  name: string;
+  subject: string | null;
+  body: string;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Result of a send: how many were reached and why some were skipped. */
+export interface CrmOutreachResult {
+  total: number;
+  sent: number;
+  skipped: { doNotContact: number; noEmail: number; noPhone: number };
+}
+
+/** Aggregated CRM analytics (Phase 4). */
+export interface CrmAnalytics {
+  contacts: {
+    total: number;
+    guests: number;
+    hosts: number;
+    owned: number;
+    unowned: number;
+    doNotContact: number;
+    needAttention: number;
+  };
+  pipeline: Array<{ stageId: string; name: string; kind: string; color: string; count: number }>;
+  tags: Array<{ id: string; name: string; color: string; count: number }>;
+  owners: Array<{ ownerId: string; name: string; count: number }>;
+  engagement: {
+    outreachLast30: number;
+    callsLast30: number;
+    notesLast30: number;
+    stageChangesLast30: number;
+    trend: Array<{ date: string; outreach: number; calls: number }>;
+  };
+  tasks: {
+    open: number;
+    overdue: number;
+    dueSoon: number;
+    completedLast30: number;
+    byPriority: { LOW: number; MEDIUM: number; HIGH: number };
+  };
+}
+
+export type CrmAutomationTrigger = 'STAGE_CHANGED' | 'TAG_ADDED';
+export type CrmAutomationAction = 'CREATE_TASK' | 'SEND_OUTREACH' | 'ADD_TAG' | 'ASSIGN_OWNER';
+
+/** Action parameters — only the fields for the chosen action are used. */
+export interface CrmAutomationConfig {
+  title?: string;
+  priority?: CrmTaskPriority;
+  dueInDays?: number;
+  assigneeId?: string;
+  channels?: ('EMAIL' | 'SMS')[];
+  subject?: string;
+  body?: string;
+  tagId?: string;
+  ownerId?: string;
+}
+
+/** An if-this-then-that automation rule (Phase 4). */
+export interface CrmAutomationRule {
+  id: string;
+  name: string;
+  enabled: boolean;
+  trigger: CrmAutomationTrigger;
+  stageId: string | null;
+  tagId: string | null;
+  action: CrmAutomationAction;
+  config: CrmAutomationConfig;
+  timesFired: number;
+  lastFiredAt: string | null;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CrmBoardCard {
   userId: string;
   fullName: string;
@@ -1628,6 +1771,99 @@ export const crmApi = {
       method: 'POST',
       body: JSON.stringify({ stageId: stageId ?? '' }),
     }),
+
+  // ── Segments (Phase 3) ──
+  listSegments: () => request<CrmSegment[]>('/admin/crm/segments'),
+  saveSegment: (body: {
+    name: string;
+    type?: string;
+    q?: string;
+    tagId?: string;
+    ownerId?: string;
+    sort?: string;
+  }) => request<CrmSegment>('/admin/crm/segments', { method: 'POST', body: JSON.stringify(body) }),
+  deleteSegment: (id: string) =>
+    request<{ ok: boolean }>(`/admin/crm/segments/${id}`, { method: 'DELETE' }),
+
+  // ── Bulk actions (Phase 3) ──
+  bulkTag: (userIds: string[], tagId: string) =>
+    request<{ count: number }>('/admin/crm/bulk/tag', {
+      method: 'POST',
+      body: JSON.stringify({ userIds, tagId }),
+    }),
+  bulkOwner: (userIds: string[], ownerId: string | null) =>
+    request<{ count: number }>('/admin/crm/bulk/owner', {
+      method: 'POST',
+      body: JSON.stringify({ userIds, ownerId: ownerId ?? '' }),
+    }),
+  bulkStage: (userIds: string[], stageId: string | null) =>
+    request<{ count: number }>('/admin/crm/bulk/stage', {
+      method: 'POST',
+      body: JSON.stringify({ userIds, stageId: stageId ?? '' }),
+    }),
+
+  // ── Outreach (Phase 3) ──
+  sendOutreach: (body: {
+    userId?: string;
+    userIds?: string[];
+    segmentId?: string;
+    channels: ('EMAIL' | 'SMS')[];
+    subject?: string;
+    body: string;
+  }) =>
+    request<CrmOutreachResult>('/admin/crm/outreach', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  logInteraction: (
+    userId: string,
+    body: { channel: 'call' | 'meeting' | 'email' | 'whatsapp' | 'other'; summary: string },
+  ) =>
+    request<{ ok: boolean }>(`/admin/crm/contacts/${userId}/log`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  // ── Templates (Phase 3) ──
+  listTemplates: () => request<CrmMessageTemplate[]>('/admin/crm/templates'),
+  saveTemplate: (body: { name: string; subject?: string; body: string }) =>
+    request<CrmMessageTemplate>('/admin/crm/templates', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateTemplate: (id: string, body: { name?: string; subject?: string; body?: string }) =>
+    request<CrmMessageTemplate>(`/admin/crm/templates/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteTemplate: (id: string) =>
+    request<{ ok: boolean }>(`/admin/crm/templates/${id}`, { method: 'DELETE' }),
+
+  // ── Analytics (Phase 4) ──
+  getAnalytics: () => request<CrmAnalytics>('/admin/crm/analytics'),
+
+  // ── Automation rules (Phase 4) ──
+  listAutomations: () => request<CrmAutomationRule[]>('/admin/crm/automations'),
+  createAutomation: (body: {
+    name: string;
+    enabled?: boolean;
+    trigger: CrmAutomationTrigger;
+    stageId?: string;
+    tagId?: string;
+    action: CrmAutomationAction;
+    config: CrmAutomationConfig;
+  }) =>
+    request<CrmAutomationRule>('/admin/crm/automations', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateAutomation: (id: string, body: Partial<{ enabled: boolean; name: string }>) =>
+    request<CrmAutomationRule>(`/admin/crm/automations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  deleteAutomation: (id: string) =>
+    request<{ ok: boolean }>(`/admin/crm/automations/${id}`, { method: 'DELETE' }),
 };
 
 // ─── Assistant ──────────────────────────────────────────────────────────────

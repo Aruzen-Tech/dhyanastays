@@ -7,6 +7,8 @@ const TABS = [
   { href: '/admin/crm', label: 'Contacts', exact: true },
   { href: '/admin/crm/pipeline', label: 'Pipeline' },
   { href: '/admin/crm/tasks', label: 'Tasks' },
+  { href: '/admin/crm/analytics', label: 'Analytics' },
+  { href: '/admin/crm/automations', label: 'Automations' },
 ];
 
 /** Sub-navigation shared across the CRM section. */

@@ -16,7 +16,10 @@ export type NotificationKind =
   | 'sip.debit'
   | 'investor.document.uploaded'
   | 'investor.capital_call.opened'
-  | 'investor.distribution.paid';
+  | 'investor.distribution.paid'
+  // CRM manual outreach (marketing — respects opt-outs; not in the
+  // transactional allow-list, so per-kind preferences apply).
+  | 'crm.outreach';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TxClient = any;

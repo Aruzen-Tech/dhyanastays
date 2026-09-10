@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import StatusBadge from '../../../components/StatusBadge';
@@ -38,10 +39,17 @@ export default function HostPayoutsPage() {
         <button onClick={() => router.back()} className="btn-ghost text-sm mb-4">
           ← Back
         </button>
-        <h1 className="page-title">Payout Statements</h1>
-        <p className="text-gray-500 text-sm mt-1">
-          Your earnings from confirmed bookings. Payouts are processed weekly.
-        </p>
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="page-title">Payout Statements</h1>
+            <p className="text-gray-500 text-sm mt-1">
+              Your earnings from confirmed bookings. Payouts are processed weekly.
+            </p>
+          </div>
+          <Link href="/host/payouts/account" className="btn-secondary text-sm">
+            Payout account
+          </Link>
+        </div>
       </div>
 
       {error && <div className="alert-error mb-6">{error}</div>}

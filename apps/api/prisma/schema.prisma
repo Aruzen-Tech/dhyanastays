@@ -219,8 +219,13 @@ model Host {
   id                  String                 @id @default(cuid())
   userId              String                 @unique
   verificationStatus  HostVerificationStatus @default(PENDING)
+  /// Deprecated free-text reference. Superseded by `payoutAccount` (KYC'd) and,
+  /// once Route is live, `HostPayoutAccount.linkedAccountId`.
   payoutAccountRef    String?
   payoutEnabled       Boolean                @default(false)
+  /// Non-null = payouts are administratively withheld (compliance hold, negative
+  /// balance, dispute). Checked by every payout guard.
+  payoutsBlockedReason String?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
   user                User                   @relation(fields: [userId], references: [id])
@@ -230,6 +235,7 @@ model Host {
   quickReplies        HostQuickReply[]
   experiences         Experience[]
   settings            HostSetting?
+  payoutAccount       HostPayoutAccount?
 }
 
 model Listing {
@@ -518,6 +524,8 @@ model PayoutLine {
   amount             Int
   eligibleAt         DateTime
   status             PayoutStatus @default(NOT_ELIGIBLE)
+  /// Why the line is ON_HOLD (host not payout-ready). Cleared on release.
+  holdReason         String?
   batchId            String?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
@@ -526,6 +534,72 @@ model PayoutLine {
   batch              PayoutBatch? @relation(fields: [batchId], references: [id])
 
   @@index([hostId, status])
+}
+
+// ── Host payout account + KYC (RBI PA/PG readiness) ──────────────────────────
+
+/// Rail the host is paid on. Bank transfer is the default; UPI is offered
+/// because most Indian hosts already have a VPA.
+enum PayoutMethod {
+  BANK_ACCOUNT
+  UPI
+}
+
+/// Lifecycle of a host's payout account. Only VERIFIED unlocks payouts.
+enum PayoutAccountStatus {
+  SUBMITTED
+  VERIFIED
+  REJECTED
+}
+
+/// A host's payout destination + tax identity (1:1 with Host).
+///
+/// RBI's PA/PG guidelines require merchant (host) KYC before settling funds to
+/// them, so no payout may leave the platform for a host without a VERIFIED row
+/// here. Sensitive identifiers are NEVER stored in plaintext: the account
+/// number and PAN are held as AES-256-GCM ciphertext (`*Enc`) and surfaced to
+/// the API only as `*Last4`. `fingerprint` is a KEYED HMAC (not a bare hash —
+/// account numbers are low-entropy and would otherwise be brute-forceable) so
+/// duplicates can be detected without ever comparing plaintext.
+model HostPayoutAccount {
+  id                  String              @id @default(cuid())
+  hostId              String              @unique
+  host                Host                @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  method              PayoutMethod
+  /// Legal name — must match the bank account holder / PAN for KYC.
+  legalName           String
+
+  // ── Bank rail ──
+  bankName            String?
+  ifsc                String?
+  accountLast4        String?
+  accountEnc          String? // AES-256-GCM ciphertext; never returned by the API
+
+  // ── UPI rail ──
+  upiVpa              String?
+
+  // ── Tax identity ──
+  panLast4            String?
+  panEnc              String? // AES-256-GCM ciphertext; never returned by the API
+
+  /// Keyed HMAC over the normalised destination — duplicate detection only.
+  fingerprint         String?
+
+  status              PayoutAccountStatus @default(SUBMITTED)
+  rejectionReason     String?
+  verifiedAt          DateTime?
+  verifiedById        String? // staff actor (User id), plain id by convention
+
+  // ── Payment-aggregator linkage (Razorpay Route — populated later) ──
+  linkedAccountId     String?
+  linkedAccountStatus String?
+
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@index([status])
+  @@index([fingerprint])
 }
 
 model PayoutBatch {
@@ -2005,4 +2079,71 @@ model CrmTask {
   @@index([userId])
   @@index([assigneeId, status])
   @@index([status, dueAt])
+}
+
+/// A saved contacts filter (Phase 3). Stores the same criteria the contacts
+/// list accepts, so applying a segment just re-runs the list query. createdById
+/// is a plain staff id (no relation), consistent with the rest of the CRM.
+model CrmSegment {
+  id          String   @id @default(cuid())
+  name        String
+  type        String? // guest | host | all (null = all)
+  q           String? // free-text search
+  tagId       String?
+  ownerId     String?
+  sort        String? // recent | name
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById])
+}
+
+/// A reusable outreach message template (Phase 3). `subject` is used for email;
+/// `body` for both email + SMS. Supports {{name}} / {{firstName}} placeholders.
+model CrmMessageTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  subject     String?
+  body        String
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ── CRM (admin) — Phase 4: automation triggers ───────────────────────────────
+
+/// What lifecycle event a rule reacts to. Fired only for SINGLE-contact actions
+/// (contact detail / pipeline board); bulk actions intentionally do not trigger.
+enum CrmAutomationTrigger {
+  STAGE_CHANGED
+  TAG_ADDED
+}
+
+/// What a rule does when it fires. Action params live in `config` (Json).
+enum CrmAutomationAction {
+  CREATE_TASK // { title, priority?, dueInDays?, assigneeId? }
+  SEND_OUTREACH // { channels: [EMAIL|SMS], subject?, body }
+  ADD_TAG // { tagId }
+  ASSIGN_OWNER // { ownerId }
+}
+
+/// An if-this-then-that rule over CRM lifecycle events (Phase 4). Optional
+/// `stageId`/`tagId` narrow the trigger; null = fire for any stage/tag.
+model CrmAutomationRule {
+  id          String               @id @default(cuid())
+  name        String
+  enabled     Boolean              @default(true)
+  trigger     CrmAutomationTrigger
+  stageId     String? // STAGE_CHANGED filter (null = any stage)
+  tagId       String? // TAG_ADDED filter (null = any tag)
+  action      CrmAutomationAction
+  config      Json                 @default("{}")
+  timesFired  Int                  @default(0)
+  lastFiredAt DateTime?
+  createdById String
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([trigger, enabled])
 }

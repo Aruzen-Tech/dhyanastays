@@ -101,6 +101,11 @@ export const envValidationSchema = Joi.object({
   // ── Stay Pass QR signing (falls back to PRICE_SNAPSHOT_SECRET in dev) ─────
   QR_SIGNING_SECRET: Joi.string().allow('').default(''),
 
+  // ── Host payout identifier encryption (bank account / PAN at rest) ────────
+  // Required in production — see the production block below. Without it the
+  // crypto service falls back to a well-known dev key, which is not encryption.
+  PAYOUT_ENCRYPTION_KEY: Joi.string().allow('').default(''),
+
   // ── Error tracking (optional — inert without a DSN) ───────────────────────
   SENTRY_DSN: Joi.string().allow('').default(''),
   SENTRY_TRACES_SAMPLE_RATE: Joi.number().min(0).max(1).default(0),
@@ -122,6 +127,8 @@ export const envValidationSchema = Joi.object({
       PRICE_SNAPSHOT_SECRET: Joi.string().min(32).invalid('dev-snapshot-secret-min-32-characters!').required(),
       QR_SIGNING_SECRET: Joi.string().min(32).required()
         .messages({ 'string.empty': 'QR_SIGNING_SECRET is required in production — Stay Pass check-in tokens must not share the dev fallback' }),
+      PAYOUT_ENCRYPTION_KEY: Joi.string().min(32).required()
+        .messages({ 'string.empty': 'PAYOUT_ENCRYPTION_KEY is required in production — host bank account and PAN are encrypted at rest with it' }),
       RAZORPAY_KEY_ID: Joi.string().min(1).required()
         .messages({ 'string.empty': 'RAZORPAY_KEY_ID is required in production (no stub mode)' }),
       RAZORPAY_KEY_SECRET: Joi.string().min(1).required(),
