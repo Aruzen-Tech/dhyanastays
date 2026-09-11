@@ -236,6 +236,7 @@ model Host {
   experiences         Experience[]
   settings            HostSetting?
   payoutAccount       HostPayoutAccount?
+  balanceEntries      HostBalanceEntry[]
 }
 
 model Listing {
@@ -539,6 +540,17 @@ model PayoutLine {
   /// Amount reversed back from the host (refund-after-payout), in paise.
   reversedAmount     Int          @default(0)
 
+  // ── Deductions from the gross host share (all paise) ──
+  // transferAmount = amount - tdsAmount - tcsAmount - nettedAmount
+  /// TDS withheld under Income-Tax §194-O.
+  tdsAmount          Int          @default(0)
+  /// TCS collected under CGST §52.
+  tcsAmount          Int          @default(0)
+  /// Withheld to recover an outstanding host debt (see HostBalanceEntry).
+  nettedAmount       Int          @default(0)
+  /// What was actually transferred to the host after deductions.
+  transferAmount     Int?
+
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
   host               Host         @relation(fields: [hostId], references: [id])
@@ -547,6 +559,43 @@ model PayoutLine {
 
   @@index([hostId, status])
   @@index([transferStatus])
+}
+
+// ── Host balance ledger (debt netting) ───────────────────────────────────────
+
+enum HostBalanceEntryType {
+  /// Host owes the platform (refund we couldn't reverse, uncollected commission).
+  DEBT
+  /// Debt recovered by withholding from a later payout.
+  RECOVERY
+  /// Manual staff correction (write-off, goodwill, error fix).
+  ADJUSTMENT
+}
+
+/// Append-only running balance per host, in paise.
+///
+/// A single Route transfer can only be reversed down to zero, so a refund that
+/// exceeds what we transferred — or commission on a pay-on-arrival booking,
+/// where the host takes the guest's cash directly — leaves the host owing the
+/// platform. Recording it here (negative) lets the next payout net it off
+/// (positive RECOVERY) instead of the money simply being lost.
+///
+/// Never mutated: corrections are new rows, so the history stays auditable.
+model HostBalanceEntry {
+  id           String               @id @default(cuid())
+  hostId       String
+  host         Host                 @relation(fields: [hostId], references: [id], onDelete: Cascade)
+  type         HostBalanceEntryType
+  /// Signed paise. Negative = host owes the platform; positive = reduces debt.
+  amount       Int
+  reason       String
+  bookingId    String?
+  payoutLineId String?
+  /// Staff actor for ADJUSTMENT rows; null for system-generated entries.
+  createdById  String?
+  createdAt    DateTime             @default(now())
+
+  @@index([hostId, createdAt])
 }
 
 // ── Host payout account + KYC (RBI PA/PG readiness) ──────────────────────────

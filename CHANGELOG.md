@@ -17,6 +17,57 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-09-10 — Host balance netting, tax withholding, pay-on-arrival commission (step 3)
+
+Closes the three money leaks left after Route: debt that couldn't be clawed
+back, tax the platform is obliged to withhold as an e-commerce operator, and
+commission on cash bookings that was never collected at all.
+
+### Added
+
+- **Migration `0050_host_balance_and_deductions`** (idempotent) —
+  `HostBalanceEntry` (append-only, signed paise; DEBT / RECOVERY / ADJUSTMENT)
+  plus a deduction breakdown on `PayoutLine`: `tdsAmount`, `tcsAmount`,
+  `nettedAmount`, `transferAmount`.
+- **`HostBalanceService`** — a running per-host balance. Negative = the host
+  owes the platform. Never mutated: corrections are new ADJUSTMENT rows, so the
+  history stays auditable.
+- **`PayoutTaxService`** + flag **`payout_tax_withholding`** (default off) —
+  TDS (§194-O) and TCS (CGST §52) withheld at source. Rates come from
+  `TDS_194O_RATE` / `TCS_GST_RATE` **by design**: both were revised recently, so
+  they belong in config a CA signs off per FY, not in the build. Rounds **up**,
+  because under-withholding leaves the platform liable.
+- **Deduction pipeline** in `createDueTransfers`, in order: statutory tax first
+  (we remit it, so it can never reach the host), then debt recovery from what's
+  left, then transfer the remainder. When deductions consume the line entirely
+  no transfer is made and the line is settled — not retried forever.
+- **Refund shortfall becomes debt** — a refund larger than what we transferred
+  is reversed down to zero and the difference recorded against the host, so the
+  next payout nets it off instead of the money vanishing. Reversals are now
+  capped at `transferAmount` (what was actually sent), not the gross.
+- **Pay-on-arrival commission is no longer lost** — the guest pays the full
+  total in cash to the host, our platform fee + GST included. `collectOnArrival`
+  now records that commission as host debt inside the same transaction, netted
+  off their next payout. (Collecting the fee online at booking is the
+  alternative; this needs no change to the guest's checkout.)
+- **APIs** — `GET /host/payouts/balance`, `GET /admin/payouts/hosts/:hostId/balance`,
+  `POST /admin/payouts/hosts/:hostId/balance/adjust` (amount + mandatory reason),
+  `GET /admin/payouts/tax-summary?from&to` for TDS/TCS remittance and
+  reconciliation.
+- **UI** — the host payouts page shows an outstanding-balance banner with recent
+  entries, a per-line deduction breakdown (TDS / TCS / balance / actually paid),
+  and corrected "how payouts work" copy.
+
+### Notes
+
+- Specs: `host-balance.service.spec` (11 — sign convention, recovery capping
+  both ways, adjustments; tax rates from config, flag gating, round-up) plus
+  Route deduction/reversal-shortfall tests and a pay-on-arrival commission test.
+  Suite **481/481**; DI graph verified to boot.
+- **Confirm both tax rates with a CA before enabling `payout_tax_withholding`.**
+
+---
+
 ## 2026-09-10 — Razorpay Route settlement (RBI PA/PG compliance, step 2)
 
 Moves host settlement onto the payment aggregator's escrow. With `payout_route`

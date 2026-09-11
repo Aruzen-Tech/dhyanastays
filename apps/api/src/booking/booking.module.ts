@@ -1,4 +1,5 @@
 import { forwardRef, Module } from '@nestjs/common';
+import { PayoutModule } from '../payout/payout.module';
 import { BookingController } from './booking.controller';
 import { BookingService } from './booking.service';
 import { BookingStateMachine } from './state-machine';
@@ -19,6 +20,7 @@ import { PayLaterModule } from '../pay-later/pay-later.module';
     AddOnModule,
     MembershipModule,
     forwardRef(() => PayLaterModule),
+    PayoutModule,
   ],
   providers: [BookingService, BookingStateMachine],
   controllers: [BookingController],

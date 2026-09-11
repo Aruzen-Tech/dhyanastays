@@ -4,6 +4,8 @@ import { AuditService } from '../common/services/audit.service';
 import { LedgerService } from '../common/services/ledger.service';
 import { FeatureFlagService } from '../feature/feature-flag.service';
 import { RouteService, type RouteTransfer } from './route.service';
+import { PayoutTaxService } from './payout-tax.service';
+import { HostBalanceService } from './host-balance.service';
 import { evaluatePayoutReadiness, HOST_PAYOUT_STATE_SELECT } from './payout-readiness';
 
 /** PA statuses that need no further polling. */
@@ -41,6 +43,8 @@ export class RoutePayoutService {
     private readonly ledger: LedgerService,
     private readonly route: RouteService,
     private readonly features: FeatureFlagService,
+    private readonly tax: PayoutTaxService,
+    private readonly balance: HostBalanceService,
   ) {}
 
   isEnabled(): Promise<boolean> {
@@ -150,9 +154,45 @@ export class RoutePayoutService {
       }
 
       try {
+        // ── Deductions from the gross share, in order ──
+        // 1. Statutory withholding (we remit it, so it can never go to the host).
+        const tax = await this.tax.compute(line.amount);
+        // 2. Recover any outstanding debt from what's left.
+        const afterTax = line.amount - tax.total;
+        const netted = await this.balance.recoverFromPayout(line.hostId, afterTax, {
+          payoutLineId: line.id,
+          bookingId: line.bookingId,
+        });
+        const transferAmount = afterTax - netted;
+
+        // Fully consumed by tax + debt recovery: nothing to send, but the line
+        // is settled — record it rather than retrying forever.
+        if (transferAmount <= 0) {
+          await this.prisma.payoutLine.update({
+            where: { id: line.id },
+            data: {
+              transferStatus: 'processed',
+              status: 'PAID',
+              settledAt: new Date(),
+              tdsAmount: tax.tds,
+              tcsAmount: tax.tcs,
+              nettedAmount: netted,
+              transferAmount: 0,
+              holdReason: null,
+            },
+          });
+          await this.audit.log(null, 'PAYOUT_FULLY_WITHHELD', 'payout_line', line.id, {
+            gross: line.amount,
+            tax: tax.total,
+            netted,
+          });
+          created++;
+          continue;
+        }
+
         const transfer = await this.route.createTransfer(paymentRef, {
           linkedAccountId,
-          amountPaise: line.amount,
+          amountPaise: transferAmount,
           // Hold in escrow until the host has earned it (check-in + 24h).
           onHoldUntil: Math.floor(line.eligibleAt.getTime() / 1000),
           notes: { payoutLineId: line.id, bookingId: line.bookingId },
@@ -165,14 +205,26 @@ export class RoutePayoutService {
             transferStatus: transfer.status,
             status: 'SCHEDULED',
             holdReason: null,
+            tdsAmount: tax.tds,
+            tcsAmount: tax.tcs,
+            nettedAmount: netted,
+            transferAmount,
           },
         });
         await this.ledger.record({
           type: 'PAYOUT_SCHEDULED',
-          amount: line.amount,
+          amount: transferAmount,
           bookingId: line.bookingId,
           payoutLineId: line.id,
-          metadata: { transferId: transfer.id, linkedAccountId, rail: 'route' },
+          metadata: {
+            transferId: transfer.id,
+            linkedAccountId,
+            rail: 'route',
+            gross: line.amount,
+            tds: tax.tds,
+            tcs: tax.tcs,
+            netted,
+          },
         });
         created++;
       } catch (err) {
@@ -289,9 +341,25 @@ export class RoutePayoutService {
     });
     if (!line?.transferId) return null;
 
-    // Never reverse more than we actually transferred.
-    const remaining = line.amount - line.reversedAmount;
-    const amount = Math.min(refundAmount, remaining);
+    // Never reverse more than we actually sent (post-deduction), and never
+    // more than is still un-reversed.
+    const transferred = line.transferAmount ?? line.amount;
+    const remaining = transferred - line.reversedAmount;
+    const amount = Math.min(refundAmount, Math.max(remaining, 0));
+
+    // A refund can exceed what we transferred — the guest gets the full amount
+    // back, so the difference is money the host now owes us. Record it as debt
+    // so the next payout nets it off instead of it silently disappearing.
+    const shortfall = refundAmount - amount;
+    if (shortfall > 0) {
+      await this.balance.recordDebt(
+        line.hostId,
+        shortfall,
+        'Refund exceeded the amount transferred to the host',
+        { bookingId, payoutLineId: line.id },
+      );
+    }
+
     if (amount <= 0) return { reversed: 0 };
 
     await this.route.createReversal(line.transferId, amount);

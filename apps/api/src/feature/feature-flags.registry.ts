@@ -63,6 +63,18 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     critical: true,
   },
   {
+    key: 'payout_tax_withholding',
+    label: 'Payout tax withholding (TDS/TCS)',
+    description:
+      'Withhold TDS (Income-Tax §194-O) and TCS (CGST §52) from host payouts as an e-commerce ' +
+      'operator. Rates come from TDS_194O_RATE / TCS_GST_RATE — confirm both with a CA for the ' +
+      'current financial year before enabling.',
+    category: 'Bookings & Payments',
+    defaultEnabled: false, // off until the rates are signed off
+    audience: ['admin', 'host'],
+    critical: true,
+  },
+  {
     key: 'add_ons',
     label: 'Booking Add-ons',
     description: 'Optional services (spa, transport, meals) attached to a booking at checkout.',

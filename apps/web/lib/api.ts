@@ -70,6 +70,8 @@ import type {
   PayoutAccountStatus,
   PayoutMethod,
   PayoutReadiness,
+  HostBalanceStatement,
+  PayoutTaxSummary,
   RefundValidation,
   StaffApplication,
   StaffMember,
@@ -725,6 +727,28 @@ export const payoutsApi = {
       `/admin/payouts/accounts/${hostId}/verify`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
+
+  /** Host: own balance ledger (what they owe, and why). */
+  getMyBalance: () => request<HostBalanceStatement>('/host/payouts/balance'),
+
+  /** Admin: a host's balance ledger. */
+  getHostBalance: (hostId: string) =>
+    request<HostBalanceStatement>(`/admin/payouts/hosts/${hostId}/balance`),
+
+  /** Admin: manual balance correction. Positive forgives debt, negative adds it. */
+  adjustHostBalance: (hostId: string, body: { amount: number; reason: string }) =>
+    request<{ balance: number }>(`/admin/payouts/hosts/${hostId}/balance/adjust`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  /** Admin: TDS/TCS withheld in a period, for remittance + reconciliation. */
+  taxSummary: (from?: string, to?: string) => {
+    const qs = new URLSearchParams();
+    if (from) qs.set('from', from);
+    if (to) qs.set('to', to);
+    return request<PayoutTaxSummary>(`/admin/payouts/tax-summary?${qs}`);
+  },
 
   /** Admin: onboard a verified host onto Route (idempotent). */
   onboardToRoute: (hostId: string) =>

@@ -466,11 +466,24 @@ export interface PayoutLine {
   hostId: string;
   listingId: string;
   bookingId: string;
+  /** Gross host share, in paise, before deductions. */
   amount: number;
   eligibleAt: string;
   status: PayoutStatus;
   batchId: string | null;
   createdAt: string;
+  /** Why the line is ON_HOLD, when it is. */
+  holdReason?: string | null;
+  // ── Deductions (paise): transferAmount = amount - tds - tcs - netted ──
+  tdsAmount: number;
+  tcsAmount: number;
+  nettedAmount: number;
+  /** What was actually sent to the host; null until a transfer is created. */
+  transferAmount: number | null;
+  /** Route settlement state, when the Route rail is in use. */
+  transferId?: string | null;
+  transferStatus?: string | null;
+  settledAt?: string | null;
 }
 
 export interface PayoutBatch {
@@ -548,6 +561,40 @@ export interface PayoutAccount {
   rejectionReason: string | null;
   verifiedAt: string | null;
   updatedAt: string;
+}
+
+export type HostBalanceEntryType = 'DEBT' | 'RECOVERY' | 'ADJUSTMENT';
+
+export interface HostBalanceEntry {
+  id: string;
+  type: HostBalanceEntryType;
+  /** Signed paise. Negative = the host owes the platform. */
+  amount: number;
+  reason: string;
+  bookingId: string | null;
+  payoutLineId: string | null;
+  createdAt: string;
+}
+
+export interface HostBalanceStatement {
+  hostId: string;
+  /** Net paise. Negative = the host owes the platform. */
+  balance: number;
+  /** Positive paise the host still owes (0 when clear). */
+  outstandingDebt: number;
+  entries: HostBalanceEntry[];
+}
+
+export interface PayoutTaxSummary {
+  from: string;
+  to: string;
+  lineCount: number;
+  grossPaid: number;
+  tdsWithheld: number;
+  tcsWithheld: number;
+  nettedForDebt: number;
+  transferred: number;
+  byHost: Array<{ hostId: string; gross: number; tds: number; tcs: number }>;
 }
 
 export interface PayoutAccountReview extends PayoutAccount {

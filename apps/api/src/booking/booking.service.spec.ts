@@ -8,6 +8,14 @@ import { BookingService } from './booking.service';
  
 type AnyMock = jest.MockedFunction<(...args: any[]) => any>;
 
+/** Host balance ledger — pay-on-arrival records the uncollected commission here. */
+function makeHostBalanceMock() {
+  return {
+    recordDebt: jest.fn().mockResolvedValue(null),
+    recoverFromPayout: jest.fn().mockResolvedValue(0),
+  };
+}
+
 function makeAuditMock() {
   return { log: jest.fn().mockResolvedValue(undefined) };
 }
@@ -166,6 +174,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       const result = await service.createBooking('guest-1', {
@@ -216,6 +225,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       await service.createBooking('guest-1', {
@@ -264,6 +274,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       await expect(
@@ -303,6 +314,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       await expect(
@@ -342,6 +354,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       const result = await service.createBooking('guest-1', {
@@ -408,6 +421,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         smMock as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       const count = await service.transitionToBalanceDue();
@@ -455,6 +469,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         smMock as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       const count = await service.transitionToBalanceDue();
@@ -511,6 +526,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {
@@ -569,6 +585,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {});
@@ -610,6 +627,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       await expect(
@@ -642,6 +660,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
+        { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
       );
 
       await expect(
@@ -651,7 +670,7 @@ describe('BookingService', () => {
   });
 
   describe('collectOnArrival()', () => {
-    function makeService(prismaMock: any) {
+    function makeService(prismaMock: any, hostBalanceMock?: any) {
       return new BookingService(
         prismaMock as any,
         makePricingMock() as any,
@@ -665,6 +684,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue('sig') } as any,
+        (hostBalanceMock ?? makeHostBalanceMock()) as any,
       );
     }
 
@@ -740,10 +760,40 @@ describe('BookingService', () => {
         }),
       );
     });
+    // The guest hands the host the FULL total in cash - including our platform
+    // fee and its GST. Nothing reaches the platform, so that commission has to
+    // become a host debt or it is simply lost revenue.
+    it('records the uncollected platform commission as host debt', async () => {
+      const txMock: any = {
+        payment: { create: jest.fn().mockResolvedValue({ id: 'pay-1' }) },
+        booking: {
+          update: jest.fn().mockImplementation(async (args: any) => ({
+            ...POA_BOOKING,
+            status: args.data.status,
+          })),
+        },
+      };
+      const prismaMock = {
+        booking: { findUnique: jest.fn().mockResolvedValue(POA_BOOKING) },
+        host: { findUnique: jest.fn().mockResolvedValue({ id: 'host-1' }) },
+        $transaction: jest.fn().mockImplementation(async (fn: AnyMock) => fn(txMock)),
+      };
+      const hostBalance = makeHostBalanceMock();
+
+      await makeService(prismaMock, hostBalance).collectOnArrival('host-user-1', 'poa-1', 'CASH');
+
+      // platformFee 1550 + gstAmount 0 in this fixture.
+      expect(hostBalance.recordDebt).toHaveBeenCalledWith(
+        'host-1',
+        SNAPSHOT.platformFee,
+        expect.stringContaining('pay-on-arrival'),
+        expect.objectContaining({ bookingId: 'poa-1' }),
+      );
+    });
   });
 
   describe('manual lifecycle (host / admin)', () => {
-    function mkService(prismaMock: any) {
+    function mkService(prismaMock: any, hostBalanceMock?: any) {
       return new BookingService(
         prismaMock as any,
         makePricingMock() as any,
@@ -757,6 +807,7 @@ describe('BookingService', () => {
         makePayLaterMock() as any,
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue('sig') } as any,
+        (hostBalanceMock ?? makeHostBalanceMock()) as any,
       );
     }
     // The listing's owning host is 'host-user' (matched by userId, not role).

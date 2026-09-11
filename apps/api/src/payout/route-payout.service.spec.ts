@@ -25,6 +25,15 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
 const audit = () => ({ log: jest.fn().mockResolvedValue(undefined) });
 const ledger = () => ({ record: jest.fn().mockResolvedValue(undefined) });
 const features = (on = true) => ({ isEnabled: jest.fn().mockResolvedValue(on) });
+// Tax withholding + debt netting are separately flag-gated; default them to
+// inert here so these tests isolate the Route transfer mechanics.
+const tax = (t = { tds: 0, tcs: 0, total: 0, tdsRate: 0, tcsRate: 0 }) => ({
+  compute: jest.fn().mockResolvedValue(t),
+});
+const balance = (recovered = 0) => ({
+  recoverFromPayout: jest.fn().mockResolvedValue(recovered),
+  recordDebt: jest.fn().mockResolvedValue(null),
+});
 const routeApi = () => ({
   createLinkedAccount: jest.fn().mockResolvedValue({ id: 'acc_new', status: 'created' }),
   createTransfer: jest.fn().mockResolvedValue({ id: 'trf_1', status: 'created', amount: 9000 }),
@@ -52,7 +61,7 @@ describe('RoutePayoutService — transfers', () => {
     const prisma = makePrisma();
     const svc = new RoutePayoutService(
       prisma as never, audit() as never, ledger() as never,
-      routeApi() as never, features(false) as never,
+      routeApi() as never, features(false) as never, tax() as never, balance() as never,
     );
 
     expect(await svc.createDueTransfers()).toEqual({ created: 0, skipped: 0, failed: 0 });
@@ -64,7 +73,7 @@ describe('RoutePayoutService — transfers', () => {
     prisma.payoutLine.findMany.mockResolvedValue([line()]);
     const api = routeApi();
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never, tax() as never, balance() as never,
     );
 
     const res = await svc.createDueTransfers();
@@ -93,7 +102,7 @@ describe('RoutePayoutService — transfers', () => {
     prisma.payoutLine.updateMany.mockResolvedValue({ count: 0 });
     const api = routeApi();
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never, tax() as never, balance() as never,
     );
 
     const res = await svc.createDueTransfers();
@@ -109,7 +118,7 @@ describe('RoutePayoutService — transfers', () => {
     const api = routeApi();
     api.createTransfer.mockRejectedValue(new Error('gateway down'));
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never, tax() as never, balance() as never,
     );
 
     const res = await svc.createDueTransfers();
@@ -129,12 +138,83 @@ describe('RoutePayoutService — transfers', () => {
     ]);
     const api = routeApi();
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never, tax() as never, balance() as never,
     );
 
     const res = await svc.createDueTransfers();
     expect(res).toMatchObject({ created: 0, skipped: 2 });
     expect(api.createTransfer).not.toHaveBeenCalled();
+  });
+});
+
+describe('RoutePayoutService — deductions', () => {
+  it('transfers gross minus tax minus debt recovery, and records the split', async () => {
+    const prisma = makePrisma();
+    prisma.payoutLine.findMany.mockResolvedValue([line()]); // gross 9000
+    const api = routeApi();
+    const svc = new RoutePayoutService(
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      // 100 TDS + 500 TCS = 600 tax; then 400 recovered against debt.
+      tax({ tds: 100, tcs: 500, total: 600, tdsRate: 0.001, tcsRate: 0.005 }) as never,
+      balance(400) as never,
+    );
+
+    await svc.createDueTransfers();
+
+    // 9000 - 600 tax - 400 debt = 8000 actually sent.
+    expect(api.createTransfer).toHaveBeenCalledWith(
+      'pay_1',
+      expect.objectContaining({ amountPaise: 8000 }),
+    );
+    expect(prisma.payoutLine.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          tdsAmount: 100,
+          tcsAmount: 500,
+          nettedAmount: 400,
+          transferAmount: 8000,
+        }),
+      }),
+    );
+  });
+
+  it('recovers debt only from what is left after tax', async () => {
+    const prisma = makePrisma();
+    prisma.payoutLine.findMany.mockResolvedValue([line()]);
+    const bal = balance(0);
+    const svc = new RoutePayoutService(
+      prisma as never, audit() as never, ledger() as never, routeApi() as never,
+      features() as never,
+      tax({ tds: 100, tcs: 500, total: 600, tdsRate: 0.001, tcsRate: 0.005 }) as never,
+      bal as never,
+    );
+
+    await svc.createDueTransfers();
+
+    // Statutory withholding comes first: 9000 - 600 = 8400 offered to recovery.
+    expect(bal.recoverFromPayout).toHaveBeenCalledWith('h1', 8400, expect.anything());
+  });
+
+  it('settles the line without a transfer when deductions consume it entirely', async () => {
+    const prisma = makePrisma();
+    prisma.payoutLine.findMany.mockResolvedValue([line()]); // gross 9000
+    const api = routeApi();
+    const svc = new RoutePayoutService(
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      tax() as never,
+      balance(9000) as never, // the whole payout goes to debt
+    );
+
+    const res = await svc.createDueTransfers();
+
+    // Nothing to send — but the line is settled, not retried forever.
+    expect(api.createTransfer).not.toHaveBeenCalled();
+    expect(res.created).toBe(1);
+    expect(prisma.payoutLine.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'PAID', transferAmount: 0, nettedAmount: 9000 }),
+      }),
+    );
   });
 });
 
@@ -146,7 +226,7 @@ describe('RoutePayoutService — transfer events', () => {
     );
     const led = ledger();
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, led as never, routeApi() as never, features() as never,
+      prisma as never, audit() as never, led as never, routeApi() as never, features() as never, tax() as never, balance() as never,
     );
 
     await svc.applyTransferEvent({ id: 'trf_1', status: 'processed', amount: 9000 });
@@ -166,7 +246,7 @@ describe('RoutePayoutService — transfer events', () => {
     );
     const led = ledger();
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, led as never, routeApi() as never, features() as never,
+      prisma as never, audit() as never, led as never, routeApi() as never, features() as never, tax() as never, balance() as never,
     );
 
     await svc.applyTransferEvent({ id: 'trf_1', status: 'processed', amount: 9000 });
@@ -181,7 +261,7 @@ describe('RoutePayoutService — transfer events', () => {
       line({ transferId: 'trf_1', transferStatus: 'pending', status: 'SCHEDULED' }),
     );
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, routeApi() as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, routeApi() as never, features() as never, tax() as never, balance() as never,
     );
 
     await svc.applyTransferEvent({
@@ -210,7 +290,7 @@ describe('RoutePayoutService — reversals', () => {
     );
     const api = routeApi();
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never, tax() as never, balance() as never,
     );
 
     // Refund is larger than the remaining 7000 — must cap.
@@ -220,12 +300,55 @@ describe('RoutePayoutService — reversals', () => {
     expect(api.createReversal).toHaveBeenCalledWith('trf_1', 7000);
   });
 
+  it('turns a refund larger than the transfer into host debt', async () => {
+    const prisma = makePrisma();
+    prisma.payoutLine.findFirst.mockResolvedValue(
+      line({ transferId: 'trf_1', status: 'PAID', amount: 9000, transferAmount: 8000, reversedAmount: 0 }),
+    );
+    const api = routeApi();
+    const bal = balance();
+    const svc = new RoutePayoutService(
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      tax() as never, bal as never,
+    );
+
+    // Guest is refunded 12000 but we only ever sent the host 8000.
+    const res = await svc.reverseForRefund('b1', 12_000, 'admin1');
+
+    expect(res).toEqual({ reversed: 8000 });
+    expect(api.createReversal).toHaveBeenCalledWith('trf_1', 8000);
+    // The 4000 we could not claw back is recorded so a later payout nets it off.
+    expect(bal.recordDebt).toHaveBeenCalledWith(
+      'h1',
+      4000,
+      expect.stringContaining('Refund exceeded'),
+      expect.objectContaining({ bookingId: 'b1' }),
+    );
+  });
+
+  it('caps the reversal at what was actually transferred, not the gross', async () => {
+    const prisma = makePrisma();
+    prisma.payoutLine.findFirst.mockResolvedValue(
+      line({ transferId: 'trf_1', status: 'PAID', amount: 9000, transferAmount: 8000, reversedAmount: 0 }),
+    );
+    const api = routeApi();
+    const svc = new RoutePayoutService(
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      tax() as never, balance() as never,
+    );
+
+    await svc.reverseForRefund('b1', 9000, null);
+
+    // 8000 was sent (9000 gross less deductions) - never try to claw back more.
+    expect(api.createReversal).toHaveBeenCalledWith('trf_1', 8000);
+  });
+
   it('does nothing when no transfer was ever made', async () => {
     const prisma = makePrisma();
     prisma.payoutLine.findFirst.mockResolvedValue(null);
     const api = routeApi();
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never, tax() as never, balance() as never,
     );
 
     expect(await svc.reverseForRefund('b1', 5000, null)).toBeNull();
@@ -242,7 +365,7 @@ describe('RoutePayoutService — linked accounts', () => {
     });
     const api = routeApi();
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never, tax() as never, balance() as never,
     );
 
     expect(await svc.ensureLinkedAccount('h1')).toBe('acc_existing');
@@ -256,7 +379,7 @@ describe('RoutePayoutService — linked accounts', () => {
       host: { user: { email: 'a@x.com', phone: null } },
     });
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, routeApi() as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, routeApi() as never, features() as never, tax() as never, balance() as never,
     );
 
     await expect(svc.ensureLinkedAccount('h1')).rejects.toThrow(/must be verified/);
@@ -270,7 +393,7 @@ describe('RoutePayoutService — linked accounts', () => {
     });
     const api = routeApi();
     const svc = new RoutePayoutService(
-      prisma as never, audit() as never, ledger() as never, api as never, features() as never,
+      prisma as never, audit() as never, ledger() as never, api as never, features() as never, tax() as never, balance() as never,
     );
 
     expect(await svc.ensureLinkedAccount('h1')).toBe('acc_new');

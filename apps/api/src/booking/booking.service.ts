@@ -21,6 +21,7 @@ import { CancelBookingDto } from './dto/cancel-booking.dto';
 import { PriceSnapshot } from '../pricing/dto/quote.dto';
 import { BookingStateMachine, BookingEvent, BookingLike } from './state-machine';
 import { PriceSnapshotSignerService } from '../common/services/price-snapshot-signer.service';
+import { HostBalanceService } from '../payout/host-balance.service';
 import { withSerializableRetry } from '../common/services/serializable-retry';
 import {
   AmountMismatchException,
@@ -49,6 +50,7 @@ export class BookingService {
     private readonly payLaterService: PayLaterService,
     private readonly stateMachine: BookingStateMachine,
     private readonly snapshotSigner: PriceSnapshotSignerService,
+    private readonly hostBalanceService: HostBalanceService,
   ) {}
 
   /**
@@ -341,6 +343,20 @@ export class BookingService {
         metadata: { offline: true, method, note: 'pay_on_arrival_collected' },
         tx,
       });
+
+      // The guest paid the FULL total in cash to the host — including our
+      // platform fee and the GST on it. No money reached the platform, so that
+      // commission becomes a host debt, netted off their next payout. (The
+      // alternative is collecting the fee online at booking; this way needs no
+      // change to the guest's checkout.)
+      const commission = (snapshot.platformFee ?? 0) + (snapshot.gstAmount ?? 0);
+      await this.hostBalanceService.recordDebt(
+        booking.listing.hostId,
+        commission,
+        'Platform fee + GST on a pay-on-arrival booking collected in cash',
+        { bookingId, tx },
+      );
+
       return u;
     });
 

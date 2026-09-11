@@ -6,13 +6,14 @@ import { useEffect, useState } from 'react';
 import StatusBadge from '../../../components/StatusBadge';
 import { useAuth } from '../../../context/AuthContext';
 import { formatDate, formatINR, payoutsApi } from '../../../lib/api';
-import type { HostStatement } from '../../../lib/types';
+import type { HostBalanceStatement, HostStatement } from '../../../lib/types';
 
 export default function HostPayoutsPage() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
 
   const [statement, setStatement] = useState<HostStatement | null>(null);
+  const [balance, setBalance] = useState<HostBalanceStatement | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -28,6 +29,8 @@ export default function HostPayoutsPage() {
       .then(setStatement)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
+    // Balance is informational — a failure here must not blank the statements.
+    payoutsApi.getMyBalance().then(setBalance).catch(() => {});
   }, [user]);
 
   if (isLoading || !user) return null;
@@ -72,6 +75,31 @@ export default function HostPayoutsPage() {
 
       {!loading && statement && (
         <div className="space-y-6">
+          {/* Outstanding balance — explains why a payout arrives reduced */}
+          {balance && balance.outstandingDebt > 0 && (
+            <div className="card p-5 border border-amber-200 bg-amber-50">
+              <p className="font-semibold text-amber-800">
+                {formatINR(balance.outstandingDebt)} outstanding
+              </p>
+              <p className="text-sm text-amber-700 mt-0.5">
+                This is deducted from your next payouts until it clears.
+              </p>
+              <ul className="mt-3 space-y-1">
+                {balance.entries.slice(0, 5).map((e) => (
+                  <li key={e.id} className="text-xs text-amber-900 flex justify-between gap-3">
+                    <span className="truncate">
+                      {formatDate(e.createdAt)} · {e.reason}
+                    </span>
+                    <span className="font-medium shrink-0">
+                      {e.amount < 0 ? '-' : '+'}
+                      {formatINR(Math.abs(e.amount))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Summary cards */}
           <div className="grid grid-cols-2 gap-4">
             <div className="card p-6 text-center">
@@ -91,9 +119,10 @@ export default function HostPayoutsPage() {
             <p className="font-medium mb-1">ℹ️ How payouts work</p>
             <ul className="text-xs space-y-1 opacity-80">
               <li>• Earnings become eligible 24 hours after guest check-in</li>
-              <li>• Eligible earnings are batched in weekly payout runs</li>
-              <li>• Refunds after payout create a negative carry-forward balance</li>
+              <li>• Your share is held securely and released automatically once eligible</li>
               <li>• Platform commission of 10% is deducted from each booking</li>
+              <li>• Any outstanding balance is netted off before a payout is sent</li>
+              <li>• Applicable tax may be withheld at source and remitted on your behalf</li>
             </ul>
           </div>
 
@@ -136,6 +165,21 @@ export default function HostPayoutsPage() {
                       <div className="text-right shrink-0">
                         <p className="font-bold text-brand-700 text-lg">{formatINR(line.amount)}</p>
                         <p className="text-xs text-gray-400">after 10% fee</p>
+                        {/* Show deductions only when something was actually withheld. */}
+                        {(line.tdsAmount || line.tcsAmount || line.nettedAmount) > 0 && (
+                          <div className="mt-1 text-xs text-gray-500 space-y-0.5">
+                            {line.tdsAmount > 0 && <p>TDS -{formatINR(line.tdsAmount)}</p>}
+                            {line.tcsAmount > 0 && <p>TCS -{formatINR(line.tcsAmount)}</p>}
+                            {line.nettedAmount > 0 && (
+                              <p>Balance -{formatINR(line.nettedAmount)}</p>
+                            )}
+                            {line.transferAmount != null && (
+                              <p className="font-medium text-gray-700">
+                                Paid {formatINR(line.transferAmount)}
+                              </p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

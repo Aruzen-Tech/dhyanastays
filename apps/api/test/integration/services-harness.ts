@@ -20,6 +20,7 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { AuditService } from '../../src/common/services/audit.service';
 import { LedgerService } from '../../src/common/services/ledger.service';
+import { HostBalanceService } from '../../src/payout/host-balance.service';
 import { PriceSnapshotSignerService } from '../../src/common/services/price-snapshot-signer.service';
 import { BookingStateMachine } from '../../src/booking/state-machine';
 import { PricingService } from '../../src/pricing/pricing.service';
@@ -100,6 +101,9 @@ export function makeEngine(prisma: PrismaClient): EngineServices {
   const payLater = new PayLaterService(prismaSvc, audit, ledger, notification);
   const pricing = new PricingService(prismaSvc, signer, addOn, membership);
   const hold = new HoldService(prismaSvc, pricing, audit);
+  // Host balance ledger — real service, so debt netting is exercised end-to-end.
+  const hostBalance = new HostBalanceService(prismaSvc, audit);
+
   const booking = new BookingService(
     prismaSvc,
     pricing,
@@ -113,6 +117,7 @@ export function makeEngine(prisma: PrismaClient): EngineServices {
     payLater,
     stateMachine,
     signer,
+    hostBalance,
   );
   // Route settlement is flag-gated (off here) — stub it so the harness stays
   // focused on the booking/payment path.

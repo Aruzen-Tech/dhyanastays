@@ -109,6 +109,7 @@ function makeService(overrides: Record<string, unknown> = {}) {
       } as never,
       (overrides.stateMachine ?? stateMachineMock) as never,
       (overrides.signer ?? signerMock) as never,
+      { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as never,
     ),
     stateMachineMock,
     signerMock,

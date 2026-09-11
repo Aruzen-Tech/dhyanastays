@@ -407,6 +407,64 @@ export class PayoutService {
     });
   }
 
+  /** Resolve a host's id from their user id. */
+  async hostIdForUser(hostUserId: string): Promise<string> {
+    const host = await this.prisma.host.findUnique({
+      where: { userId: hostUserId },
+      select: { id: true },
+    });
+    if (!host) throw new NotFoundException('Host profile not found');
+    return host.id;
+  }
+
+  /**
+   * Tax withheld across payouts in a period — the figures needed to remit TDS
+   * (§194-O) and TCS (§52), and to reconcile them against the payout ledger.
+   */
+  async taxSummary(from?: string, to?: string) {
+    const gte = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const lte = to ? new Date(to) : new Date();
+
+    const where = { createdAt: { gte, lte }, transferId: { not: null } };
+    const [agg, byHost] = await Promise.all([
+      this.prisma.payoutLine.aggregate({
+        where,
+        _sum: {
+          amount: true,
+          tdsAmount: true,
+          tcsAmount: true,
+          nettedAmount: true,
+          transferAmount: true,
+        },
+        _count: true,
+      }),
+      this.prisma.payoutLine.groupBy({
+        by: ['hostId'],
+        where,
+        _sum: { amount: true, tdsAmount: true, tcsAmount: true },
+      }),
+    ]);
+
+    return {
+      from: gte.toISOString(),
+      to: lte.toISOString(),
+      lineCount: agg._count,
+      grossPaid: agg._sum.amount ?? 0,
+      tdsWithheld: agg._sum.tdsAmount ?? 0,
+      tcsWithheld: agg._sum.tcsAmount ?? 0,
+      nettedForDebt: agg._sum.nettedAmount ?? 0,
+      transferred: agg._sum.transferAmount ?? 0,
+      byHost: byHost
+        .map((h) => ({
+          hostId: h.hostId,
+          gross: h._sum.amount ?? 0,
+          tds: h._sum.tdsAmount ?? 0,
+          tcs: h._sum.tcsAmount ?? 0,
+        }))
+        .sort((a, b) => b.gross - a.gross),
+    };
+  }
+
   /**
    * Get payout statements for a host.
    */

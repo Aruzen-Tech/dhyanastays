@@ -101,6 +101,15 @@ export const envValidationSchema = Joi.object({
   // ── Stay Pass QR signing (falls back to PRICE_SNAPSHOT_SECRET in dev) ─────
   QR_SIGNING_SECRET: Joi.string().allow('').default(''),
 
+  // ── Payout tax withholding (e-commerce operator obligations) ──────────
+  // Rates are CONFIGURABLE on purpose: both were revised recently (194-O cut to
+  // 0.1%, GST TCS cut to 0.5%), so they must be confirmed with a CA per FY
+  // rather than baked into the build. Expressed as fractions (0.001 = 0.1%).
+  /// TDS under Income-Tax §194-O on the host gross payout.
+  TDS_194O_RATE: Joi.number().min(0).max(1).default(0.001),
+  /// TCS under CGST §52 on the host net taxable supply.
+  TCS_GST_RATE: Joi.number().min(0).max(1).default(0.005),
+
   // ── Host payout identifier encryption (bank account / PAN at rest) ────────
   // Required in production — see the production block below. Without it the
   // crypto service falls back to a well-known dev key, which is not encryption.

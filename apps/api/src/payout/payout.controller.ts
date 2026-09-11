@@ -1,13 +1,18 @@
-import { Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { AdminLevel, UserRole } from '@prisma/client';
 import { CurrentUser, RequestUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { PayoutService } from './payout.service';
+import { HostBalanceService } from './host-balance.service';
+import { AdjustHostBalanceDto } from './dto/host-balance.dto';
 
 @Controller()
 export class PayoutController {
-  constructor(private readonly payoutService: PayoutService) {}
+  constructor(
+    private readonly payoutService: PayoutService,
+    private readonly hostBalance: HostBalanceService,
+  ) {}
 
   /**
    * Admin: get all eligible payout lines.
@@ -61,5 +66,46 @@ export class PayoutController {
   @Get('host/payouts/statements')
   getStatements(@CurrentUser() user: RequestUser) {
     return this.payoutService.getHostStatements(user.sub);
+  }
+
+  /**
+   * Host: own balance ledger — what they owe (or are owed) and why.
+   */
+  @Roles(UserRole.HOST)
+  @Get('host/payouts/balance')
+  async getMyBalance(@CurrentUser() user: RequestUser) {
+    const hostId = await this.payoutService.hostIdForUser(user.sub);
+    return this.hostBalance.statement(hostId);
+  }
+
+  /** Admin: a host's balance ledger. */
+  @AdminLevelGuard(AdminLevel.L2)
+  @Get('admin/payouts/hosts/:hostId/balance')
+  getHostBalance(@Param('hostId') hostId: string) {
+    return this.hostBalance.statement(hostId);
+  }
+
+  /**
+   * Admin: manual balance correction (write-off, goodwill, error fix).
+   * Positive forgives debt, negative adds it.
+   */
+  @AdminLevelGuard(AdminLevel.L2)
+  @Post('admin/payouts/hosts/:hostId/balance/adjust')
+  adjustHostBalance(
+    @Param('hostId') hostId: string,
+    @Body() dto: AdjustHostBalanceDto,
+    @CurrentUser() user: RequestUser,
+  ) {
+    return this.hostBalance.adjust(hostId, dto.amount, dto.reason, user.sub);
+  }
+
+  /**
+   * Admin: tax withheld in a period — the figures needed to remit TDS (§194-O)
+   * and TCS (§52) and to reconcile them against the payout ledger.
+   */
+  @AdminLevelGuard(AdminLevel.L2)
+  @Get('admin/payouts/tax-summary')
+  taxSummary(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.payoutService.taxSummary(from, to);
   }
 }
