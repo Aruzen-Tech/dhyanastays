@@ -77,23 +77,40 @@ export class HostBalanceService {
     ctx: { payoutLineId?: string; bookingId?: string; tx?: TxClient } = {},
   ): Promise<number> {
     if (available <= 0) return 0;
-    const debt = await this.outstandingDebt(hostId);
-    const recovered = Math.min(debt, available);
-    if (recovered <= 0) return 0;
 
-    const client: TxClient = ctx.tx ?? this.prisma;
-    await client.hostBalanceEntry.create({
-      data: {
-        hostId,
-        type: HostBalanceEntryType.RECOVERY,
-        amount: recovered, // positive — reduces the debt
-        reason: 'Withheld from payout to recover outstanding balance',
-        bookingId: ctx.bookingId ?? null,
-        payoutLineId: ctx.payoutLineId ?? null,
-      },
-    });
-    this.logger.log(`Host ${hostId} recovered ${recovered} paise from a payout`);
-    return recovered;
+    // Read-then-write on a shared balance: two payouts for the same host
+    // running concurrently would both read the same debt and both recover it,
+    // over-collecting. Serialise per host by locking the Host row, so the
+    // second reader sees the first recovery.
+    const run = async (client: TxClient): Promise<number> => {
+      await client.$queryRaw`SELECT id FROM "Host" WHERE id = ${hostId} FOR UPDATE`;
+      const agg = await client.hostBalanceEntry.aggregate({
+        where: { hostId },
+        _sum: { amount: true },
+      });
+      const debt = Math.max(-(agg._sum.amount ?? 0), 0);
+      const recovered = Math.min(debt, available);
+      if (recovered <= 0) return 0;
+
+      await client.hostBalanceEntry.create({
+        data: {
+          hostId,
+          type: HostBalanceEntryType.RECOVERY,
+          amount: recovered, // positive — reduces the debt
+          reason: 'Withheld from payout to recover outstanding balance',
+          bookingId: ctx.bookingId ?? null,
+          payoutLineId: ctx.payoutLineId ?? null,
+        },
+      });
+      this.logger.log(`Host ${hostId} recovered ${recovered} paise from a payout`);
+      return recovered;
+    };
+
+    // Join the caller's transaction when there is one; otherwise open our own
+    // so the lock and the write commit together.
+    if (ctx.tx) return run(ctx.tx);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (this.prisma as any).$transaction((tx: TxClient) => run(tx));
   }
 
   /** Staff correction — write-off, goodwill credit, or fixing a mistake. */

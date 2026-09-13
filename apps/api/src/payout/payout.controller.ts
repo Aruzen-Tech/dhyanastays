@@ -108,4 +108,15 @@ export class PayoutController {
   taxSummary(@Query('from') from?: string, @Query('to') to?: string) {
     return this.payoutService.taxSummary(from, to);
   }
+
+  /**
+   * Admin: payout rail health — money that is stuck rather than in flight
+   * (held lines, failed transfers, orphaned claims, KYC-blocked balances,
+   * hosts in debt). Every figure is one an operator must act on.
+   */
+  @AdminLevelGuard(AdminLevel.L2)
+  @Get('admin/payouts/health')
+  health() {
+    return this.payoutService.health();
+  }
 }

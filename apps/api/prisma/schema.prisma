@@ -530,8 +530,17 @@ model PayoutLine {
   batchId            String?
 
   // ── Route settlement (payment-aggregator escrow) ──
+  /// Local `Payment.id` of the capture that funds this line. A DEPOSIT_50
+  /// booking produces one line per capture, and a Route transfer can only be
+  /// split from the payment it belongs to — so the line must remember which.
+  paymentId          String?
   /// Razorpay Route transfer id. Unique, so a retried job can never double-pay.
   transferId         String?      @unique
+  /// When the transfer claim was taken — lets a sweep find claims orphaned by
+  /// a crash between the Route call succeeding and the id being stored.
+  claimedAt          DateTime?
+  /// Last gateway refund id reversed, so a redelivered refund can't double-claw.
+  reversalRef        String?
   /// Raw PA status: created | pending | processed | failed | reversed.
   transferStatus     String?
   transferFailure    String?

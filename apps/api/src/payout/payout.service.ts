@@ -407,6 +407,67 @@ export class PayoutService {
     });
   }
 
+  /**
+   * Operational health of the payout rail — the things that mean money is
+   * stuck rather than merely in flight. Meant for an ops dashboard/alert, so
+   * every number here is one an operator must act on.
+   */
+  async health() {
+    const now = new Date();
+    const stuckCutoff = new Date(now.getTime() - 60 * 60 * 1000);
+
+    const [
+      onHold,
+      failedTransfers,
+      stuckClaims,
+      awaitingSettlement,
+      unverifiedWithMoney,
+      hostsInDebt,
+    ] = await Promise.all([
+      this.prisma.payoutLine.aggregate({
+        where: { status: 'ON_HOLD' },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      this.prisma.payoutLine.count({ where: { transferStatus: 'failed' } }),
+      // A claim older than an hour has outlived the 15-min recovery sweep.
+      this.prisma.payoutLine.count({
+        where: { transferStatus: 'creating', transferId: null, claimedAt: { lt: stuckCutoff } },
+      }),
+      this.prisma.payoutLine.count({
+        where: { transferId: { not: null }, transferStatus: { notIn: ['processed', 'failed', 'reversed'] } },
+      }),
+      // Money owed to hosts we are not yet allowed to pay.
+      this.prisma.payoutLine.aggregate({
+        where: {
+          status: { in: ['NOT_ELIGIBLE', 'ELIGIBLE', 'ON_HOLD'] },
+          host: { OR: [{ payoutEnabled: false }, { payoutAccount: { is: null } }] },
+        },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      this.prisma.hostBalanceEntry.groupBy({ by: ['hostId'], _sum: { amount: true } }),
+    ]);
+
+    const inDebt = hostsInDebt.filter((h) => (h._sum.amount ?? 0) < 0);
+
+    return {
+      at: now.toISOString(),
+      onHold: { count: onHold._count, amount: onHold._sum.amount ?? 0 },
+      failedTransfers,
+      stuckClaims,
+      awaitingSettlement,
+      blockedByKyc: {
+        count: unverifiedWithMoney._count,
+        amount: unverifiedWithMoney._sum.amount ?? 0,
+      },
+      hostsInDebt: {
+        count: inDebt.length,
+        amount: inDebt.reduce((s, h) => s + Math.abs(h._sum.amount ?? 0), 0),
+      },
+    };
+  }
+
   /** Resolve a host's id from their user id. */
   async hostIdForUser(hostUserId: string): Promise<string> {
     const host = await this.prisma.host.findUnique({

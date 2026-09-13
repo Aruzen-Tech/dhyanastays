@@ -17,6 +17,58 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-09-11 — Payout hardening: crash recovery, correct funding capture, concurrency
+
+Closes the failure modes where money could actually be lost, duplicated, or
+mis-attributed. No behaviour change on the happy path.
+
+### Fixed
+
+- **A DEPOSIT_50 booking split from the wrong capture.** Each capture creates
+  its own payout line, but the transfer looked up "the latest captured payment
+  on the booking" — so both lines could be split from the same payment. Route
+  caps a transfer at the payment it belongs to, so the second would fail or
+  mis-attribute. `PayoutLine.paymentId` now records the funding capture at
+  creation and the transfer splits from exactly that one (the booking-wide
+  lookup survives only as a fallback for pre-existing rows).
+- **A crash could strand a real transfer.** Between Razorpay accepting a
+  transfer and the id being stored, the money had moved but we had no record —
+  and the line would never be retried, because the create query only looks at
+  unclaimed lines. `recoverStuckClaims` now sweeps claims older than 15 min,
+  lists the payment's transfers, and matches the `notes.payoutLineId` we sent:
+  found → adopt it; not found → release the claim to retry; gateway unreachable
+  → leave it alone rather than guess. Runs before the hourly reconcile.
+- **Concurrent payouts could over-recover a host's debt.** `recoverFromPayout`
+  read the balance then wrote, so two payouts for the same host could both see
+  the same debt and both collect it. The read and write now happen in one
+  transaction behind `SELECT … FOR UPDATE` on the Host row (joining the
+  caller's transaction when there is one).
+- **A redelivered refund could claw back twice.** Reversals are now idempotent
+  on the gateway refund id (`PayoutLine.reversalRef`); genuinely different
+  partial refunds still reverse independently.
+
+### Added
+
+- **Migration `0051_payout_hardening`** — `PayoutLine.paymentId`, `claimedAt`,
+  `reversalRef`.
+- **Money invariant** — `assertDeductionsBalance` enforces
+  `gross = tax + netted + transferred` with no negative component before any
+  transfer is created. A mismatch aborts that one line (its claim is released)
+  rather than sending a wrong amount.
+- **`RouteService.listPaymentTransfers`** — the lookup orphan recovery needs.
+- **`GET /admin/payouts/health`** — money that is *stuck* rather than in
+  flight: held lines, failed transfers, claims older than the sweep window,
+  transfers awaiting settlement, balances blocked by KYC, and hosts in debt.
+
+### Notes
+
+- New `payout-hardening.spec` (15 tests) covers each failure mode directly —
+  adopting an orphan, refusing another line's transfer on the same payment,
+  not guessing when the gateway is down, the locked balance read, and reversal
+  idempotency. Suite **496/496**; DI graph verified to boot.
+
+---
+
 ## 2026-09-10 — Host balance netting, tax withholding, pay-on-arrival commission (step 3)
 
 Closes the three money leaks left after Route: debt that couldn't be clawed

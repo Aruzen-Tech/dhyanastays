@@ -3,13 +3,19 @@ import { PayoutTaxService } from './payout-tax.service';
 
 function makePrisma(entries: Array<{ amount: number }> = []) {
   const sum = entries.reduce((s, e) => s + e.amount, 0);
+  const hostBalanceEntry = {
+    aggregate: jest.fn().mockResolvedValue({ _sum: { amount: sum } }),
+    create: jest.fn().mockImplementation(({ data }: { data: unknown }) => ({ id: 'e1', ...(data as object) })),
+    findMany: jest.fn().mockResolvedValue(entries),
+  };
+  // recoverFromPayout locks the Host row and re-reads inside a transaction, so
+  // the tx client must expose the same surface as the base client.
+  const tx = { $queryRaw: jest.fn().mockResolvedValue([{ id: 'h1' }]), hostBalanceEntry };
   return {
-    hostBalanceEntry: {
-      aggregate: jest.fn().mockResolvedValue({ _sum: { amount: sum } }),
-      create: jest.fn().mockImplementation(({ data }: { data: unknown }) => ({ id: 'e1', ...(data as object) })),
-      findMany: jest.fn().mockResolvedValue(entries),
-    },
+    hostBalanceEntry,
     host: { findUnique: jest.fn().mockResolvedValue({ id: 'h1' }) },
+    $queryRaw: tx.$queryRaw,
+    $transaction: jest.fn((cb: (t: unknown) => unknown) => cb(tx)),
   };
 }
 const audit = () => ({ log: jest.fn().mockResolvedValue(undefined) });

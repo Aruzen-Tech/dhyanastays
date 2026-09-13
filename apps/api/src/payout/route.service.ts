@@ -15,6 +15,7 @@ export interface RouteTransfer {
   recipient?: string;
   on_hold?: boolean;
   on_hold_until?: number | null;
+  notes?: Record<string, string> | null;
   error?: { description?: string } | null;
   failure_reason?: string | null;
   recipient_settlement_id?: string | null;
@@ -123,6 +124,23 @@ export class RouteService {
       return { id: transferId, status: 'processed', amount: 0 };
     }
     return this.get<RouteTransfer>(`/v1/transfers/${transferId}`);
+  }
+
+  /**
+   * Every transfer already split from a payment.
+   *
+   * This is how an orphaned transfer is recovered: if we crash between Razorpay
+   * accepting a transfer and our storing its id, the money has moved but we
+   * have no record of it. Listing the payment's transfers and matching on the
+   * `notes.payoutLineId` we sent lets the sweep adopt it instead of either
+   * losing it or creating a second one.
+   */
+  async listPaymentTransfers(paymentId: string): Promise<RouteTransfer[]> {
+    if (this.stubMode) return [];
+    const res = await this.get<{ items?: RouteTransfer[] }>(
+      `/v1/payments/${paymentId}/transfers`,
+    );
+    return res.items ?? [];
   }
 
   /** Release a hold early (e.g. an admin settles a dispute in the host's favour). */

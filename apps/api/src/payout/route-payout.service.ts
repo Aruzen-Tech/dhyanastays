@@ -15,6 +15,34 @@ const CLAIMING = 'creating';
 
 export const PAYOUT_ROUTE_FLAG = 'payout_route';
 
+/** How long a transfer claim may sit without a transfer id before it's swept. */
+const STUCK_CLAIM_MINUTES = 15;
+
+/**
+ * Guard the payout arithmetic: `gross = tax + netted + transferred`, with no
+ * negative component. Throwing here aborts one line (the caller catches and
+ * releases its claim) rather than letting a miscomputed amount reach the PA.
+ */
+export function assertDeductionsBalance(
+  lineId: string,
+  gross: number,
+  tax: number,
+  netted: number,
+  transferAmount: number,
+): void {
+  if (tax < 0 || netted < 0 || transferAmount < 0) {
+    throw new Error(
+      `Payout ${lineId}: negative component (tax=${tax}, netted=${netted}, transfer=${transferAmount})`,
+    );
+  }
+  if (tax + netted + transferAmount !== gross) {
+    throw new Error(
+      `Payout ${lineId}: deductions do not reconcile — ` +
+        `${tax} + ${netted} + ${transferAmount} != ${gross}`,
+    );
+  }
+}
+
 /**
  * Route settlement orchestration — the RBI-compliant payout rail.
  *
@@ -136,7 +164,7 @@ export class RoutePayoutService {
         continue;
       }
 
-      const paymentRef = await this.capturedPaymentRef(line.bookingId);
+      const paymentRef = await this.capturedPaymentRef(line);
       if (!paymentRef) {
         skipped++;
         continue;
@@ -144,9 +172,10 @@ export class RoutePayoutService {
 
       // Claim the line BEFORE the network call. If another worker already holds
       // it, count is 0 and we skip — this is what prevents a double transfer.
+      // `claimedAt` lets the stuck-claim sweep find claims orphaned by a crash.
       const claim = await this.prisma.payoutLine.updateMany({
         where: { id: line.id, transferId: null, transferStatus: null },
-        data: { transferStatus: CLAIMING },
+        data: { transferStatus: CLAIMING, claimedAt: new Date() },
       });
       if (claim.count === 0) {
         skipped++;
@@ -165,6 +194,11 @@ export class RoutePayoutService {
         });
         const transferAmount = afterTax - netted;
 
+        // Money invariant. Deductions are computed by three independent paths
+        // (tax rates, debt recovery, the gross share); if they ever fail to
+        // reconcile we must stop rather than transfer a wrong amount.
+        assertDeductionsBalance(line.id, line.amount, tax.total, netted, transferAmount);
+
         // Fully consumed by tax + debt recovery: nothing to send, but the line
         // is settled — record it rather than retrying forever.
         if (transferAmount <= 0) {
@@ -174,6 +208,7 @@ export class RoutePayoutService {
               transferStatus: 'processed',
               status: 'PAID',
               settledAt: new Date(),
+              claimedAt: null,
               tdsAmount: tax.tds,
               tcsAmount: tax.tcs,
               nettedAmount: netted,
@@ -205,6 +240,7 @@ export class RoutePayoutService {
             transferStatus: transfer.status,
             status: 'SCHEDULED',
             holdReason: null,
+            claimedAt: null,
             tdsAmount: tax.tds,
             tcsAmount: tax.tcs,
             nettedAmount: netted,
@@ -232,7 +268,11 @@ export class RoutePayoutService {
         // never created, or will be picked up by reconciliation via notes.
         await this.prisma.payoutLine.updateMany({
           where: { id: line.id, transferStatus: CLAIMING },
-          data: { transferStatus: null, transferFailure: String(err).slice(0, 300) },
+          data: {
+            transferStatus: null,
+            claimedAt: null,
+            transferFailure: String(err).slice(0, 300),
+          },
         });
         failed++;
         this.logger.error(`Route transfer failed for payout line ${line.id}: ${String(err)}`);
@@ -298,6 +338,74 @@ export class RoutePayoutService {
     });
   }
 
+  /**
+   * Recover transfer claims orphaned by a crash.
+   *
+   * The dangerous window is between Razorpay accepting a transfer and us
+   * storing its id: the money has moved but we have no record of it, and the
+   * line would never be retried (the create query only looks at unclaimed
+   * lines).
+   *
+   * For each stale claim we ask Razorpay what it actually holds for that
+   * payment and match on the `notes.payoutLineId` we sent. Found -> adopt it,
+   * so the transfer is tracked instead of stranded. Not found -> the call never
+   * landed, so release the claim and let the next run retry. Either way the
+   * line ends in a correct state, and we never create a second transfer for it.
+   */
+  async recoverStuckClaims(limit = 50): Promise<{ adopted: number; released: number }> {
+    if (!(await this.isEnabled())) return { adopted: 0, released: 0 };
+
+    const cutoff = new Date(Date.now() - STUCK_CLAIM_MINUTES * 60 * 1000);
+    const stuck = await this.prisma.payoutLine.findMany({
+      where: { transferStatus: CLAIMING, transferId: null, claimedAt: { lt: cutoff } },
+      take: limit,
+      select: { id: true, bookingId: true, paymentId: true },
+    });
+
+    let adopted = 0;
+    let released = 0;
+
+    for (const line of stuck) {
+      try {
+        const paymentRef = await this.capturedPaymentRef(line);
+        const existing = paymentRef ? await this.route.listPaymentTransfers(paymentRef) : [];
+        const mine = existing.find((t) => t.notes?.payoutLineId === line.id);
+
+        if (mine) {
+          await this.prisma.payoutLine.update({
+            where: { id: line.id },
+            data: {
+              transferId: mine.id,
+              transferStatus: mine.status,
+              status: 'SCHEDULED',
+              claimedAt: null,
+            },
+          });
+          await this.audit.log(null, 'ROUTE_TRANSFER_ADOPTED', 'payout_line', line.id, {
+            transferId: mine.id,
+            reason: 'orphaned_claim_recovered',
+          });
+          this.logger.warn(`Adopted orphaned transfer ${mine.id} for payout line ${line.id}`);
+          adopted++;
+        } else {
+          await this.prisma.payoutLine.updateMany({
+            where: { id: line.id, transferStatus: CLAIMING, transferId: null },
+            data: { transferStatus: null, claimedAt: null },
+          });
+          released++;
+        }
+      } catch (err) {
+        // Leave the claim in place - a later sweep retries. Never guess.
+        this.logger.warn(`Stuck-claim recovery failed for ${line.id}: ${String(err)}`);
+      }
+    }
+
+    if (adopted || released) {
+      this.logger.log(`Stuck claims: ${adopted} adopted, ${released} released`);
+    }
+    return { adopted, released };
+  }
+
   /** Poll transfers we haven't seen reach a terminal state — missed webhooks. */
   async reconcileOpenTransfers(limit = 100): Promise<number> {
     if (!(await this.isEnabled())) return 0;
@@ -333,6 +441,7 @@ export class RoutePayoutService {
     bookingId: string,
     refundAmount: number,
     actorId: string | null,
+    refundRef?: string | null,
   ): Promise<{ reversed: number } | null> {
     if (!(await this.isEnabled())) return null;
 
@@ -340,6 +449,14 @@ export class RoutePayoutService {
       where: { bookingId, transferId: { not: null }, status: { in: ['PAID', 'SCHEDULED'] } },
     });
     if (!line?.transferId) return null;
+
+    // Idempotency: a redelivered refund webhook must not claw the money back a
+    // second time. Distinct refunds (partial refunds) carry distinct ids, so
+    // only an exact repeat is skipped.
+    if (refundRef && line.reversalRef === refundRef) {
+      this.logger.log(`Reversal for refund ${refundRef} already applied to line ${line.id}`);
+      return { reversed: 0 };
+    }
 
     // Never reverse more than we actually sent (post-deduction), and never
     // more than is still un-reversed.
@@ -367,6 +484,7 @@ export class RoutePayoutService {
       where: { id: line.id },
       data: {
         reversedAmount: { increment: amount },
+        reversalRef: refundRef ?? null,
         ...(amount >= remaining ? { status: 'REVERSED' as const } : {}),
       },
     });
@@ -386,13 +504,36 @@ export class RoutePayoutService {
   }
 
   // ── Internals ────────────────────────────────────────────────────────────
-  /** The Razorpay payment id a transfer must be split from. */
-  private async capturedPaymentRef(bookingId: string): Promise<string | null> {
-    const payment = await this.prisma.payment.findFirst({
-      where: { bookingId, status: 'CAPTURED', gatewayPaymentRef: { not: null } },
+  /**
+   * The Razorpay payment id this line's transfer must be split from.
+   *
+   * Resolved from the line's own `paymentId` — a DEPOSIT_50 booking has one
+   * line per capture, and Route caps a transfer at the payment it is split
+   * from, so picking "the latest capture on the booking" would over-allocate
+   * one payment and mis-attribute the other. The booking-wide lookup remains
+   * only as a fallback for rows created before `paymentId` was recorded.
+   */
+  private async capturedPaymentRef(line: {
+    paymentId: string | null;
+    bookingId: string;
+  }): Promise<string | null> {
+    if (line.paymentId) {
+      const byId = await this.prisma.payment.findUnique({
+        where: { id: line.paymentId },
+        select: { status: true, gatewayPaymentRef: true },
+      });
+      // Only a captured payment can be split.
+      if (byId?.status === 'CAPTURED' && byId.gatewayPaymentRef) {
+        return byId.gatewayPaymentRef;
+      }
+      return null;
+    }
+
+    const legacy = await this.prisma.payment.findFirst({
+      where: { bookingId: line.bookingId, status: 'CAPTURED', gatewayPaymentRef: { not: null } },
       orderBy: { createdAt: 'desc' },
       select: { gatewayPaymentRef: true },
     });
-    return payment?.gatewayPaymentRef ?? null;
+    return legacy?.gatewayPaymentRef ?? null;
   }
 }

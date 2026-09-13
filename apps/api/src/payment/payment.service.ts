@@ -473,6 +473,7 @@ export class PaymentService {
         payment.bookingId,
         amountPaise,
         null,
+        gatewayRefundId,
       );
       if (reversal?.reversed) {
         this.logger.log(

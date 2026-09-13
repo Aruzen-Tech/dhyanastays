@@ -816,6 +816,10 @@ export class BookingService {
             hostId: listing.hostId,
             listingId: booking.listingId,
             bookingId,
+            // Bind the line to THIS capture: a Route transfer can only be split
+            // from the payment it belongs to, and a DEPOSIT_50 booking produces
+            // one line per capture.
+            paymentId,
             amount: hostShare,
             eligibleAt,
             status: 'NOT_ELIGIBLE',
@@ -942,6 +946,10 @@ export class BookingService {
             hostId: listing.hostId,
             listingId: booking.listingId,
             bookingId,
+            // Bind the line to THIS capture: a Route transfer can only be split
+            // from the payment it belongs to, and a DEPOSIT_50 booking produces
+            // one line per capture.
+            paymentId,
             amount: hostShare,
             eligibleAt,
             status: 'NOT_ELIGIBLE',

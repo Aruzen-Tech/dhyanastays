@@ -28,6 +28,15 @@ export class RouteTransferProcessor extends WorkerHost {
     const mode = (job.data as { mode?: string })?.mode ?? 'create';
 
     if (mode === 'reconcile') {
+      // Recover orphaned claims FIRST: a claim stranded by a crash may already
+      // have real money behind it, and adopting it before polling means the
+      // same pass then picks up its current status.
+      const stuck = await this.routePayout.recoverStuckClaims();
+      if (stuck.adopted > 0 || stuck.released > 0) {
+        this.logger.warn(
+          `Stuck claims: ${stuck.adopted} adopted, ${stuck.released} released`,
+        );
+      }
       const count = await this.routePayout.reconcileOpenTransfers();
       if (count > 0) this.logger.log(`Route reconcile: refreshed ${count} transfer(s)`);
       return;
