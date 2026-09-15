@@ -17,6 +17,168 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-09-15 — Password & security: change password, and show/hide on password fields
+
+### Added
+
+- **`POST /auth/change-password`** — verifies the current password (an already
+  authenticated caller still has to prove it, so an unlocked session can't be used
+  to lock the owner out), rejects reusing the same password, and re-hashes with
+  argon2 to match registration.
+- **Every other session is revoked** on success (`revokeReason: PASSWORD_CHANGED`
+  on the refresh-token families, plus the session rows). A password change is how
+  someone reacts to a suspected compromise, so leaving an attacker's refresh token
+  alive would defeat the point. The endpoint returns a **fresh token pair** and the
+  client stores it, so the device that made the change stays signed in.
+- Both the failed attempt (`AUTH_PASSWORD_CHANGE_FAILED`) and the successful change
+  (`AUTH_PASSWORD_CHANGED`) are audited.
+- **`ChangePasswordCard`** in the Password & security section of `/profile`, with
+  current / new / confirm fields and client-side rules mirroring the server.
+- **`PasswordInput`** — a reusable field with a show/hide toggle: a real keyboard-
+  reachable button whose label announces the *action*, always starting hidden, and
+  toggled per field so revealing one doesn't reveal another on the same form.
+  Applied to the register page's password and confirm-password fields.
+
+### Notes
+
+- `AccountProfile` now carries **`hasPassword`**, derived from whether a local hash
+  exists — the hash itself never leaves the service. Auth0/SSO accounts have no
+  local password, so the card explains that instead of offering a change.
+- **The login page already had a working, accessible toggle**, so it was left alone
+  rather than regressed to the generic component.
+- Specs: `change-password.spec` (7 tests — wrong current password is refused and
+  audited, SSO accounts refused, reuse refused, a real argon2 hash is stored and
+  verifies, sessions revoked, fresh pair returned). Suite **528/528**, web 54/54,
+  DI verified.
+
+---
+
+## 2026-09-15 — Personal information: a profile every role can actually see and edit
+
+`GET/PATCH /guest/profile` is `@Roles(GUEST)`, so hosts and admins had no way to
+view or correct their own name, phone or photo — there was no profile page for
+them at all.
+
+### Added
+
+- **`GET` + `PATCH /account/profile`** (`AccountModule`) — role-agnostic, for
+  whoever is signed in. Returns name, email, phone, avatar, role and join date,
+  plus a `missing` list (older accounts predate the phone requirement) and, for
+  hosts, enough status to link onward: whether the application is complete, its
+  verification state, and the payout-account status. The host's encrypted PAN and
+  ID are reported only as *present*, never returned.
+- **`/profile` page** — a Personal information section that shows the current
+  values and edits them in place, reachable from the account menu. An account
+  with no phone on file opens straight into edit mode with an explanation.
+- A "Rest of your account" section linking to the host application, payout
+  account and guest preferences, each labelled with what's outstanding — so the
+  role-specific pages stay where they are rather than being absorbed.
+
+### Notes
+
+- **Email is read-only.** It is the login identity, so changing it needs a
+  verification round-trip rather than a silent write; the field is shown disabled
+  with an explanation instead of being hidden.
+- Edits are audited as `ACCOUNT_PROFILE_UPDATED` with **only the fields that
+  genuinely changed** — resubmitting an unchanged name writes no audit row.
+- Specs: `account.service.spec` (8 tests — role-agnostic read, missing-phone flag,
+  host status without leaking ciphertext, partial writes, audit diff). Suite
+  **521/521**, web 54/54, DI verified.
+
+---
+
+## 2026-09-14 — Account information: host applications, phone at signup, reviewable host approval
+
+Registering as a host created an **empty** `Host` row, so staff approved people
+knowing only a name, an email and a signup date. Hosts now apply properly, and
+that application is what the reviewer sees.
+
+### Added
+
+- **Migration `0053_host_profile`** — `HostProfile` (1:1 with Host): legal name,
+  business name, about, website, full postal address, PAN, optional GSTIN, photo ID
+  (type + number + document link), `submittedAt`. Plus `Host.rejectionReason`.
+- **PAN and the ID number reuse `PayoutCryptoService`** rather than a second crypto
+  path — AES-256-GCM at rest, `*Last4` on the way out. Aadhaar is deliberately not
+  an accepted ID type: private entities face legal restrictions on collecting and
+  storing it, so passport / driving licence / voter ID are offered instead.
+- **`GET` + `POST /host/application`** and a host-facing page at
+  `/host/application`, with client-side validation mirroring the server (PAN, GSTIN,
+  6-digit PIN). Re-submitting returns the host to PENDING and clears a stale
+  rejection — a changed legal identity must be re-checked.
+- **Listing submission is gated on a complete application.** The error names every
+  missing field rather than failing on the first, so the host can finish in one go.
+  This is what guarantees a reviewer always has something to review.
+- **Phone is now required at signup** for guests and hosts. `User.phone` already
+  existed but was optional and never collected, while bookings, host-guest contact
+  and SOS escalation all assume a reachable number.
+
+### Changed
+
+- **`GET /admin/hosts/pending` now carries the application** — previously the bare
+  Host row plus a name and email. Ciphertext is stripped before it leaves the
+  service. The admin card renders the full application (address, PAN last-4, GSTIN,
+  photo ID with a document link, website, about, applied date), the host's phone and
+  listing count, and says plainly when no application has been submitted.
+- **Rejecting a host now takes a note**, persisted to `Host.rejectionReason` and
+  shown back to the host on their application page. A rejected host was previously
+  told nothing at all.
+
+### Notes
+
+- Specs: `host-profile.service.spec` (7 tests — encryption and masking, re-review on
+  resubmit, the gate listing every missing field). Suite **513/513**; DI verified.
+- Existing accounts have no phone and no application; they're prompted on next visit
+  rather than blocked retroactively.
+
+---
+
+## 2026-09-14 — Listing moderation: submission records, re-approval diffs, a review-grade queue
+
+The approval queue gave reviewers a title, a truncated description and a nightly
+rate — no photos, no host, no idea what a re-approval had changed. This makes the
+queue sufficient to actually decide on.
+
+### Fixed
+
+- **The queue mis-ordered re-submissions.** It sorted by `Listing.createdAt`, so a
+  listing edited today sat behind older drafts, and the card's "Submitted" date was
+  the creation date — wrong by months on a re-approval. Both now use the real
+  submission time.
+- **Re-approval carried no information.** `needsReapproval` was a bare boolean; the
+  previous values were overwritten the moment the host's edit was written, so there
+  was nothing to compare against. The before/after is now captured **at edit time**,
+  which is the only moment the old values still exist.
+
+### Added
+
+- **Migration `0052_listing_review_requests`** — `ListingReviewRequest`: one row per
+  trip through moderation (`NEW` | `REAPPROVAL`), with `submittedAt`/`submittedById`,
+  the `diff`, the media counts the reviewer was asked to judge, and the decision
+  (`decision`, `decisionNote`, `decidedById`, `decidedAt`). Closed rows become the
+  listing's review history. Backfills an open row for everything already queued.
+- A request is opened on submit and on a re-approval edit, and **supersedes** any
+  request still open — a host editing again while waiting can't queue twice. Closing
+  it on approve/reject/request-changes is what gives a resubmission its prior notes.
+- **Enriched `GET /admin/listings/pending`** — media (with photo/video split), host
+  + contact + verification + listing count, location pin, discovery facets, rate
+  rules, the diff, and previous decisions.
+- **`ListingReviewCard`** — media strip with lightbox and inline video, the
+  before/after diff surfaced above everything else on a re-approval, a media-rule
+  indicator (5 photos + cover video, red when unmet), host panel, pricing and stay
+  rules, prior decisions with their notes, a "verify pin" map link, and a
+  click-through to the full detail page the queue never linked to.
+
+### Notes
+
+- `POST /admin/listings/:id/request-changes` already existed and works; only the
+  information the reviewer sees was missing.
+- Specs: `listing-review.spec` (10 tests — diff capture including unchanged-field
+  noise, supersede, decision closing, queue ordering by submission not creation,
+  legacy fallback). Suite **506/506**.
+
+---
+
 ## 2026-09-11 — Payout hardening: crash recovery, correct funding capture, concurrency
 
 Closes the failure modes where money could actually be lost, duplicated, or

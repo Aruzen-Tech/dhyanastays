@@ -1,4 +1,5 @@
 import type {
+  AccountProfile,
   AdminListingDetail,
   AdminNotification,
   AdminSearchResults,
@@ -39,7 +40,12 @@ import type {
   IssueCategory,
   IssueStatus,
   IssueUrgency,
+  HostApplication,
+  HostIdDocumentType,
+  HostProfile,
   Listing,
+  PendingHost,
+  PendingListing,
   ListingAvailability,
   ListingMedia,
   ListingReviews,
@@ -215,10 +221,21 @@ async function request<T>(
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export const authApi = {
+  /**
+   * Change your own password. Revokes every other session and returns a fresh
+   * token pair, so the device you changed it on stays signed in.
+   */
+  changePassword: (body: { currentPassword: string; newPassword: string }) =>
+    request<AuthTokens & { sessionsRevoked: boolean }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   register: (body: {
     email: string;
     password: string;
     fullName: string;
+    phone: string;
     role: 'GUEST' | 'HOST';
     referralCode?: string;
   }) =>
@@ -241,16 +258,46 @@ export const authApi = {
 
 export const hostApi = {
   getProfile: () => request<Host>('/host/profile'),
+
+  /** The host's own application (masked) + what is still missing. */
+  getApplication: () => request<HostApplication>('/host/application'),
+
+  /** Submit or update the host application. Returns the host to review. */
+  submitApplication: (body: {
+    legalName: string;
+    businessName?: string;
+    about?: string;
+    website?: string;
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country?: string;
+    pan: string;
+    gstin?: string;
+    idType: HostIdDocumentType;
+    idNumber: string;
+    idDocumentUrl?: string;
+  }) =>
+    request<{ profile: HostProfile; complete: boolean }>('/host/application', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };
 
 // ─── Admin: host approvals ────────────────────────────────────────────────────
 
 export const adminHostsApi = {
-  getPending: () => request<Host[]>('/admin/hosts/pending'),
+  getPending: () => request<PendingHost[]>('/admin/hosts/pending'),
   approve: (id: string) =>
     request<Host>(`/admin/hosts/${id}/approve`, { method: 'POST' }),
-  reject: (id: string) =>
-    request<Host>(`/admin/hosts/${id}/reject`, { method: 'POST' }),
+  /** `note` is shown back to the host so they know what to fix. */
+  reject: (id: string, note?: string) =>
+    request<Host>(`/admin/hosts/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(note ? { note } : {}),
+    }),
 };
 
 // ─── Listings ─────────────────────────────────────────────────────────────────
@@ -428,7 +475,7 @@ export const listingsApi = {
     }),
 
   // Admin
-  getPending: () => request<Listing[]>('/admin/listings/pending'),
+  getPending: () => request<PendingListing[]>('/admin/listings/pending'),
 
   approve: (id: string) =>
     request<Listing>(`/admin/listings/${id}/approve`, { method: 'POST' }),
@@ -667,6 +714,19 @@ export const payLaterApi = {
     }>(`/bookings/${bookingId}/pay-later/${seq}/pay`, {
       method: 'POST',
       body: JSON.stringify({ idempotencyKey }),
+    }),
+};
+
+// ─── Account (personal information, any role) ────────────────────────
+
+export const accountApi = {
+  /** The signed-in user's own details, whatever their role. */
+  getProfile: () => request<AccountProfile>('/account/profile'),
+
+  updateProfile: (body: { fullName?: string; phone?: string; avatarUrl?: string }) =>
+    request<AccountProfile>('/account/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
     }),
 };
 

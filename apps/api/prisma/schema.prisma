@@ -237,6 +237,63 @@ model Host {
   settings            HostSetting?
   payoutAccount       HostPayoutAccount?
   balanceEntries      HostBalanceEntry[]
+  profile             HostProfile?
+  /// Why staff rejected the host application — shown back to the host.
+  rejectionReason     String?
+}
+
+/// Photo ID accepted for host verification.
+///
+/// Aadhaar is deliberately absent: private entities face legal restrictions on
+/// collecting and storing it, so we ask for a document without those strings.
+enum HostIdDocumentType {
+  PASSPORT
+  DRIVING_LICENCE
+  VOTER_ID
+}
+
+/// A host's application — who they are, where they are, and how they're taxed.
+///
+/// Registering as a host creates an empty `Host` row, which left staff approving
+/// people they knew nothing about. This is the substance of that application, and
+/// a complete profile is required before a listing may be submitted.
+///
+/// PAN and the ID number are encrypted at rest with the same AES-256-GCM service
+/// the payout account uses, and are only ever read back as `*Last4`.
+model HostProfile {
+  id            String              @id @default(cuid())
+  hostId        String              @unique
+  host          Host                @relation(fields: [hostId], references: [id], onDelete: Cascade)
+
+  // ── Identity ──
+  legalName     String
+  businessName  String?
+  about         String?
+  website       String?
+
+  // ── Address ──
+  addressLine1  String
+  addressLine2  String?
+  city          String
+  state         String
+  postalCode    String
+  country       String              @default("India")
+
+  // ── Tax identity ──
+  panLast4      String?
+  panEnc        String?
+  gstin         String?
+
+  // ── Photo ID ──
+  idType        HostIdDocumentType?
+  idLast4       String?
+  idEnc         String?
+  /// Uploaded through the normal storage presign flow.
+  idDocumentUrl String?
+
+  submittedAt   DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
 }
 
 model Listing {
@@ -289,9 +346,57 @@ model Listing {
   experiences         Experience[]         @relation("ListingExperiences")
   stayTheme           StayTheme?           @relation(fields: [stayThemeId], references: [id])
   spotlight           SpotlightStay?
+  reviewRequests      ListingReviewRequest[]
 
   @@index([hostId])
   @@index([status, createdAt])
+}
+
+// ── Listing moderation ───────────────────────────────────────────────────────
+
+/// Why a listing is in the approval queue. A REAPPROVAL carries a diff of the
+/// sensitive fields the host changed; a NEW submission is judged whole.
+enum ListingReviewType {
+  NEW
+  REAPPROVAL
+}
+
+enum ListingReviewDecision {
+  APPROVED
+  REJECTED
+  CHANGES_REQUESTED
+}
+
+/// One row per trip through moderation, opened when a host submits (or makes a
+/// change that triggers re-approval) and closed when staff decide.
+///
+/// This exists because the listing row alone cannot answer the reviewer's two
+/// questions: *when did this actually enter the queue* (`Listing.createdAt` is
+/// the creation date, which is wrong and mis-sorts re-submissions), and *what
+/// changed since it was last approved* (the previous values are gone the moment
+/// the update is written). Closed rows become the listing's review history, so
+/// a resubmission shows why it was turned down before.
+model ListingReviewRequest {
+  id            String                 @id @default(cuid())
+  listingId     String
+  listing       Listing                @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  type          ListingReviewType
+  submittedAt   DateTime               @default(now())
+  /// Host User id that submitted. Plain id, per the staff-ref convention.
+  submittedById String
+  /// REAPPROVAL only: { field: { before, after } } captured at edit time.
+  diff          Json?
+  /// What the reviewer was asked to judge, at submission time.
+  photoCount    Int                    @default(0)
+  videoCount    Int                    @default(0)
+  /// Null while the request is open. At most one open row per listing.
+  decision      ListingReviewDecision?
+  decisionNote  String?
+  decidedById   String?
+  decidedAt     DateTime?
+
+  @@index([listingId, submittedAt])
+  @@index([decision, submittedAt])
 }
 
 model ListingMedia {

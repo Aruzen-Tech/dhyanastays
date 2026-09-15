@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { ListingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { HostProfileService } from './host-profile.service';
 import { NotificationService } from '../notification/notification.service';
 import { CreateListingDto } from './dto/create-listing.dto';
 import { UpdateListingDto } from './dto/update-listing.dto';
@@ -31,6 +32,7 @@ export class ListingService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly config: ConfigService,
+    private readonly hostProfiles: HostProfileService,
   ) {}
 
   async createHostListing(userId: string, dto: CreateListingDto) {
@@ -100,6 +102,10 @@ export class ListingService {
       throw new BadRequestException('Listing is already submitted or approved');
     }
 
+    // A reviewer cannot judge a listing without knowing who is behind it, so a
+    // complete host application is a precondition for entering the queue.
+    await this.hostProfiles.assertCompleteForListing(listing.hostId);
+
     const images = listing.media.filter((m) => m.mediaType.startsWith('image')).length;
     const videos = listing.media.filter((m) => m.mediaType.startsWith('video')).length;
     // The cover-video requirement is satisfied by an uploaded video OR an
@@ -114,6 +120,16 @@ export class ListingService {
     await this.prisma.listing.update({
       where: { id: listingId },
       data: { status: ListingStatus.PENDING_APPROVAL, needsReapproval: false },
+    });
+
+    // Open the moderation record. `Listing.createdAt` is the creation date, not
+    // the submission date, so without this the queue cannot order or date
+    // itself correctly.
+    await this.openReviewRequest(listingId, {
+      type: 'NEW',
+      submittedById: userId,
+      photoCount: images,
+      videoCount: videos,
     });
 
     void this.prisma.adminNotification
@@ -151,6 +167,11 @@ export class ListingService {
     );
 
     const reapprovalTriggered = this.isReapprovalTriggered(dto);
+    // Capture the before/after NOW — once the update lands the old values are
+    // gone, and the reviewer's whole question is "what changed?".
+    const diff = reapprovalTriggered
+      ? this.buildReapprovalDiff(listing as unknown as Record<string, unknown>, dto)
+      : null;
     const data: Prisma.ListingUpdateInput = {
       ...(listingFields as Prisma.ListingUpdateInput),
       ...(reapprovalTriggered
@@ -169,6 +190,17 @@ export class ListingService {
           ...(minNights !== undefined && { minNights }),
           ...(cleaningFee !== undefined && { cleaningFee }),
         },
+      });
+    }
+
+    if (reapprovalTriggered) {
+      const counts = await this.mediaCounts(listingId);
+      await this.openReviewRequest(listingId, {
+        type: 'REAPPROVAL',
+        submittedById: userId,
+        photoCount: counts.photos,
+        videoCount: counts.videos,
+        diff,
       });
     }
 
@@ -199,12 +231,123 @@ export class ListingService {
     });
   }
 
+  /**
+   * The moderation queue, with everything a reviewer needs to decide without
+   * leaving the page: the media they are being asked to approve, who the host
+   * is, the location pin, the discovery facets, the re-approval diff, and the
+   * outcome of previous reviews.
+   *
+   * Ordered by when each listing actually entered the queue — ordering by
+   * `Listing.createdAt` buried re-submissions behind older drafts.
+   */
   async getPendingListings() {
-    return this.prisma.listing.findMany({
+    const listings = await this.prisma.listing.findMany({
       where: { status: ListingStatus.PENDING_APPROVAL },
-      include: { rateRules: true },
-      orderBy: { createdAt: 'asc' },
+      include: {
+        rateRules: true,
+        media: { orderBy: { sortOrder: 'asc' }, take: 12 },
+        host: {
+          select: {
+            id: true,
+            verificationStatus: true,
+            createdAt: true,
+            user: { select: { id: true, fullName: true, email: true, phone: true } },
+            _count: { select: { listings: true } },
+          },
+        },
+        reviewRequests: { orderBy: { submittedAt: 'desc' }, take: 6 },
+        _count: { select: { media: true } },
+      },
     });
+
+    return listings
+      .map((l) => {
+        const open = l.reviewRequests.find((r) => r.decision === null) ?? null;
+        const history = l.reviewRequests.filter((r) => r.decision !== null);
+        const photos = l.media.filter((m) => m.mediaType.startsWith('image'));
+        const videos = l.media.filter((m) => m.mediaType.startsWith('video'));
+        return {
+          ...l,
+          reviewRequests: undefined,
+          // Fall back to updatedAt for rows that predate the review table.
+          submittedAt: open?.submittedAt ?? l.updatedAt,
+          reviewType: open?.type ?? (l.needsReapproval ? 'REAPPROVAL' : 'NEW'),
+          diff: open?.diff ?? null,
+          mediaCount: l._count.media,
+          photoCount: photos.length,
+          videoCount: videos.length,
+          previousReviews: history.map((r) => ({
+            decision: r.decision,
+            note: r.decisionNote,
+            decidedAt: r.decidedAt,
+            type: r.type,
+          })),
+        };
+      })
+      .sort((a, b) => a.submittedAt.getTime() - b.submittedAt.getTime());
+  }
+
+  /** Media split at a point in time — what the reviewer is asked to judge. */
+  private async mediaCounts(listingId: string) {
+    const media = await this.prisma.listingMedia.findMany({
+      where: { listingId },
+      select: { mediaType: true },
+    });
+    return {
+      photos: media.filter((m) => m.mediaType.startsWith('image')).length,
+      videos: media.filter((m) => m.mediaType.startsWith('video')).length,
+    };
+  }
+
+  /**
+   * Open a moderation record, replacing any request still open for this
+   * listing so there is never more than one (a host can edit again while
+   * waiting, which supersedes the earlier submission).
+   */
+  private async openReviewRequest(
+    listingId: string,
+    input: {
+      type: 'NEW' | 'REAPPROVAL';
+      submittedById: string;
+      photoCount: number;
+      videoCount: number;
+      diff?: Prisma.InputJsonValue | null;
+    },
+  ) {
+    await this.prisma.listingReviewRequest.deleteMany({
+      where: { listingId, decision: null },
+    });
+    await this.prisma.listingReviewRequest.create({
+      data: {
+        listingId,
+        type: input.type as never,
+        submittedById: input.submittedById,
+        photoCount: input.photoCount,
+        videoCount: input.videoCount,
+        ...(input.diff ? { diff: input.diff } : {}),
+      },
+    });
+  }
+
+  /**
+   * Before/after for the fields that trigger re-approval. Only fields the host
+   * actually changed are recorded — an unchanged value resubmitted verbatim is
+   * noise the reviewer should not have to read past.
+   */
+  private buildReapprovalDiff(
+    current: Record<string, unknown>,
+    dto: UpdateListingDto,
+  ): Prisma.InputJsonValue | null {
+    const fields: (keyof UpdateListingDto)[] = ['city', 'state', 'country', 'description'];
+    const out: Record<string, { before: unknown; after: unknown }> = {};
+    for (const field of fields) {
+      const after = dto[field];
+      if (after === undefined) continue;
+      const before = current[field as string];
+      if (before === after) continue;
+      out[field as string] = { before: before ?? null, after };
+    }
+    return Object.keys(out).length > 0 ? (out as Prisma.InputJsonValue) : null;
   }
 
   async reviewListing(
@@ -230,6 +373,27 @@ export class ListingService {
       where: { id: listingId },
       data: { status, needsReapproval: false },
     });
+
+    // Close the open request so it becomes review history: a resubmission then
+    // shows the reviewer why it was turned down last time.
+    const decision =
+      action === 'approve' ? 'APPROVED' : action === 'reject' ? 'REJECTED' : 'CHANGES_REQUESTED';
+    const open = await this.prisma.listingReviewRequest.findFirst({
+      where: { listingId, decision: null },
+      orderBy: { submittedAt: 'desc' },
+      select: { id: true },
+    });
+    if (open) {
+      await this.prisma.listingReviewRequest.update({
+        where: { id: open.id },
+        data: {
+          decision: decision as never,
+          decisionNote: note ?? null,
+          decidedById: actorUserId,
+          decidedAt: new Date(),
+        },
+      });
+    }
 
     await this.writeAudit(actorUserId, `LISTING_${action.toUpperCase()}`, 'listing', listingId, {
       previousStatus: listing.status,
@@ -259,28 +423,61 @@ export class ListingService {
     return host;
   }
 
+  /**
+   * Host applications awaiting review, with the application itself attached.
+   * Previously this returned the bare Host row plus a name and email, which is
+   * not enough to approve anyone.
+   */
   async getPendingHosts() {
-    return this.prisma.host.findMany({
+    const hosts = await this.prisma.host.findMany({
       where: { verificationStatus: 'PENDING' },
       include: {
-        user: { select: { id: true, email: true, fullName: true, createdAt: true } },
+        user: {
+          select: { id: true, email: true, fullName: true, phone: true, createdAt: true },
+        },
+        profile: true,
+        _count: { select: { listings: true } },
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    return hosts.map((h) => ({
+      ...h,
+      // Strip ciphertext before it can reach a response.
+      profile: h.profile
+        ? {
+            ...h.profile,
+            panEnc: undefined,
+            idEnc: undefined,
+          }
+        : null,
+      listingCount: h._count.listings,
+      profileComplete: !!h.profile?.panEnc && !!h.profile?.idEnc && !!h.profile?.legalName,
+    }));
   }
 
-  async reviewHost(actorUserId: string, hostId: string, action: 'approve' | 'reject') {
+  async reviewHost(
+    actorUserId: string,
+    hostId: string,
+    action: 'approve' | 'reject',
+    note?: string,
+  ) {
     const host = await this.prisma.host.findUnique({ where: { id: hostId } });
     if (!host) throw new NotFoundException('Host not found');
     const status = action === 'approve' ? 'APPROVED' : 'REJECTED';
     const updated = await this.prisma.host.update({
       where: { id: hostId },
-      data: { verificationStatus: status as 'APPROVED' | 'REJECTED' },
+      data: {
+        verificationStatus: status as 'APPROVED' | 'REJECTED',
+        // A rejected host was previously told nothing at all.
+        rejectionReason: action === 'reject' ? (note ?? null) : null,
+      },
       include: { user: { select: { id: true, email: true, fullName: true } } },
     });
     await this.writeAudit(actorUserId, `HOST_${action.toUpperCase()}`, 'host', hostId, {
       previousStatus: host.verificationStatus,
       nextStatus: status,
+      note: note ?? null,
     });
     return updated;
   }

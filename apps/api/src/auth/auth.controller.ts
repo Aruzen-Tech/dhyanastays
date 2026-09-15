@@ -13,6 +13,7 @@ import { AuthService } from './auth.service';
 import { MfaService } from './services/mfa.service';
 import { Public } from '../common/decorators/public.decorator';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SyncUserDto } from './dto/sync-user.dto';
@@ -61,6 +62,19 @@ export class AuthController {
   @Post('logout')
   logout(@CurrentUser() user: RequestUser) {
     return this.authService.logout(user.sub);
+  }
+
+  /**
+   * POST /auth/change-password — change your own password.
+   * Revokes every other session and returns a fresh token pair.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  changePassword(
+    @CurrentUser() user: RequestUser,
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(user.sub, dto);
   }
 
   // ─── Sessions ─────────────────────────────────────────────────────────────

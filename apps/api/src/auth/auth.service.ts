@@ -9,6 +9,7 @@ import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SyncUserDto } from './dto/sync-user.dto';
@@ -67,6 +68,7 @@ export class AuthService {
           email: dto.email,
           passwordHash,
           fullName: dto.fullName,
+          phone: dto.phone,
           role: dto.role,
           kind: dto.role === UserRole.HOST ? 'OWNER' : 'GUEST',
         },
@@ -210,6 +212,74 @@ export class AuthService {
       ...options,
       familyId: stored.familyId,
     });
+  }
+
+  /**
+   * Change your own password.
+   *
+   * Two things this must get right:
+   *  - the current password is verified even though the caller is already
+   *    authenticated, so an unlocked session can't be used to lock the owner out;
+   *  - every other session is revoked afterwards. A password change is how
+   *    someone reacts to a suspected compromise, so leaving the attacker's
+   *    refresh token alive would defeat the point. The caller keeps their own
+   *    session via the freshly issued tokens.
+   */
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('User not found');
+
+    // Auth0 accounts have no local password to change.
+    if (!user.passwordHash) {
+      throw new BadRequestException(
+        'This account signs in with a social or SSO provider, so it has no password to change.',
+      );
+    }
+
+    const valid = await argon2.verify(user.passwordHash, dto.currentPassword);
+    if (!valid) {
+      await this.prisma.auditLog.create({
+        data: {
+          actorUserId: userId,
+          action: 'AUTH_PASSWORD_CHANGE_FAILED',
+          resourceType: 'user',
+          resourceId: userId,
+          metadata: { reason: 'current_password_incorrect' },
+        },
+      });
+      throw new UnauthorizedException('Your current password is incorrect');
+    }
+
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('Your new password must be different from the current one');
+    }
+
+    const passwordHash = await argon2.hash(dto.newPassword);
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+
+    // Revoke every existing session, then hand the caller a fresh pair so the
+    // device they changed it on stays signed in.
+    await this.prisma.refreshTokenFamily.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date(), revokeReason: 'PASSWORD_CHANGED' },
+    });
+    await this.prisma.session.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId: userId,
+        action: 'AUTH_PASSWORD_CHANGED',
+        resourceType: 'user',
+        resourceId: userId,
+        metadata: { sessionsRevoked: true },
+      },
+    });
+
+    const tokens = await this.issueTokens(user.id, user.email, user.role);
+    return { ...tokens, sessionsRevoked: true };
   }
 
   async logout(userId: string) {

@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
@@ -76,6 +78,19 @@ export default function AccountMenu() {
               <p className="text-xs text-gray-500 truncate" title={user.email}>
                 {user.email}
               </p>
+            </div>
+
+            <div className="my-1 border-t border-gray-100" />
+
+            <div className="px-1 py-1">
+              <Link
+                href="/profile"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="block px-2 py-2 text-sm text-gray-700 rounded-xl hover:bg-gray-50"
+              >
+                Personal information
+              </Link>
             </div>
 
             <div className="my-1 border-t border-gray-100" />

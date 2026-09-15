@@ -11,11 +11,15 @@ import { AddMediaDto } from './dto/add-media.dto';
 import { AddSeasonalRateDto } from './dto/add-seasonal-rate.dto';
 import { AddAvailabilityBlockDto } from './dto/add-availability-block.dto';
 import { ListingService } from './listing.service';
+import { HostProfileService } from './host-profile.service';
+import { SubmitHostProfileDto } from './dto/host-profile.dto';
 
 @Roles(UserRole.HOST)
 @Controller()
 export class HostListingController {
-  constructor(private readonly listingService: ListingService) {}
+  constructor(private readonly listingService: ListingService,
+    private readonly hostProfileService: HostProfileService,
+  ) {}
 
   @Get('host/profile')
   getProfile(@CurrentUser() user: RequestUser) {
@@ -107,6 +111,18 @@ export class HostListingController {
     @Param('mediaId') mediaId: string,
   ) {
     return this.listingService.deleteMedia(user.sub, id, mediaId);
+  }
+
+  /** The host's own application (masked) + what is still missing. */
+  @Get('host/application')
+  getApplication(@CurrentUser() user: RequestUser) {
+    return this.hostProfileService.getMine(user.sub);
+  }
+
+  /** Submit or update the host application. Always returns the host to review. */
+  @Post('host/application')
+  submitApplication(@CurrentUser() user: RequestUser, @Body() dto: SubmitHostProfileDto) {
+    return this.hostProfileService.submit(user.sub, dto);
   }
 
   /** Submit a draft listing for approval (enforces min 5 photos + 1 video). */

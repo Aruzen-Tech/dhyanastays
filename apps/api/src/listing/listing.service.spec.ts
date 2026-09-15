@@ -16,6 +16,17 @@ const prismaMock = {
   auditLog: {
     create: jest.fn(),
   },
+  // A sensitive-field edit now opens a moderation request, which counts the
+  // listing's media and supersedes any request still open.
+  listingMedia: {
+    findMany: jest.fn().mockResolvedValue([]),
+  },
+  listingReviewRequest: {
+    create: jest.fn().mockResolvedValue({}),
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    findFirst: jest.fn().mockResolvedValue(null),
+    update: jest.fn().mockResolvedValue({}),
+  },
 };
 
 const notificationMock = {
@@ -55,6 +66,9 @@ describe('ListingService', () => {
       prismaMock as never,
       notificationMock as never,
       configMock as never,
+      // Listing submission now requires a complete host application; these
+      // tests cover other paths, so the gate passes.
+      { assertCompleteForListing: jest.fn().mockResolvedValue(undefined) } as never,
     );
   });
 

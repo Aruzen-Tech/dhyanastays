@@ -57,6 +57,7 @@ describe('AuthService', () => {
         email: 'admin@test.com',
         password: 'Password123',
         fullName: 'A',
+        phone: '9876543210',
         role: UserRole.ADMIN,
       }),
     ).rejects.toThrow('Admin registration is not self-service');

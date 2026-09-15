@@ -44,6 +44,7 @@ export interface AuthContextValue {
     email: string,
     password: string,
     fullName: string,
+    phone: string,
     role: 'GUEST' | 'HOST',
     referralCode?: string,
   ) => Promise<void>;
@@ -109,8 +110,22 @@ function CustomAuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const register = useCallback(
-    async (email: string, password: string, fullName: string, role: 'GUEST' | 'HOST', referralCode?: string) => {
-      const tokens = await authApi.register({ email, password, fullName, role, ...(referralCode && { referralCode }) });
+    async (
+      email: string,
+      password: string,
+      fullName: string,
+      phone: string,
+      role: 'GUEST' | 'HOST',
+      referralCode?: string,
+    ) => {
+      const tokens = await authApi.register({
+        email,
+        password,
+        fullName,
+        phone,
+        role,
+        ...(referralCode && { referralCode }),
+      });
       applyTokens(tokens);
     },
     [applyTokens],

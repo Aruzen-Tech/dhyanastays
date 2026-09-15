@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
+import PasswordInput from '../../../components/PasswordInput';
 
 // useSearchParams() requires a Suspense boundary for static prerender.
 export default function RegisterPage() {
@@ -20,6 +21,7 @@ function RegisterForm() {
   const searchParams = useSearchParams();
 
   const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -127,7 +129,7 @@ function RegisterForm() {
 
     setLoading(true);
     try {
-      await register(email, password, fullName, role, referralCode.trim() || undefined);
+      await register(email, password, fullName, phone.trim(), role, referralCode.trim() || undefined);
       router.push('/dashboard');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Registration failed');
@@ -219,36 +221,52 @@ function RegisterForm() {
             </div>
 
             <div>
-              <label htmlFor="password" className="label">Password</label>
+              <label htmlFor="phone" className="label">Mobile number</label>
               <input
+                id="phone"
+                name="phone"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                required
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="input"
+                placeholder="10-digit mobile number"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Used for booking updates and emergency support.
+              </p>
+            </div>
+
+            <div>
+              <label htmlFor="password" className="label">Password</label>
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="new-password"
                 required
                 minLength={8}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={setPassword}
                 placeholder="Min. 8 characters"
-                className="input"
               />
             </div>
 
             <div>
               <label htmlFor="confirmPassword" className="label">Confirm password</label>
-              <input
+              <PasswordInput
                 id="confirmPassword"
-                type="password"
                 autoComplete="new-password"
                 required
                 minLength={8}
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                onChange={setConfirmPassword}
                 placeholder="Re-enter your password"
-                className={`input ${
+                className={
                   confirmPassword && confirmPassword !== password
                     ? 'border-red-400 focus:ring-red-300'
                     : ''
-                }`}
+                }
               />
               {confirmPassword && confirmPassword !== password && (
                 <p className="text-xs text-red-500 mt-1">Passwords do not match</p>

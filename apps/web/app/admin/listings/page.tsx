@@ -3,9 +3,10 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import StatusBadge from '../../../components/StatusBadge';
+import ListingReviewCard from '../../../components/admin/ListingReviewCard';
 import { useAuth } from '../../../context/AuthContext';
 import { adminApi, adminHostsApi, formatDate, listingsApi } from '../../../lib/api';
-import type { Host, Listing } from '../../../lib/types';
+import type { PendingHost, PendingListing } from '../../../lib/types';
 
 type Tab = 'listings' | 'hosts';
 
@@ -17,7 +18,7 @@ interface ReviewAction {
 // ─── Listing Approvals ────────────────────────────────────────────────────────
 
 function ListingApprovals() {
-  const [listings, setListings] = useState<Listing[]>([]);
+  const [listings, setListings] = useState<PendingListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [noteMap, setNoteMap] = useState<Record<string, string>>({});
@@ -158,96 +159,18 @@ function ListingApprovals() {
         </div>
       )}
 
-      {!loading && listings.map((listing) => {
-        const isProcessing = processing === listing.id || processing === 'bulk';
-        return (
-          <div key={listing.id} className={`card mb-5 overflow-hidden ${selected.has(listing.id) ? 'ring-2 ring-brand-300' : ''}`}>
-            <div className="p-6 border-b border-gray-100">
-              <div className="flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  checked={selected.has(listing.id)}
-                  onChange={() => toggleSelect(listing.id)}
-                  className="rounded border-gray-300 mt-1 shrink-0"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-2">
-                    <StatusBadge status={listing.status} />
-                    {listing.needsReapproval && (
-                      <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">
-                        Re-approval
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="text-lg font-bold text-gray-900 truncate">{listing.title}</h3>
-                  <p className="text-sm text-gray-500 mt-0.5">
-                    📍 {listing.city}, {listing.state}, {listing.country}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    Submitted {formatDate(listing.createdAt)} · ID: {listing.id.slice(0, 12)}…
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 bg-gray-50 rounded-xl p-4">
-                <p className="text-sm text-gray-600 leading-relaxed line-clamp-4">
-                  {listing.description}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap gap-4 mt-4 text-sm text-gray-600">
-                {listing.rateRules?.[0]?.baseNightlyRate && (
-                  <span>💰 ₹{(listing.rateRules![0].baseNightlyRate / 100).toLocaleString('en-IN')}/night</span>
-                )}
-                {listing.rateRules?.[0]?.maxGuests && (
-                  <span>👥 {listing.rateRules[0].maxGuests} guests max</span>
-                )}
-                <span>🌏 {listing.timezone}</span>
-              </div>
-            </div>
-
-            <div className="p-5 bg-gray-50">
-              <div className="mb-3">
-                <label className="label text-xs">Note (required for reject / changes)</label>
-                <input
-                  type="text"
-                  value={noteMap[listing.id] ?? ''}
-                  onChange={(e) =>
-                    setNoteMap((prev) => ({ ...prev, [listing.id]: e.target.value }))
-                  }
-                  placeholder="Add a note for the host…"
-                  className="input text-sm"
-                  disabled={isProcessing}
-                />
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  onClick={() => handleAction({ listingId: listing.id, type: 'approve' })}
-                  disabled={isProcessing}
-                  className="btn-primary text-sm py-2 px-5"
-                >
-                  {isProcessing ? <span className="spinner" /> : '✓ Approve'}
-                </button>
-                <button
-                  onClick={() => handleAction({ listingId: listing.id, type: 'request_changes' })}
-                  disabled={isProcessing}
-                  className="btn-secondary text-sm py-2 px-5"
-                >
-                  📝 Request changes
-                </button>
-                <button
-                  onClick={() => handleAction({ listingId: listing.id, type: 'reject' })}
-                  disabled={isProcessing}
-                  className="btn-danger text-sm py-2 px-5"
-                >
-                  ✗ Reject
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      {!loading && listings.map((listing) => (
+        <ListingReviewCard
+          key={listing.id}
+          listing={listing}
+          selected={selected.has(listing.id)}
+          onToggleSelect={() => toggleSelect(listing.id)}
+          note={noteMap[listing.id] ?? ''}
+          onNoteChange={(v) => setNoteMap((prev) => ({ ...prev, [listing.id]: v }))}
+          processing={processing === listing.id || processing === 'bulk'}
+          onAction={(type) => handleAction({ listingId: listing.id, type })}
+        />
+      ))}
 
       {/* Bulk action bar */}
       {selected.size > 0 && (
@@ -276,7 +199,7 @@ function ListingApprovals() {
 // ─── Host Approvals ───────────────────────────────────────────────────────────
 
 function HostApprovals() {
-  const [hosts, setHosts] = useState<Host[]>([]);
+  const [hosts, setHosts] = useState<PendingHost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [processing, setProcessing] = useState<string | null>(null);
@@ -295,14 +218,14 @@ function HostApprovals() {
     setTimeout(() => setToast(''), 3000);
   };
 
-  const handleAction = async (hostId: string, action: 'approve' | 'reject') => {
+  const handleAction = async (hostId: string, action: 'approve' | 'reject', note?: string) => {
     setProcessing(hostId);
     try {
       if (action === 'approve') {
         await adminHostsApi.approve(hostId);
         showToast('✅ Host approved — they can now create listings');
       } else {
-        await adminHostsApi.reject(hostId);
+        await adminHostsApi.reject(hostId, note);
         showToast('❌ Host rejected');
       }
       setHosts((prev) => prev.filter((h) => h.id !== hostId));
@@ -362,20 +285,108 @@ function HostApprovals() {
         return (
           <div key={host.id} className="card mb-4 overflow-hidden">
             <div className="p-6 border-b border-gray-100">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="min-w-0">
                   <h3 className="text-lg font-bold text-gray-900">
-                    {host.user?.fullName ?? 'Unknown'}
+                    {host.profile?.legalName ?? host.user?.fullName ?? 'Unknown'}
                   </h3>
-                  <p className="text-sm text-gray-500 mt-0.5">{host.user?.email}</p>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    {host.user?.email}
+                    {host.user?.phone ? ` · ${host.user.phone}` : ''}
+                  </p>
                   <p className="text-xs text-gray-400 mt-1">
-                    Registered {host.user?.createdAt ? formatDate(host.user.createdAt) : '—'} · Host ID: {host.id.slice(0, 12)}…
+                    Registered {host.user?.createdAt ? formatDate(host.user.createdAt) : '—'} ·{' '}
+                    {host.listingCount} listing{host.listingCount === 1 ? '' : 's'} · Host ID:{' '}
+                    {host.id.slice(0, 12)}…
                   </p>
                 </div>
-                <span className="bg-amber-100 text-amber-700 text-xs font-semibold px-2.5 py-1 rounded-full">
+                <span className="bg-amber-100 text-amber-700 text-xs font-semibold px-2.5 py-1 rounded-full shrink-0">
                   Pending verification
                 </span>
               </div>
+
+              {/* The application itself — without this there is nothing to review. */}
+              {host.profile ? (
+                <div className="mt-4 rounded-xl border border-gray-100 p-4">
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                    {host.profile.businessName && (
+                      <div>
+                        <dt className="text-xs text-gray-400">Business name</dt>
+                        <dd className="text-gray-900">{host.profile.businessName}</dd>
+                      </div>
+                    )}
+                    <div className="sm:col-span-2">
+                      <dt className="text-xs text-gray-400">Address</dt>
+                      <dd className="text-gray-900">
+                        {host.profile.addressLine1}
+                        {host.profile.addressLine2 ? `, ${host.profile.addressLine2}` : ''},{' '}
+                        {host.profile.city}, {host.profile.state} {host.profile.postalCode},{' '}
+                        {host.profile.country}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-gray-400">PAN</dt>
+                      <dd className="text-gray-900">••••{host.profile.panLast4}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-gray-400">GSTIN</dt>
+                      <dd className="text-gray-900">{host.profile.gstin ?? 'Not registered'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-gray-400">Photo ID</dt>
+                      <dd className="text-gray-900">
+                        {host.profile.idType?.replace('_', ' ').toLowerCase() ?? '—'} ••••
+                        {host.profile.idLast4}
+                        {host.profile.idDocumentUrl && (
+                          <>
+                            {' · '}
+                            <a
+                              href={host.profile.idDocumentUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-brand-700 hover:underline"
+                            >
+                              view document
+                            </a>
+                          </>
+                        )}
+                      </dd>
+                    </div>
+                    {host.profile.website && (
+                      <div>
+                        <dt className="text-xs text-gray-400">Website</dt>
+                        <dd>
+                          <a
+                            href={host.profile.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-brand-700 hover:underline break-all"
+                          >
+                            {host.profile.website}
+                          </a>
+                        </dd>
+                      </div>
+                    )}
+                    {host.profile.about && (
+                      <div className="sm:col-span-2">
+                        <dt className="text-xs text-gray-400">About</dt>
+                        <dd className="text-gray-600 whitespace-pre-wrap">{host.profile.about}</dd>
+                      </div>
+                    )}
+                    <div className="sm:col-span-2">
+                      <dt className="text-xs text-gray-400">Applied</dt>
+                      <dd className="text-gray-500">
+                        {host.profile.submittedAt ? formatDate(host.profile.submittedAt) : '—'}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  This host hasn’t submitted an application yet — there’s nothing to verify.
+                  They can’t submit a listing until they do.
+                </div>
+              )}
             </div>
 
             <div className="p-5 bg-gray-50 flex gap-3">
@@ -387,7 +398,11 @@ function HostApprovals() {
                 {isProcessing ? <span className="spinner" /> : '✓ Approve host'}
               </button>
               <button
-                onClick={() => handleAction(host.id, 'reject')}
+                onClick={() => {
+                  const reason = window.prompt('Why is this application rejected? (shown to the host)');
+                  if (!reason?.trim()) return;
+                  handleAction(host.id, 'reject', reason.trim());
+                }}
                 disabled={isProcessing}
                 className="btn-danger text-sm py-2 px-5"
               >

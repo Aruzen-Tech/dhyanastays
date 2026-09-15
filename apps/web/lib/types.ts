@@ -205,6 +205,112 @@ export interface Listing {
   payOnArrivalEnabled?: boolean;
 }
 
+// ─── Account (personal information, any role) ─────────────────────────
+
+export interface AccountProfile {
+  id: string;
+  email: string;
+  fullName: string;
+  phone: string | null;
+  avatarUrl: string | null;
+  role: UserRole;
+  kind: string | null;
+  createdAt: string;
+  /** False for Auth0/SSO accounts, which have no local password to change. */
+  hasPassword: boolean;
+  /** Fields the account is still missing, e.g. a phone on an older account. */
+  missing: string[];
+  /** Present only for hosts - lets the page link on to what is outstanding. */
+  host: {
+    verificationStatus: HostVerificationStatus;
+    rejectionReason: string | null;
+    applicationComplete: boolean;
+    payoutAccountStatus: PayoutAccountStatus | null;
+  } | null;
+}
+
+// ─── Host application ─────────────────────────────────────────
+
+export type HostIdDocumentType = "PASSPORT" | "DRIVING_LICENCE" | "VOTER_ID";
+
+/** Masked - the API never returns a full PAN or ID number. */
+export interface HostProfile {
+  legalName: string;
+  businessName: string | null;
+  about: string | null;
+  website: string | null;
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  panLast4: string | null;
+  gstin: string | null;
+  idType: HostIdDocumentType | null;
+  idLast4: string | null;
+  idDocumentUrl: string | null;
+  submittedAt: string | null;
+  updatedAt: string;
+}
+
+export interface HostApplication {
+  verificationStatus: HostVerificationStatus;
+  rejectionReason: string | null;
+  profile: HostProfile | null;
+  /** False = the host cannot submit a listing yet. */
+  complete: boolean;
+}
+
+/** A host awaiting verification, with their application attached. */
+export interface PendingHost extends Host {
+  user?: HostUser & { phone?: string | null };
+  profile: HostProfile | null;
+  profileComplete: boolean;
+  listingCount: number;
+}
+
+// ─── Listing moderation ────────────────────────────────────────
+
+export type ListingReviewType = "NEW" | "REAPPROVAL";
+export type ListingReviewDecision = "APPROVED" | "REJECTED" | "CHANGES_REQUESTED";
+
+/** One field the host changed, with what it was before. */
+export interface ListingDiffEntry {
+  before: unknown;
+  after: unknown;
+}
+
+export interface ListingPriorReview {
+  decision: ListingReviewDecision;
+  note: string | null;
+  decidedAt: string | null;
+  type: ListingReviewType;
+}
+
+/**
+ * A listing in the moderation queue, with everything needed to decide:
+ * media, host, location, facets, the re-approval diff and past outcomes.
+ */
+export interface PendingListing extends Listing {
+  /** When it actually entered the queue - not the listing creation date. */
+  submittedAt: string;
+  reviewType: ListingReviewType;
+  /** REAPPROVAL only: { field: { before, after } }. */
+  diff: Record<string, ListingDiffEntry> | null;
+  mediaCount: number;
+  photoCount: number;
+  videoCount: number;
+  previousReviews: ListingPriorReview[];
+  host?: {
+    id: string;
+    verificationStatus: HostVerificationStatus;
+    createdAt: string;
+    user: { id: string; fullName: string; email: string; phone: string | null };
+    _count: { listings: number };
+  };
+}
+
 // ─── Pricing ─────────────────────────────────────────────────────────────────
 
 export interface PriceSnapshotAddOn {

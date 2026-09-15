@@ -4,6 +4,7 @@ import { CurrentUser, RequestUser } from '../common/decorators/current-user.deco
 import { AdminLevelGuard } from '../common/decorators/admin-level.decorator';
 import { AdminReviewDto } from './dto/admin-review.dto';
 import { ListingService } from './listing.service';
+import { ReviewHostDto } from './dto/host-profile.dto';
 
 @AdminLevelGuard(AdminLevel.L3)
 @Controller()
@@ -60,7 +61,11 @@ export class AdminListingController {
 
   /** POST /api/admin/hosts/:id/reject — reject a host profile */
   @Post('admin/hosts/:id/reject')
-  rejectHost(@CurrentUser() user: RequestUser, @Param('id') id: string) {
-    return this.listingService.reviewHost(user.sub, id, 'reject');
+  rejectHost(
+    @CurrentUser() user: RequestUser,
+    @Param('id') id: string,
+    @Body() dto: ReviewHostDto,
+  ) {
+    return this.listingService.reviewHost(user.sub, id, 'reject', dto?.note);
   }
 }

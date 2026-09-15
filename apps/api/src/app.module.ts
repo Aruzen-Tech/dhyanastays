@@ -36,6 +36,7 @@ import { FeatureModule } from './feature/feature.module';
 import { StayPassModule } from './stay-pass/stay-pass.module';
 import { HostSettingsModule } from './host-settings/host-settings.module';
 import { CrmModule } from './crm/crm.module';
+import { AccountModule } from './account/account.module';
 import { SpotlightModule } from './spotlight/spotlight.module';
 import { AdvertisementModule } from './advertisement/advertisement.module';
 import { AssistantModule } from './assistant/assistant.module';
@@ -228,6 +229,7 @@ export class AppModule {
         FeatureModule,
         HostSettingsModule,
         CrmModule,
+        AccountModule,
         SpotlightModule,
         AdvertisementModule,
         AssistantModule,
