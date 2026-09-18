@@ -21,6 +21,8 @@ function roleToCapability(role: UserRole): CapabilityKey {
       return Capability.HOST_MANAGE;
     case UserRole.GUEST:
       return Capability.GUEST_BOOK;
+    case UserRole.INFLUENCER:
+      return Capability.INFLUENCER_MANAGE;
   }
 }
 

@@ -20,7 +20,7 @@ export type FeatureCategory =
   | 'CRM'
   | 'Marketing';
 
-export type FeatureAudience = 'guest' | 'host' | 'admin' | 'investor';
+export type FeatureAudience = 'guest' | 'host' | 'admin' | 'investor' | 'influencer';
 
 export interface FeatureDefinition {
   /** Stable key used by @FeatureGate and the UI. snake_case. */
@@ -161,6 +161,18 @@ export const FEATURE_REGISTRY: readonly FeatureDefinition[] = [
     defaultEnabled: true,
     audience: ['investor'],
   },
+
+  // ── Influencer ────────────────────────────────────────────────────────────
+  {
+    key: 'influencer_dashboard',
+    label: 'Influencer Dashboard',
+    description:
+      'Influencer campaigns, content submission, promo codes/tracking links, attributed bookings, commission and payouts.',
+    category: 'Loyalty & Growth',
+    defaultEnabled: true,
+    audience: ['influencer'],
+  },
+
   // ── CRM ───────────────────────────────────────────────────────────────────
   {
     key: 'crm',
