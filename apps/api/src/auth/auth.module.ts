@@ -9,16 +9,19 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { FeatureGuard } from '../common/guards/feature.guard';
 import { LoginRateLimiterService } from './services/login-rate-limiter.service';
+import { PasswordResetService } from './services/password-reset.service';
+import { NotificationModule } from '../notification/notification.module';
 import { ReferralModule } from '../referral/referral.module';
 
 @Module({
-  imports: [JwtModule.register({}), ReferralModule],
+  imports: [JwtModule.register({}), ReferralModule, NotificationModule],
   controllers: [AuthController],
   providers: [
     AuthService,
     MfaService,
     JwtStrategy,
     LoginRateLimiterService,
+    PasswordResetService,
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

@@ -29,8 +29,9 @@ import { useReveal } from '../../../hooks/useReveal';
  *     dividing the form from nothing.
  *   - Remember me. Nothing persists a "remember" preference; the checkbox
  *     would be inert.
- *   - Forgot password. There is no reset route or handler in the app
- *     (no /auth/forgot-password, no reset API), so the link would 404.
+ *
+ * Forgot password IS wired: /auth/forgot-password + the reset API exist, so
+ * the link below is live.
  *
  * The one control added is the password visibility toggle, which is purely
  * client-side — it swaps the input's `type` and touches no auth logic.
@@ -265,6 +266,15 @@ export default function LoginPage() {
                     )}
                   </button>
                 </div>
+              </div>
+
+              <div className={`-mt-1 flex justify-end ${enter('animate-slide-up')}`} style={at(280)}>
+                <Link
+                  href="/auth/forgot-password"
+                  className="text-xs text-gray-500 hover:text-brand-700 transition-colors"
+                >
+                  Forgot password?
+                </Link>
               </div>
 
               <div className={`pt-1 ${enter('animate-slide-up')}`} style={at(310)}>

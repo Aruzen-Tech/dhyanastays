@@ -17,6 +17,50 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-09-21 — Password reset: the missing account-recovery path
+
+A user who forgot their password had **no way back in** — there was no reset
+route, no API, no token model. Support would have had to edit the database by
+hand. The login page documented the absence in a comment.
+
+### Added
+
+- **Migration `0054_password_reset_tokens`** (idempotent) — `PasswordResetToken`
+  storing a **SHA-256 hash** of the token, an expiry, and a `usedAt` stamp.
+- **`PasswordResetService`** with the four properties that make this safe:
+  - **No account enumeration.** `requestReset` returns the same response for an
+    unknown address, a deactivated account, an SSO account with no local
+    password, *and* a failed email send — anything else turns the endpoint into
+    an account-discovery tool.
+  - **The token is never stored in plaintext.** Only its SHA-256 is persisted,
+    so a database leak can't be used to reset every account. (SHA-256 rather
+    than argon2: the token is 256 bits we generated, so it isn't guessable and
+    lookup must stay a single indexed query.)
+  - **Single use, one hour.** Redeeming burns the token *and* every other
+    outstanding one for that account, all inside one transaction — a
+    half-applied reset would be worse than none.
+  - **Every session is revoked** (`revokeReason: PASSWORD_RESET`). Someone
+    resetting a password may be locking an intruder out, so the intruder's
+    refresh token has to die with it.
+  - Per-account throttle (5 requests / 15 min) so a mailbox can't be flooded.
+- **`POST /auth/forgot-password`**, **`POST /auth/reset-password`**, and
+  **`GET /auth/reset-password/check`** so the page can reject a stale link
+  before the user types a password twice. All `@Public` — the user cannot log in.
+- **Pages** `/auth/forgot-password` and `/auth/reset-password`, reusing
+  `PasswordInput` for show/hide, plus a live **"Forgot password?"** link on the
+  login form.
+
+### Notes
+
+- Reset does **not** auto-sign-in: whoever holds the link isn't proven to be the
+  owner until they can use the new password.
+- Every failure mode — unknown, expired, already used — returns one identical
+  message, so probing reveals nothing (spec-asserted).
+- Corrected the login page's now-stale comment that said no reset route existed.
+- Specs: `password-reset.spec` (14 tests). Suite **542/542**; DI verified.
+
+---
+
 ## 2026-09-15 — Password & security: change password, and show/hide on password fields
 
 ### Added

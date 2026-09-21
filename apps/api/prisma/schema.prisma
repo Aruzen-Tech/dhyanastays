@@ -178,6 +178,7 @@ model User {
   refreshFamilies RefreshTokenFamily[]
   sessions        Session[]
   mfaFactors      MfaFactor[]
+  passwordResets  PasswordResetToken[]
   // ── Phase 2 add-ons ────────────────────────────────────────────────────────
   serviceProviders ServiceProvider[] @relation("ProviderOwner")
   // ── Phase 2 §5.13 rewards ─────────────────────────────────────────────────
@@ -260,6 +261,26 @@ enum HostIdDocumentType {
 ///
 /// PAN and the ID number are encrypted at rest with the same AES-256-GCM service
 /// the payout account uses, and are only ever read back as `*Last4`.
+/// A single-use password-reset grant.
+///
+/// The token is stored as a SHA-256 **hash**, never in plaintext: a database
+/// leak must not hand an attacker the ability to reset every account. The
+/// plaintext is emailed once and never persisted.
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// sha256(token) — looked up by hash, so the raw value is unrecoverable.
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  /// Set the moment it is redeemed; a token is good for exactly one use.
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
 model HostProfile {
   id            String              @id @default(cuid())
   hostId        String              @unique

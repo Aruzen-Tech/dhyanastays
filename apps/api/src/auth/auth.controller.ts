@@ -6,13 +6,14 @@ import {
   Param,
   Post,
   Req,
-  UseGuards,
-} from '@nestjs/common';
+  UseGuards, Query,} from '@nestjs/common';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
+import { PasswordResetService } from './services/password-reset.service';
 import { MfaService } from './services/mfa.service';
 import { Public } from '../common/decorators/public.decorator';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -35,6 +36,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly mfaService: MfaService,
+    private readonly passwordResetService: PasswordResetService,
   ) {}
 
   // ─── Custom JWT auth ───────────────────────────────────────────────────────
@@ -75,6 +77,33 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ) {
     return this.authService.changePassword(user.sub, dto);
+  }
+
+  // ─── Password reset (public — the user cannot log in) ────────────────────
+
+  /**
+   * POST /auth/forgot-password — email a single-use reset link.
+   * Always succeeds, whether or not the address is registered, so the endpoint
+   * cannot be used to discover who has an account.
+   */
+  @Public()
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.passwordResetService.requestReset(dto.email);
+  }
+
+  /** GET /auth/reset-password/check?token=… — is this link still usable? */
+  @Public()
+  @Get('reset-password/check')
+  checkResetToken(@Query('token') token: string) {
+    return this.passwordResetService.checkToken(token ?? '');
+  }
+
+  /** POST /auth/reset-password — redeem the link and set a new password. */
+  @Public()
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.passwordResetService.resetPassword(dto.token, dto.newPassword);
   }
 
   // ─── Sessions ─────────────────────────────────────────────────────────────

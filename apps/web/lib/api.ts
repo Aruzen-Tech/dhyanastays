@@ -221,6 +221,24 @@ async function request<T>(
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 export const authApi = {
+  /** Email a single-use reset link. Always succeeds, registered or not. */
+  forgotPassword: (email: string) =>
+    request<{ ok: true }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  /** Is a reset link still usable? Lets the page fail early. */
+  checkResetToken: (token: string) =>
+    request<{ valid: boolean }>(`/auth/reset-password/check?token=${encodeURIComponent(token)}`),
+
+  /** Redeem a reset link and set a new password. */
+  resetPassword: (body: { token: string; newPassword: string }) =>
+    request<{ ok: true }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   /**
    * Change your own password. Revokes every other session and returns a fresh
    * token pair, so the device you changed it on stays signed in.
