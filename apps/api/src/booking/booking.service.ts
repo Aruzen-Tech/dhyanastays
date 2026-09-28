@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { BookingStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { PayoutCancellationService } from '../payout/payout-cancellation.service';
 import { PricingService } from '../pricing/pricing.service';
 import { AuditService } from '../common/services/audit.service';
 import { LedgerService } from '../common/services/ledger.service';
@@ -38,7 +39,7 @@ type TxClient = any;
 @Injectable()
 export class BookingService {
   constructor(
-    private readonly prisma: PrismaService,
+private readonly prisma: PrismaService,
     private readonly pricingService: PricingService,
     private readonly auditService: AuditService,
     private readonly ledgerService: LedgerService,
@@ -51,6 +52,7 @@ export class BookingService {
     private readonly stateMachine: BookingStateMachine,
     private readonly snapshotSigner: PriceSnapshotSignerService,
     private readonly hostBalanceService: HostBalanceService,
+    private readonly payoutCancellation: PayoutCancellationService,
   ) {}
 
   /**
@@ -1419,6 +1421,17 @@ export class BookingService {
         });
       }
 
+      // Bring the host's payout back in line with the refund. Without this the
+      // line survived the cancellation untouched, so the eligibility cron
+      // promoted it and the host was paid in full for a stay that never
+      // happened. Returns transfers to claw back once this commits.
+      const payoutAdjustment = await this.payoutCancellation.adjustForCancellation(tx, {
+        bookingId,
+        accommodationTotal,
+        accommodationRefund,
+        actorId,
+      });
+
       await this.auditService.log(
         actorId,
         action,
@@ -1428,8 +1441,14 @@ export class BookingService {
         tx,
       );
 
-      return { booking: updated, refundAmount };
+      return { booking: updated, refundAmount, payoutAdjustment };
     });
+
+    // Reversing is a network call, so it happens after the cancellation is
+    // durable. Failures become host debt rather than blocking the cancellation.
+    if (result.payoutAdjustment.reversals.length > 0) {
+      await this.payoutCancellation.settleReversals(result.payoutAdjustment.reversals);
+    }
 
     // Send cancellation notifications (non-blocking)
     void (async () => {

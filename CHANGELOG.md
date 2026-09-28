@@ -17,6 +17,54 @@ Format: [Keep a Changelog](https://keepachangelog.com/). Migrations cited as
 
 ---
 
+## 2026-09-27 — Fix: a cancelled booking still paid the host
+
+### Fixed
+
+- **Cancelling a booking left its payout line untouched.** No code path voided
+  it, and nothing downstream filtered on booking status — `markEligible`,
+  `runWeeklyBatch` and `createDueTransfers` all selected purely on
+  `PayoutLine.status`. So a guest refunded in full still produced a line that the
+  hourly cron promoted to ELIGIBLE and the batch paid out: **guest refunded 100%,
+  host paid 100%, the platform absorbed the accommodation cost.**
+  Route's `reverseForRefund` would have clawed it back, but it returns early when
+  `payout_route` is off — and that flag is default OFF, so the live manual rail
+  had no mitigation at all.
+
+### Added
+
+- **`PayoutCancellationService.adjustForCancellation`**, called inside the
+  cancellation transaction. One formula covers every refund tier:
+  `retained = (accommodationTotal − accommodationRefund) / accommodationTotal`,
+  and the host's entitlement is `round(line.amount × retained)`.
+  - 100% refund → line voided (`REVERSED`, amount 0) so no rail can pick it up
+  - 50% refund → host share halved
+  - **0% refund** (cancelled too late, guest forfeits) → host share untouched
+  - **Accommodation** figures, not booking totals: the line is the host's share of
+    accommodation, and add-on refunds settle against providers, not the host.
+- Behaviour depends on how far the money got:
+  - nothing moved → the line is reduced or voided in place;
+  - already transferred → a reversal is queued and settled **after** the
+    transaction commits, because reversing is a network call;
+  - manual rail already paid → recorded as **host debt** to net off the next
+    payout, since there is nothing to reverse.
+- **`RoutePayoutService.reverseLine`** — targeted reversal for one line,
+  deliberately **not** flag-gated: if a transfer exists then money left the
+  escrow, and it must stay reversible even if `payout_route` is later switched
+  off. Capped at the un-reversed remainder of what was actually sent.
+- A failed reversal becomes host debt rather than blocking the cancellation.
+
+### Notes
+
+- Idempotent: an already-reversed line is skipped, and only the un-reversed
+  remainder is clawed back. A DEPOSIT_50 booking's two lines are handled
+  independently.
+- Specs: `payout-cancellation.service.spec` (15 tests — every refund tier, each
+  money-moved stage, partial re-reversal, two-line deposits, and both fallback
+  paths). Suite **557/557**; DI verified.
+
+---
+
 ## 2026-09-21 — Password reset: the missing account-recovery path
 
 A user who forgot their password had **no way back in** — there was no reset

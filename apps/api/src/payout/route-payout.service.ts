@@ -503,6 +503,52 @@ export class RoutePayoutService {
     return { reversed: amount };
   }
 
+  /**
+   * Reverse a specific amount on one line's transfer.
+   *
+   * Deliberately NOT flag-gated: if a transfer exists then money left the
+   * escrow, and it has to stay reversible even if `payout_route` is turned off
+   * afterwards. Returns null when there is nothing to reverse, so the caller can
+   * fall back to recording debt.
+   */
+  async reverseLine(
+    lineId: string,
+    amount: number,
+    reason: string,
+  ): Promise<{ reversed: number } | null> {
+    if (amount <= 0) return { reversed: 0 };
+
+    const line = await this.prisma.payoutLine.findUnique({ where: { id: lineId } });
+    if (!line?.transferId) return null;
+
+    const transferred = line.transferAmount ?? line.amount;
+    const remaining = transferred - line.reversedAmount;
+    const capped = Math.min(amount, Math.max(remaining, 0));
+    if (capped <= 0) return { reversed: 0 };
+
+    await this.route.createReversal(line.transferId, capped);
+    await this.prisma.payoutLine.update({
+      where: { id: line.id },
+      data: {
+        reversedAmount: { increment: capped },
+        ...(capped >= remaining ? { status: 'REVERSED' as const } : {}),
+      },
+    });
+    await this.ledger.record({
+      type: 'BALANCE_CARRY_FORWARD',
+      amount: -capped,
+      bookingId: line.bookingId,
+      payoutLineId: line.id,
+      metadata: { reason, rail: 'route', transferId: line.transferId },
+    });
+    await this.audit.log(null, 'ROUTE_TRANSFER_REVERSED', 'payout_line', line.id, {
+      transferId: line.transferId,
+      amount: capped,
+      reason,
+    });
+    return { reversed: capped };
+  }
+
   // ── Internals ────────────────────────────────────────────────────────────
   /**
    * The Razorpay payment id this line's transfer must be split from.

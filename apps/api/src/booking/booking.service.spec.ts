@@ -175,6 +175,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       const result = await service.createBooking('guest-1', {
@@ -226,6 +232,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       await service.createBooking('guest-1', {
@@ -275,6 +287,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       await expect(
@@ -315,6 +333,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       await expect(
@@ -355,6 +379,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       const result = await service.createBooking('guest-1', {
@@ -422,6 +452,12 @@ describe('BookingService', () => {
         smMock as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       const count = await service.transitionToBalanceDue();
@@ -470,6 +506,12 @@ describe('BookingService', () => {
         smMock as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       const count = await service.transitionToBalanceDue();
@@ -527,6 +569,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {
@@ -586,6 +634,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       const result = await service.cancelBooking('booking-1', 'guest-1', 'GUEST', {});
@@ -628,6 +682,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       await expect(
@@ -661,6 +721,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue("sig") } as any,
         { recordDebt: jest.fn().mockResolvedValue(null), recoverFromPayout: jest.fn().mockResolvedValue(0) } as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
 
       await expect(
@@ -685,6 +751,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue('sig') } as any,
         (hostBalanceMock ?? makeHostBalanceMock()) as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
     }
 
@@ -808,6 +880,12 @@ describe('BookingService', () => {
         makeStateMachineMock() as any,
         { verify: jest.fn().mockReturnValue(true), sign: jest.fn().mockReturnValue('sig') } as any,
         (hostBalanceMock ?? makeHostBalanceMock()) as any,
+        {
+          adjustForCancellation: jest.fn().mockResolvedValue({
+            voided: 0, reduced: 0, debtRecorded: 0, reversals: [],
+          }),
+          settleReversals: jest.fn().mockResolvedValue(undefined),
+        } as any,
       );
     }
     // The listing's owning host is 'host-user' (matched by userId, not role).

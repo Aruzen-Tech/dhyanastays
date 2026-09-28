@@ -21,6 +21,7 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 import { AuditService } from '../../src/common/services/audit.service';
 import { LedgerService } from '../../src/common/services/ledger.service';
 import { HostBalanceService } from '../../src/payout/host-balance.service';
+import { PayoutCancellationService } from '../../src/payout/payout-cancellation.service';
 import { PriceSnapshotSignerService } from '../../src/common/services/price-snapshot-signer.service';
 import { BookingStateMachine } from '../../src/booking/state-machine';
 import { PricingService } from '../../src/pricing/pricing.service';
@@ -104,6 +105,16 @@ export function makeEngine(prisma: PrismaClient): EngineServices {
   // Host balance ledger — real service, so debt netting is exercised end-to-end.
   const hostBalance = new HostBalanceService(prismaSvc, audit);
 
+  // Cancellation must keep the host payout in step — real service so the
+  // integration suite exercises voiding/reducing lines for real.
+  const payoutCancellation = new PayoutCancellationService(
+    prismaSvc,
+    audit,
+    ledger,
+    hostBalance,
+    { reverseLine: async () => null } as never,
+  );
+
   const booking = new BookingService(
     prismaSvc,
     pricing,
@@ -118,6 +129,7 @@ export function makeEngine(prisma: PrismaClient): EngineServices {
     stateMachine,
     signer,
     hostBalance,
+    payoutCancellation,
   );
   // Route settlement is flag-gated (off here) — stub it so the harness stays
   // focused on the booking/payment path.

@@ -7,6 +7,7 @@ import { RouteService } from './route.service';
 import { RoutePayoutService } from './route-payout.service';
 import { PayoutTaxService } from './payout-tax.service';
 import { HostBalanceService } from './host-balance.service';
+import { PayoutCancellationService } from './payout-cancellation.service';
 
 @Module({
   providers: [
@@ -16,6 +17,7 @@ import { HostBalanceService } from './host-balance.service';
     RoutePayoutService,
     PayoutTaxService,
     HostBalanceService,
+    PayoutCancellationService,
   ],
   controllers: [PayoutController, PayoutAccountController],
   exports: [
